@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: apps/api
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api:/app
+      - /app/.venv
+    environment:
+      - APP_ENV=development
+    env_file:
+      - apps/api/.env
+    depends_on:
+      - supabase-local
+    networks:
+      - finpilot-net
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+    env_file:
+      - apps/web/.env.local
+    networks:
+      - finpilot-net
+
+  supabase-local:
+    image: supabase/postgres:15.1.1.41
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase-data:/var/lib/postgresql/data
+    networks:
+      - finpilot-net
+
+volumes:
+  supabase-data:
+
+networks:
+  finpilot-net:
+    driver: bridge

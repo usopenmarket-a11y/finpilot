@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: finpilot-api
+    env: docker
+    # Multi-stage build reduces image size and attack surface
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: apps/api
+    plan: free
+    # Free tier: 750 hours/month per service, auto-suspends on inactivity
+    branch: main
+    healthCheckPath: /health
+    # Environment variables required at runtime
+    # All secrets must be configured via Render Dashboard or environment variable groups
+    # Never commit actual values to this file
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_RELOAD
+        value: 'false'
+      - key: LOG_LEVEL
+        value: info
+      # Secrets (configure in Render Dashboard):
+      # - SUPABASE_URL: Set via dashboard or env var group
+      # - SUPABASE_ANON_KEY: Set via dashboard or env var group
+      # - SUPABASE_SERVICE_ROLE_KEY: Set via dashboard or env var group
+      # - ENCRYPTION_KEY: 32-byte hex string for AES-256-GCM (set via dashboard)
+      # - CLAUDE_API_KEY: Anthropic API key (set via dashboard)
+      # - CORS_ORIGINS: Comma-separated list of allowed origins (set via dashboard)

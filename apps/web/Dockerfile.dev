@@ -1,0 +1,20 @@
+FROM node:20-alpine
+
+# Install pnpm globally for package management
+RUN npm install -g pnpm
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies (frozen lockfile for consistency)
+RUN pnpm install --frozen-lockfile
+
+# Copy application code
+COPY . .
+
+EXPOSE 3000
+
+# Development server
+CMD ["pnpm", "dev"]

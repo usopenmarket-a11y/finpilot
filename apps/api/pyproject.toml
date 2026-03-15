@@ -34,4 +34,12 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["app/tests"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/tests/*", "app/*/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 50

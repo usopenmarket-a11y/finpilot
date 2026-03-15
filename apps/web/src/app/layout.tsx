@@ -13,8 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FinPilot",
-  description: "AI-powered financial assistant",
+  title: {
+    default: "FinPilot",
+    template: "%s | FinPilot",
+  },
+  description:
+    "FinPilot — personal banking intelligence for Egyptian bank accounts. Aggregate, analyze, and act on your finances.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+  ),
+  openGraph: {
+    siteName: "FinPilot",
+    type: "website",
+    locale: "en_US",
+  },
+  robots: {
+    index: false, // private financial app — do not index
+    follow: false,
+  },
 };
 
 export default function RootLayout({
@@ -23,8 +39,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-50`}
+      >
         {children}
       </body>
     </html>

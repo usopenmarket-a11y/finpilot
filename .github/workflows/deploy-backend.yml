@@ -1,0 +1,19 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'render.yaml'
+
+jobs:
+  notify:
+    name: Notify Render Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deploy
+        run: |
+          echo "Backend deploy triggered automatically by Render Git integration."
+          echo "Render watches main branch and auto-deploys apps/api changes."
+          echo "render.yaml defines the deployment configuration."
