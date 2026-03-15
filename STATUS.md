@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M1 complete)
+**Last reviewed:** 2026-03-16 (M2 complete)
 
 ---
 
@@ -9,7 +9,7 @@
 | # | Milestone | Status | Progress |
 |---|-----------|--------|----------|
 | M1 | Foundation & Project Scaffolding | COMPLETE | 100% |
-| M2 | NBE & CIB Scrapers | NOT STARTED | 0% |
+| M2 | NBE & CIB Scrapers | COMPLETE | 100% |
 | M3 | BDC & UB Scrapers + Pipeline | NOT STARTED | 0% |
 | M4 | Analytics Engine | NOT STARTED | 0% |
 | M5 | Debt Tracker (CRUD) | NOT STARTED | 0% |
@@ -46,15 +46,26 @@
 
 ---
 
+## M2 Detailed Breakdown (100% — COMPLETE)
+
+### Done
+- [x] `apps/api/app/scrapers/base.py` — `BankScraper` ABC, `ScraperResult` dataclass, anti-detection Playwright launch, full exception hierarchy (`ScraperLoginError`, `ScraperTimeoutError`, `ScraperParseError`, `ScraperOTPRequired`, `BankPortalUnreachableError`)
+- [x] `apps/api/app/scrapers/nbe.py` — NBE (ahly-net.com) login, balance, transactions; SHA-256 external_id; column-resolver for dynamic table layouts
+- [x] `apps/api/app/scrapers/cib.py` — CIB (online.cibeg.com) login, balance, transactions; SPA-aware navigation; modal dismissal
+- [x] `apps/api/app/routers/scrape.py` — `POST /api/v1/scrape` endpoint; decrypts credentials, dispatches to scraper, maps exceptions to HTTP status codes
+- [x] 96 scraper unit tests (all passing, Playwright fully mocked — no real browser)
+- [x] Dependencies added: `playwright>=1.49.0`, `beautifulsoup4>=4.12.0`, `lxml>=5.0.0`, `pydantic[email]>=2.9.0`
+- [x] Pre-existing test bug fixed: `password.get_secret_value()` assertion in `test_models.py`
+- [x] All 157 backend tests passing
+
 ## Current Focus
 
-**M1 is complete.** Moving to **M2: NBE & CIB Scrapers**.
+**M2 is complete.** Moving to **M3: BDC & UB Scrapers + Pipeline**.
 
-Next milestone entry point (M2):
-- NBE scraper (`apps/api/app/scrapers/nbe.py`) — login, balance, transactions
-- CIB scraper (`apps/api/app/scrapers/cib.py`) — login, balance, transactions
-- Scraper base class / shared Playwright utilities
-- Unit tests with mocked HTML responses
+Next milestone entry point (M3):
+- BDC scraper (`apps/api/app/scrapers/bdc.py`)
+- UB scraper (`apps/api/app/scrapers/ub.py`)
+- ETL pipeline (`apps/api/app/pipeline/`) — normalize, deduplicate, upsert to Supabase
 
 ---
 

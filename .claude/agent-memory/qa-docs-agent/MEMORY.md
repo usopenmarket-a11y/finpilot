@@ -6,3 +6,4 @@
 | [project_model_patterns.md](project_model_patterns.md) | project | Key model fields, defaults, and validation constraints in db.py and api.py |
 | [project_health_endpoint.md](project_health_endpoint.md) | project | Verified shape and routing of the /api/v1/health endpoint |
 | [project_crypto_module.md](project_crypto_module.md) | project | Coverage baseline, unreachable lines, and mock patterns for app/crypto.py tests |
+| [project_scraper_test_patterns.md](project_scraper_test_patterns.md) | project | Playwright mock chain, error-selector discrimination, and page.content() call counts for NBE/CIB scraper tests |

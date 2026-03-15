@@ -39,7 +39,7 @@ def test_signup_request_valid_minimal() -> None:
 
     req = SignUpRequest(email="test@example.com", password="secret123")
     assert req.email == "test@example.com"
-    assert req.password == "secret123"
+    assert req.password.get_secret_value() == "secret123"
     assert req.full_name is None
 
 
