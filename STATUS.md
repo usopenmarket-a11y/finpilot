@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M3 complete)
+**Last reviewed:** 2026-03-16 (post-M3 /review)
 
 ---
 
@@ -26,7 +26,7 @@
 - [x] FastAPI app skeleton (`main.py`, `config.py`, CORS guard, lifespan hook)
 - [x] Pydantic v2 DB models: `UserProfile`, `BankAccount`, `Transaction`, `Loan`, `Debt`, `DebtPayment`
 - [x] Pydantic v2 API schemas: `SignUpRequest`, `SignInRequest`, `AuthResponse`, `DebtCreate`, `DebtPaymentCreate`, `BankAccountCreate`, `PaginatedResponse`
-- [x] Supabase schema: 6 tables, all with RLS enabled (`user_profiles`, `bank_accounts`, `transactions`, `loans`, `debts`, `debt_payments`)
+- [x] Supabase schema: 6 tables, all with RLS enabled (`user_profiles`, `bank_accounts`, `transactions`, `loans`, `debts`, `debt_payments`) — **verified LIVE**
 - [x] Health endpoint (`GET /api/v1/health`) with full test coverage (8 tests)
 - [x] Model unit tests (30+ tests covering all Pydantic models)
 - [x] CI/CD pipeline: GitHub Actions (`ci.yml`) — frontend lint/typecheck + backend pytest + ruff/mypy
@@ -35,52 +35,56 @@
 - [x] Auth pages: Login, Signup, Reset Password, OAuth callback route
 - [x] Supabase client helpers: `client.ts`, `server.ts`, `middleware.ts`
 - [x] Protected dashboard route (redirects unauthenticated users)
-- [x] Settings config with `SecretStr` for all sensitive values (encryption key, Claude API key, service role key)
+- [x] Settings config with `SecretStr` for all sensitive values
 - [x] `uv` as Python package manager with `pyproject.toml`
 - [x] AES-256-GCM encryption module (`app/crypto.py`) — 19 tests, 96% coverage
-- [x] `cryptography>=44.0.0` added to `pyproject.toml` dependencies
+- [x] `cryptography>=44.0.0` in `pyproject.toml`
 
-### Deferred (user-action required, not blockers for M2)
-- [ ] Render workspace not configured in MCP — cannot verify live backend service status
-- [ ] Vercel project not linked (no `.vercel/project.json`) — cannot verify live frontend deployment
+### Deferred (user-action required)
+- [ ] Render MCP workspace not selected — cannot verify live backend service status
+- [ ] Vercel project not linked locally — cannot verify live frontend deployment
 
 ---
 
 ## M2 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
-- [x] `apps/api/app/scrapers/base.py` — `BankScraper` ABC, `ScraperResult` dataclass, anti-detection Playwright launch, full exception hierarchy (`ScraperLoginError`, `ScraperTimeoutError`, `ScraperParseError`, `ScraperOTPRequired`, `BankPortalUnreachableError`)
-- [x] `apps/api/app/scrapers/nbe.py` — NBE (ahly-net.com) login, balance, transactions; SHA-256 external_id; column-resolver for dynamic table layouts
-- [x] `apps/api/app/scrapers/cib.py` — CIB (online.cibeg.com) login, balance, transactions; SPA-aware navigation; modal dismissal
-- [x] `apps/api/app/routers/scrape.py` — `POST /api/v1/scrape` endpoint; decrypts credentials, dispatches to scraper, maps exceptions to HTTP status codes
-- [x] 96 scraper unit tests (all passing, Playwright fully mocked — no real browser)
-- [x] Dependencies added: `playwright>=1.49.0`, `beautifulsoup4>=4.12.0`, `lxml>=5.0.0`, `pydantic[email]>=2.9.0`
-- [x] Pre-existing test bug fixed: `password.get_secret_value()` assertion in `test_models.py`
-- [x] All 157 backend tests passing
+- [x] `apps/api/app/scrapers/base.py` — `BankScraper` ABC, `ScraperResult`, anti-detection Playwright, full exception hierarchy
+- [x] `apps/api/app/scrapers/nbe.py` — NBE login, balance, transactions; SHA-256 external_id; column-resolver
+- [x] `apps/api/app/scrapers/cib.py` — CIB login, balance, transactions; SPA-aware; modal dismissal
+- [x] `apps/api/app/routers/scrape.py` — `POST /api/v1/scrape`; decrypts credentials; maps exceptions to HTTP codes
+- [x] 96 scraper unit tests (Playwright fully mocked)
+- [x] Dependencies: `playwright>=1.49.0`, `beautifulsoup4>=4.12.0`, `lxml>=5.0.0`, `pydantic[email]>=2.9.0`
+
+---
 
 ## M3 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
-- [x] `apps/api/app/scrapers/bdc.py` — BDC (Banque Du Caire) login, balance, transactions; Arabic column headers supported; Arabic currency symbol stripping
-- [x] `apps/api/app/scrapers/ub.py` — UB (United Bank) login, balance, transactions; dual Dr/Cr layout support; SPA-aware navigation
-- [x] `apps/api/app/routers/scrape.py` — updated `Literal` to include BDC and UB; `_SCRAPER_MAP` updated
-- [x] `apps/api/app/pipeline/normalizer.py` — currency/type normalization, whitespace stripping, UTC timestamps
-- [x] `apps/api/app/pipeline/deduplicator.py` — single SELECT dedup against `(account_id, external_id)`
-- [x] `apps/api/app/pipeline/upserter.py` — upsert bank_accounts + bulk insert transactions with ON CONFLICT DO NOTHING
-- [x] `apps/api/app/pipeline/runner.py` — full 6-stage ETL orchestrator returning `PipelineRunResult`
-- [x] 143 BDC/UB scraper tests + 21 pipeline tests = 164 new tests (all passing)
-- [x] `supabase>=2.0.0` added to `pyproject.toml`
-- [x] All backend tests passing
+- [x] `apps/api/app/scrapers/bdc.py` — BDC login, balance, transactions; Arabic column headers; Arabic currency stripping
+- [x] `apps/api/app/scrapers/ub.py` — UB login, balance, transactions; Dr/Cr single-amount layout; SPA-aware
+- [x] `apps/api/app/routers/scrape.py` — now supports all 4 banks (NBE, CIB, BDC, UB)
+- [x] `apps/api/app/pipeline/normalizer.py` — currency/type normalization, UTC timestamps
+- [x] `apps/api/app/pipeline/deduplicator.py` — dedup on `(account_id, external_id)`
+- [x] `apps/api/app/pipeline/upserter.py` — upsert accounts + bulk insert with ON CONFLICT DO NOTHING
+- [x] `apps/api/app/pipeline/runner.py` — 6-stage ETL orchestrator → `PipelineRunResult`
+- [x] 164 new tests (143 BDC/UB scraper + 21 pipeline) — **321 total passing**
+- [x] `supabase>=2.0.0` in `pyproject.toml`
+
+---
 
 ## Current Focus
 
-**M3 is complete.** Moving to **M4: Analytics Engine**.
+**M3 is complete. Next: M4 — Analytics Engine.**
 
-Next milestone entry point (M4):
-- Transaction categorization (`apps/api/app/analytics/categorizer.py`) — Claude Haiku 4.5
-- Spending breakdowns (`apps/api/app/analytics/spending.py`)
-- Trend analysis (`apps/api/app/analytics/trends.py`)
-- Credit tracking (`apps/api/app/analytics/credit.py`)
+### M4 entry points
+- `apps/api/app/analytics/categorizer.py` — AI transaction categorization via Claude Haiku 4.5
+- `apps/api/app/analytics/spending.py` — spending breakdowns by category/period
+- `apps/api/app/analytics/trends.py` — month-over-month trend analysis
+- `apps/api/app/analytics/credit.py` — credit card utilization tracking
+- Analytics router: `GET /api/v1/analytics/summary`, `/spending`, `/trends`, `/credit`
+
+M5 (Debt Tracker CRUD) can run in parallel with M4 — no shared files.
 
 ---
 
@@ -88,22 +92,21 @@ Next milestone entry point (M4):
 
 | Blocker | Owner | Action Required |
 |---------|-------|-----------------|
-| Render MCP workspace not selected | User | Run `/review` after selecting a Render workspace, or run `mcp__render__select_workspace` |
-| Vercel project not linked | User | Run `cd apps/web && vercel link` to create `.vercel/project.json` |
+| Render MCP workspace not selected | User | Select a Render workspace so the devops agent can monitor the backend service |
+| Vercel project not linked | User | Run `cd apps/web && vercel link` to enable MCP frontend status checks |
+| `CLAUDE_API_KEY` not set | User | Required for M4 analytics categorization (Claude Haiku 4.5) — add to `apps/api/.env` and Render env vars |
 
 ---
 
-## Recent Changes
+## Recent Changes (since last review)
 
-Since initial commit `6bbf1c4 feat(infra): M1 Foundation & Project Scaffolding`:
-
-- Full monorepo scaffolded with Turbo, pnpm workspaces
-- FastAPI backend with security-hardened CORS, config, and health endpoint
-- Complete Pydantic v2 model layer (DB + API schemas) for all entities
-- Supabase: 6-table schema deployed with RLS on all tables
-- Next.js 15 frontend with Supabase auth (login, signup, password reset, OAuth callback)
-- GitHub Actions CI: lint, typecheck, pytest, ruff, mypy on every push/PR
-- Render + Vercel deploy workflows configured
+| Commit | Description |
+|--------|-------------|
+| `0b3f26a` | M3: BDC & UB scrapers + full ETL pipeline (normalizer, deduplicator, upserter, runner) |
+| `994ee89` | M2: NBE & CIB scrapers + `POST /api/v1/scrape` endpoint |
+| `8eeaec6` | DevOps docs, agent configs, uv lockfile |
+| `eabf68d` | M1: AES-256-GCM encryption module |
+| `6bbf1c4` | M1: Foundation & project scaffolding |
 
 ---
 
@@ -111,7 +114,21 @@ Since initial commit `6bbf1c4 feat(infra): M1 Foundation & Project Scaffolding`:
 
 | Service | Status | Notes |
 |---------|--------|-------|
-| Supabase DB | LIVE | 6 tables, RLS enabled, 0 rows (fresh) |
-| Render (backend) | UNKNOWN | MCP workspace not selected |
-| Vercel (frontend) | UNKNOWN | Project not linked locally |
-| GitHub Actions CI | CONFIGURED | Workflows exist, not verified running |
+| Supabase DB | LIVE | 6 tables, RLS enabled on all, 0 rows (fresh) |
+| Render (backend) | UNKNOWN | MCP workspace not selected — user action required |
+| Vercel (frontend) | UNKNOWN | Project not linked locally — user action required |
+| GitHub Actions CI | CONFIGURED | Workflows exist; not yet verified against a real push |
+
+---
+
+## Test Suite Health
+
+| File | Tests | Status |
+|------|-------|--------|
+| `test_health.py` | 8 | ✅ |
+| `test_models.py` | 17 | ✅ |
+| `test_crypto.py` | 19 | ✅ |
+| `test_scrapers.py` | 96 | ✅ (NBE + CIB) |
+| `test_scrapers_bdc_ub.py` | 143 | ✅ (BDC + UB) |
+| `test_pipeline.py` | 21 | ✅ |
+| **Total** | **321** | **✅ 321/321 passing** |
