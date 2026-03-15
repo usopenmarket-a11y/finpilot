@@ -1,0 +1,12 @@
+{
+  "name": "api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev":        "make dev",
+    "build":      "echo 'No build step for Python API'",
+    "lint":       "make lint",
+    "type-check": "make type-check",
+    "clean":      "make clean"
+  }
+}
