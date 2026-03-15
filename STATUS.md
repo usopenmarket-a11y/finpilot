@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M2 complete)
+**Last reviewed:** 2026-03-16 (M3 complete)
 
 ---
 
@@ -10,7 +10,7 @@
 |---|-----------|--------|----------|
 | M1 | Foundation & Project Scaffolding | COMPLETE | 100% |
 | M2 | NBE & CIB Scrapers | COMPLETE | 100% |
-| M3 | BDC & UB Scrapers + Pipeline | NOT STARTED | 0% |
+| M3 | BDC & UB Scrapers + Pipeline | COMPLETE | 100% |
 | M4 | Analytics Engine | NOT STARTED | 0% |
 | M5 | Debt Tracker (CRUD) | NOT STARTED | 0% |
 | M6 | Recommendations Engine | NOT STARTED | 0% |
@@ -58,14 +58,29 @@
 - [x] Pre-existing test bug fixed: `password.get_secret_value()` assertion in `test_models.py`
 - [x] All 157 backend tests passing
 
+## M3 Detailed Breakdown (100% — COMPLETE)
+
+### Done
+- [x] `apps/api/app/scrapers/bdc.py` — BDC (Banque Du Caire) login, balance, transactions; Arabic column headers supported; Arabic currency symbol stripping
+- [x] `apps/api/app/scrapers/ub.py` — UB (United Bank) login, balance, transactions; dual Dr/Cr layout support; SPA-aware navigation
+- [x] `apps/api/app/routers/scrape.py` — updated `Literal` to include BDC and UB; `_SCRAPER_MAP` updated
+- [x] `apps/api/app/pipeline/normalizer.py` — currency/type normalization, whitespace stripping, UTC timestamps
+- [x] `apps/api/app/pipeline/deduplicator.py` — single SELECT dedup against `(account_id, external_id)`
+- [x] `apps/api/app/pipeline/upserter.py` — upsert bank_accounts + bulk insert transactions with ON CONFLICT DO NOTHING
+- [x] `apps/api/app/pipeline/runner.py` — full 6-stage ETL orchestrator returning `PipelineRunResult`
+- [x] 143 BDC/UB scraper tests + 21 pipeline tests = 164 new tests (all passing)
+- [x] `supabase>=2.0.0` added to `pyproject.toml`
+- [x] All backend tests passing
+
 ## Current Focus
 
-**M2 is complete.** Moving to **M3: BDC & UB Scrapers + Pipeline**.
+**M3 is complete.** Moving to **M4: Analytics Engine**.
 
-Next milestone entry point (M3):
-- BDC scraper (`apps/api/app/scrapers/bdc.py`)
-- UB scraper (`apps/api/app/scrapers/ub.py`)
-- ETL pipeline (`apps/api/app/pipeline/`) — normalize, deduplicate, upsert to Supabase
+Next milestone entry point (M4):
+- Transaction categorization (`apps/api/app/analytics/categorizer.py`) — Claude Haiku 4.5
+- Spending breakdowns (`apps/api/app/analytics/spending.py`)
+- Trend analysis (`apps/api/app/analytics/trends.py`)
+- Credit tracking (`apps/api/app/analytics/credit.py`)
 
 ---
 

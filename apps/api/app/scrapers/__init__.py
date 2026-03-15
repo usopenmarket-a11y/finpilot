@@ -12,8 +12,10 @@ from app.scrapers.base import (
     ScraperResult,
     ScraperTimeoutError,
 )
+from app.scrapers.bdc import BDCScraper
 from app.scrapers.cib import CIBScraper
 from app.scrapers.nbe import NBEScraper
+from app.scrapers.ub import UBScraper
 
 __all__ = [
     # Base abstractions
@@ -29,4 +31,6 @@ __all__ = [
     # Bank scrapers
     "NBEScraper",
     "CIBScraper",
+    "BDCScraper",
+    "UBScraper",
 ]

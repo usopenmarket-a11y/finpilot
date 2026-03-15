@@ -1,6 +1,6 @@
 ---
 name: Scraper test patterns
-description: Mocking approach, selector discrimination, and fixture patterns for NBE/CIB scraper tests
+description: Mocking approach, selector discrimination, and fixture patterns for all four bank scraper tests (NBE, CIB, BDC, UB)
 type: project
 ---
 
@@ -52,6 +52,29 @@ DeprecationWarning under Python 3.12. These are in source files owned by the
 Scraper Agent — not in test files — so they appear as warnings not failures.
 Notify Scraper Agent to switch to `datetime.now(datetime.UTC)`.
 
-**Why:** Established for M2 scraper test suite.
-**How to apply:** Reuse `_build_mock_playwright()` and the error-selector
-discrimination pattern for any future scraper (BDC, UB).
+**BDC error selectors** (used in `test_scrapers_bdc_ub.py`):
+CSS: `".failureNotification, .error-message, .alert-danger, [class*='loginError'], [class*='FailureText']"`
+XPath: `"xpath=//*[contains(@class,'failureNotification') or contains(@class,'FailureText') ..."`
+
+**UB error selectors** (same as BDC plus `[class*='error-msg']`):
+CSS: `".failureNotification, .error-message, .alert-danger, [class*='loginError'], [class*='FailureText'], [class*='error-msg']"`
+
+**BDC/UB page.content() call count**: Same 4-call pattern as NBE/CIB.
+
+**UB-specific: single-Amount Dr/Cr layout**
+UB portals may emit a compact table with an `amount` column containing values like
+`"500.00 Dr"` / `"2,000.00 Cr"` instead of split Debit/Credit columns.
+`ub._resolve_txn_columns` detects this via the `"^amount$|مبلغ"` regex and sets
+`col["amount"]` to the index; `col["debit"]` and `col["credit"]` remain `-1`.
+`ub._parse_amount` strips the Dr/Cr suffix and returns a positive Decimal;
+`ub._parse_transaction_row` infers direction from the original cell text suffix.
+The `_drcr_col()` helper in `TestUbParseTransactionRow` provides the correct column
+map for testing this layout directly.
+
+**BDC date format limitation**
+`_parse_bdc_date` does NOT handle `DD-MMM-YYYY` (month abbreviation) — that is
+UB's primary format.  Any `DD-Mon-YYYY` input to BDC returns `None`.
+
+**Why:** Established for M2 (NBE/CIB) and extended for M2 BDC/UB scrapers.
+**How to apply:** Reuse `_build_mock_playwright()` and the bank-specific error-selector
+frozensets for any future scraper additions.

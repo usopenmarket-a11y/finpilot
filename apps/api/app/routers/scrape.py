@@ -26,11 +26,13 @@ from app.config import settings
 from app.crypto import CryptoError, decrypt
 from app.scrapers import (
     BankPortalUnreachableError,
+    BDCScraper,
     CIBScraper,
     NBEScraper,
     ScraperLoginError,
     ScraperParseError,
     ScraperTimeoutError,
+    UBScraper,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ router = APIRouter(tags=["scrape"])
 _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
+    "BDC": BDCScraper,
+    "UB": UBScraper,
 }
 
 
@@ -65,7 +69,7 @@ class ScrapeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    bank: Literal["NBE", "CIB"] = Field(
+    bank: Literal["NBE", "CIB", "BDC", "UB"] = Field(
         description="Target bank — must be one of the supported scrapers"
     )
     encrypted_username: str = Field(
