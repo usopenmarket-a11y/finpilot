@@ -24,15 +24,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
 # Allow running from apps/api directory
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.crypto import decrypt
 from app.config import settings
+from app.crypto import decrypt
 
 _OUT = Path("/tmp/finpilot_debug/nbe_recon")
 _LOGIN_URL = "https://www.alahlynet.com.eg/?page=home"
@@ -129,7 +128,7 @@ async def recon(username: str | None, password: str | None) -> None:
 
         if username_el is None:
             print("[recon] WARNING: Could not find username field with common selectors.")
-            print(f"[recon] Check dom_inputs.txt and update selectors manually.")
+            print("[recon] Check dom_inputs.txt and update selectors manually.")
             await browser.close()
             return
 
@@ -182,7 +181,7 @@ async def recon(username: str | None, password: str | None) -> None:
                     encoding="utf-8"
                 )
                 print("[recon] ⚠ Password field not found after step 1.")
-                print(f"[recon] Saved after_step1.html + after_step1.png + dom_inputs_step2.txt")
+                print("[recon] Saved after_step1.html + after_step1.png + dom_inputs_step2.txt")
                 print(f"[recon] Current URL: {page.url}")
                 await browser.close()
                 return
@@ -191,7 +190,7 @@ async def recon(username: str | None, password: str | None) -> None:
         password_el = await page.query_selector("#login_password")
         if password_el is None:
             password_el = await page.query_selector("input[type='password']")
-        print(f"[recon] ✓ Typing password...")
+        print("[recon] ✓ Typing password...")
         await password_el.click()
         for char in password:
             await page.keyboard.type(char, delay=80)
@@ -326,7 +325,7 @@ async def recon(username: str | None, password: str | None) -> None:
                     my_accounts_html = await page.content()
                     (_OUT / "my_accounts.html").write_text(my_accounts_html, encoding="utf-8")
                     await page.screenshot(path=str(_OUT / "my_accounts.png"))
-                    print(f"[recon] ✓ JS click worked — saved my_accounts.html")
+                    print("[recon] ✓ JS click worked — saved my_accounts.html")
                 except Exception as e2:
                     print(f"[recon] ⚠ JS click also failed: {e2}")
 
