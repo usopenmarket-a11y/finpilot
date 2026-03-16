@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (post-M3 /review)
+**Last reviewed:** 2026-03-16 (M4 complete)
 
 ---
 
@@ -11,7 +11,7 @@
 | M1 | Foundation & Project Scaffolding | COMPLETE | 100% |
 | M2 | NBE & CIB Scrapers | COMPLETE | 100% |
 | M3 | BDC & UB Scrapers + Pipeline | COMPLETE | 100% |
-| M4 | Analytics Engine | NOT STARTED | 0% |
+| M4 | Analytics Engine | COMPLETE | 100% |
 | M5 | Debt Tracker (CRUD) | NOT STARTED | 0% |
 | M6 | Recommendations Engine | NOT STARTED | 0% |
 | M7 | Frontend Dashboard | NOT STARTED | 0% |
@@ -73,18 +73,27 @@
 
 ---
 
+## M4 Detailed Breakdown (100% — COMPLETE)
+
+### Done
+- [x] `apps/api/app/analytics/categorizer.py` — rule-based + Claude Haiku 4.5 AI categorization; graceful degradation when API key absent; `categorize_batch` with `asyncio.Semaphore` concurrency control
+- [x] `apps/api/app/analytics/spending.py` — `compute_spending_breakdown`: debit/credit split, by-category grouping, percentages, period filtering
+- [x] `apps/api/app/analytics/trends.py` — `compute_trends`: monthly snapshots, MoM % change, rolling averages, lookback window
+- [x] `apps/api/app/analytics/credit.py` — `compute_credit_report`: utilization % with healthy/warning/critical thresholds, loan months_remaining
+- [x] `apps/api/app/routers/analytics.py` — 4 endpoints: `POST /api/v1/analytics/categorize`, `/spending`, `/trends`, `/credit`; all with `extra="forbid"`, no PII in logs
+- [x] 46 analytics unit tests (all passing)
+- [x] `anthropic>=0.40.0` added to `pyproject.toml`
+- [x] Fixed broken import `compute_trend_report` → `compute_trends` in router
+
 ## Current Focus
 
-**M3 is complete. Next: M4 — Analytics Engine.**
+**M4 is complete. Next: M5 — Debt Tracker CRUD.**
 
-### M4 entry points
-- `apps/api/app/analytics/categorizer.py` — AI transaction categorization via Claude Haiku 4.5
-- `apps/api/app/analytics/spending.py` — spending breakdowns by category/period
-- `apps/api/app/analytics/trends.py` — month-over-month trend analysis
-- `apps/api/app/analytics/credit.py` — credit card utilization tracking
-- Analytics router: `GET /api/v1/analytics/summary`, `/spending`, `/trends`, `/credit`
-
-M5 (Debt Tracker CRUD) can run in parallel with M4 — no shared files.
+### M5 entry points
+- `apps/api/app/routers/debts.py` — full CRUD for debts + payments
+- Endpoints: `POST/GET/PATCH/DELETE /api/v1/debts`, `POST /api/v1/debts/{id}/payments`
+- Settlement flow: auto-update debt status (active → partial → settled)
+- Uses existing `Debt`, `DebtPayment` DB models and `DebtCreate`, `DebtPaymentCreate` API schemas
 
 ---
 
@@ -131,4 +140,5 @@ M5 (Debt Tracker CRUD) can run in parallel with M4 — no shared files.
 | `test_scrapers.py` | 96 | ✅ (NBE + CIB) |
 | `test_scrapers_bdc_ub.py` | 143 | ✅ (BDC + UB) |
 | `test_pipeline.py` | 21 | ✅ |
-| **Total** | **321** | **✅ 321/321 passing** |
+| `test_analytics.py` | 46 | ✅ |
+| **Total** | **367** | **✅ 367/367 passing** |
