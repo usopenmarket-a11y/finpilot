@@ -3,15 +3,10 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "rootDirectory": "apps/web",
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "${{ secrets.API_URL }}/api/:path*"
-    }
-  ],
   "env": [
     "NEXT_PUBLIC_API_URL",
     "NEXT_PUBLIC_SUPABASE_URL",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_APP_URL"
   ]
 }

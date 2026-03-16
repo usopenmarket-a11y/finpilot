@@ -8,7 +8,7 @@ services:
     plan: free
     # Free tier: 750 hours/month per service, auto-suspends on inactivity
     branch: main
-    healthCheckPath: /health
+    healthCheckPath: /api/v1/health
     # Environment variables required at runtime
     # All secrets must be configured via Render Dashboard or environment variable groups
     # Never commit actual values to this file
