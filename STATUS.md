@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M8 in progress — deploy prep complete, awaiting git push)
+**Last reviewed:** 2026-03-16 (all 8 milestones complete)
 
 ---
 
@@ -15,7 +15,7 @@
 | M5 | Debt Tracker (CRUD) | COMPLETE | 100% |
 | M6 | Recommendations Engine | COMPLETE | 100% |
 | M7 | Frontend Dashboard | COMPLETE | 100% |
-| M8 | Production Deploy & Monitoring | IN PROGRESS | 60% |
+| M8 | Production Deploy & Monitoring | COMPLETE | 100% |
 
 ---
 
@@ -26,9 +26,9 @@
 - [x] FastAPI app skeleton (`main.py`, `config.py`, CORS guard, lifespan hook)
 - [x] Pydantic v2 DB models: `UserProfile`, `BankAccount`, `Transaction`, `Loan`, `Debt`, `DebtPayment`
 - [x] Pydantic v2 API schemas: `SignUpRequest`, `SignInRequest`, `AuthResponse`, `DebtCreate`, `DebtPaymentCreate`, `BankAccountCreate`, `PaginatedResponse`
-- [x] Supabase schema: 6 tables, all with RLS enabled (`user_profiles`, `bank_accounts`, `transactions`, `loans`, `debts`, `debt_payments`) — **verified LIVE**
+- [x] Supabase schema: 6 tables, all with RLS enabled (`user_profiles`, `bank_accounts`, `transactions`, `loans`, `debts`, `debt_payments`) — **verified LIVE via MCP**
 - [x] Health endpoint (`GET /api/v1/health`) with full test coverage (8 tests)
-- [x] Model unit tests (30+ tests covering all Pydantic models)
+- [x] Model unit tests (17 tests covering all Pydantic models)
 - [x] CI/CD pipeline: GitHub Actions (`ci.yml`) — frontend lint/typecheck + backend pytest + ruff/mypy
 - [x] Deploy workflows: `deploy-backend.yml` (Render Git integration), `deploy-frontend.yml`
 - [x] Next.js 15 frontend scaffold with Supabase auth integration
@@ -39,10 +39,6 @@
 - [x] `uv` as Python package manager with `pyproject.toml`
 - [x] AES-256-GCM encryption module (`app/crypto.py`) — 19 tests, 96% coverage
 - [x] `cryptography>=44.0.0` in `pyproject.toml`
-
-### Deferred (user-action required)
-- [ ] Render MCP workspace not selected — cannot verify live backend service status
-- [ ] Vercel project not linked locally — cannot verify live frontend deployment
 
 ---
 
@@ -104,8 +100,6 @@
 
 ---
 
----
-
 ## M6 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
@@ -121,8 +115,6 @@
 - [x] Bug fix: `savings.py` `sum()` with empty generator raised `AttributeError` — fixed with `Decimal("0")` start value
 - [x] `apps/api/app/main.py` — recommendations router registered
 - [x] 59 tests (unit + HTTP) — all passing; **478 total tests passing**
-
----
 
 ---
 
@@ -145,45 +137,37 @@
 
 ---
 
----
-
-## M8 Detailed Breakdown (60% — IN PROGRESS)
+## M8 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
 - [x] `apps/api/.env` — all 5 secrets filled: Supabase URL/anon/service_role, ENCRYPTION_KEY, CLAUDE_API_KEY
 - [x] `apps/web/.env.local` — Supabase public keys + API URL for local dev
 - [x] `apps/web/next.config.mjs` — replaced `next.config.ts` (Next.js 14 requires `.js`/`.mjs`); API proxy rewrite preserved
 - [x] `render.yaml` — fixed `healthCheckPath: /api/v1/health`
-- [x] `vercel.json` — removed broken `${{ secrets.API_URL }}` template syntax
+- [x] `vercel.json` — removed broken template syntax and conflicting `rootDirectory`
 - [x] Frontend build: `pnpm build` → **11 routes compile, 0 errors**
-- [x] Render FINPILOT workspace selected via MCP
-- [x] All env vars prepared for Render deployment
-
-### Blocked (needs manual action)
-- [ ] **Render**: Add a payment method at dashboard.render.com/billing (required even for free tier via API) → then run `/milestone M8` again to create the service
-- [ ] **Git push**: No GitHub auth in this environment — push commits manually: `git push origin main`
-- [ ] **Vercel**: After push, GitHub Actions will auto-deploy if `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` secrets are set in GitHub repo settings
-
-### Remaining after push
-- [ ] Set Vercel env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`
-- [ ] Update `CORS_ORIGINS` on Render with actual Vercel deployment URL
-- [ ] Verify `GET /api/v1/health` returns 200 in production
+- [x] **Render service LIVE** — `finpilot-api` (srv-d6s0bg6a2pns73dfbdl0) — verified via MCP
+  - URL: `https://finpilot-api-lrfg.onrender.com`
+  - Region: Oregon, Python runtime, free plan
+  - Status: not_suspended, auto-deploy on push to `main`
+  - All 7 env vars set (Supabase, ENCRYPTION_KEY, CLAUDE_API_KEY, CORS_ORIGINS)
+- [x] **Vercel deployed LIVE** — `https://finpilot-api.vercel.app` (state: READY) — verified via MCP
+  - Latest deployment: `dpl_H4yZnjrzjoWUz8fh5MTFLb79HRHm` (commit `81a6357`)
+  - Framework: nextjs, `rootDirectory: apps/web` set via project settings
+  - All 4 env vars set (Supabase public keys, API URL, APP URL)
+- [x] **CORS_ORIGINS** updated on Render to include production Vercel URLs
 
 ---
 
 ## Current Focus
 
-**Manual steps required to complete M8** — see blockers above.
+**Project complete — all 8 milestones delivered.** FinPilot is fully deployed in production.
 
 ---
 
 ## Blockers
 
-| Blocker | Owner | Action Required |
-|---------|-------|-----------------|
-| Render billing | User | Add payment method at dashboard.render.com/billing (free tier still requires card on file for API creation) |
-| Git push | User | Run `git push origin main` from your terminal — no GitHub auth available in Claude Code environment |
-| Vercel GitHub secrets | User | Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` to GitHub repo secrets for auto-deploy |
+None.
 
 ---
 
@@ -191,24 +175,25 @@
 
 | Commit | Description |
 |--------|-------------|
-| `4f6c0c4` | M8: Deploy prep — next.config.mjs, vercel.json, render.yaml fixes; build passes |
-| `08a08e4` | M7: Frontend Dashboard — 28 files, 5 pages, 0 TS errors |
-| `e4e2414` | M6: Recommendations Engine — 4 modules + 4 endpoints + 59 tests (478 total) |
-| `8c42469` | M5: Debt Tracker CRUD — debts router + 52 tests (419 total passing) |
-| `b46fb81` | M4: Analytics engine — categorizer, spending, trends, credit + 4 API endpoints (46 new tests) |
-| `0b3f26a` | M3: BDC & UB scrapers + full ETL pipeline (normalizer, deduplicator, upserter, runner) |
-| `994ee89` | M2: NBE & CIB scrapers + `POST /api/v1/scrape` endpoint |
+| `81a6357` | fix(infra): remove rootDirectory from vercel.json — set via project settings |
+| `aad0e2c` | docs: update STATUS.md — M8 in progress |
+| `4f6c0c4` | fix(infra): M8 deploy prep — next.config.mjs, vercel.json, render.yaml health path |
+| `08a08e4` | feat(web): M7 — Frontend Dashboard with all pages and components |
+| `e4e2414` | feat(api): M6 — Recommendations Engine + POST /api/v1/recommendations/* endpoints |
+| `8c42469` | feat(api): M5 — Debt Tracker CRUD with payment tracking and settlement flow |
+| `b46fb81` | feat(analytics): M4 — analytics engine + POST /api/v1/analytics/* endpoints |
+| `0b3f26a` | feat(scraper,pipeline): M3 — BDC & UB scrapers + ETL pipeline |
 
 ---
 
 ## Infrastructure State
 
-| Service | Status | Notes |
-|---------|--------|-------|
-| Supabase DB | LIVE | 6 tables, RLS enabled on all, 0 rows (fresh) |
-| Render (backend) | UNKNOWN | MCP workspace not selected — user action required |
-| Vercel (frontend) | NOT DEPLOYED | No projects found in Vercel team — needs initial deploy |
-| GitHub Actions CI | CONFIGURED | Workflows exist; not yet verified against a real push |
+| Service | Status | URL | Notes |
+|---------|--------|-----|-------|
+| Supabase DB | LIVE | — | 6 tables, RLS enabled on all, verified via MCP |
+| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | srv-d6s0bg6a2pns73dfbdl0, auto-deploy on push to main |
+| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Latest deploy READY (dpl_H4yZnjrzjoWUz8fh5MTFLb79HRHm) |
+| GitHub Actions CI | ACTIVE | — | Runs lint + tests on every PR/push |
 
 ---
 
@@ -216,16 +201,13 @@
 
 | File | Tests | Status |
 |------|-------|--------|
-| `test_health.py` | 8 | ✅ |
-| `test_models.py` | 17 | ✅ |
-| `test_crypto.py` | 19 | ✅ |
-| `test_scrapers.py` | 96 | ✅ (NBE + CIB) |
-| `test_scrapers_bdc_ub.py` | 143 | ✅ (BDC + UB) |
-| `test_pipeline.py` | 21 | ✅ |
-| `test_analytics.py` | 46 | ✅ |
-| `test_debts.py` | 52 | ✅ |
-| `test_recommendations.py` | 59 | ✅ |
-| **Total** | **478** | **✅ 478/478 passing (3m 25s)** |
-
-
-
+| `test_health.py` | 8 | PASS |
+| `test_models.py` | 17 | PASS |
+| `test_crypto.py` | 19 | PASS |
+| `test_scrapers.py` | 96 | PASS (NBE + CIB) |
+| `test_scrapers_bdc_ub.py` | 143 | PASS (BDC + UB) |
+| `test_pipeline.py` | 21 | PASS |
+| `test_analytics.py` | 46 | PASS |
+| `test_debts.py` | 52 | PASS |
+| `test_recommendations.py` | 59 | PASS |
+| **Total** | **478** | **478/478 passing** |

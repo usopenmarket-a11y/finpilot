@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
+import { BankAccountsSection } from '@/components/settings/bank-accounts-section';
 
 export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('');
@@ -95,38 +96,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* Bank Accounts section */}
-      <Card>
-        <CardHeader>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            Connected Bank Accounts
-          </h2>
-        </CardHeader>
-        <CardBody>
-          <div className="flex flex-col items-center py-8 gap-3">
-            <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400">
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center max-w-xs">
-              No bank accounts connected yet. Connect your Egyptian bank accounts to start aggregating data.
-            </p>
-            <div className="relative group">
-              <Button disabled>
-                Connect Bank Account
-              </Button>
-              {/* "Coming Soon" tooltip */}
-              <div
-                className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-700 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
-                role="tooltip"
-              >
-                Coming Soon
-                <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-900 dark:border-t-gray-700" />
-              </div>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
+      <BankAccountsSection />
     </div>
   );
 }

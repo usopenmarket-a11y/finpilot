@@ -16,14 +16,18 @@ Security contract
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from supabase import create_client
 
 from app.config import settings
 from app.crypto import CryptoError, decrypt
+from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
     BDCScraper,
@@ -96,6 +100,9 @@ class ScrapeResponse(BaseModel):
     transactions_scraped: int = Field(
         description="Number of transactions returned by the scraper"
     )
+    transactions_saved: int = Field(
+        description="Number of new transactions inserted into the database by the pipeline"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +116,8 @@ class ScrapeResponse(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Trigger a bank account scrape",
 )
-async def trigger_scrape(body: ScrapeRequest) -> ScrapeResponse:
-    """Decrypt credentials, run the bank scraper, and return a summary.
+async def trigger_scrape(body: ScrapeRequest, request: Request) -> ScrapeResponse:
+    """Decrypt credentials, run the bank scraper, persist via ETL pipeline, and return a summary.
 
     HTTP error mapping
     ------------------
@@ -122,6 +129,20 @@ async def trigger_scrape(body: ScrapeRequest) -> ScrapeResponse:
     * 503 — ``BankPortalUnreachableError``: portal returned a network/5xx error.
     * 500 — any other unexpected exception from the scraper layer.
     """
+    # ------------------------------------------------------------------
+    # Optional user context — pipeline and last_synced_at update only run
+    # when an authenticated user id is provided via the x-user-id header.
+    # ------------------------------------------------------------------
+    raw_user_id: Optional[str] = request.headers.get("x-user-id")
+    user_id: Optional[UUID] = None
+    if raw_user_id:
+        try:
+            user_id = UUID(raw_user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="x-user-id header must be a valid UUID",
+            )
     # ------------------------------------------------------------------
     # Step 1 — decrypt credentials.
     # These two local variables must never be passed to logger.* calls.
@@ -198,7 +219,41 @@ async def trigger_scrape(body: ScrapeRequest) -> ScrapeResponse:
         del username, password
 
     # ------------------------------------------------------------------
-    # Step 4 — build a safe response from the scraper result.
+    # Step 4 — run the ETL pipeline to persist data when a user_id is
+    # present.  Pipeline failure is non-fatal: the scrape result is still
+    # returned to the caller with transactions_saved=0.
+    # ------------------------------------------------------------------
+    transactions_saved = 0
+    if user_id is not None:
+        try:
+            supabase_client = create_client(
+                settings.supabase_url,
+                settings.supabase_service_role_key.get_secret_value(),
+            )
+            pipeline_result = await run_pipeline(result, user_id=user_id, supabase_client=supabase_client)
+            transactions_saved = pipeline_result.transactions_new
+        except Exception as exc:
+            logger.warning(
+                "Pipeline failed (scrape still succeeded): %s",
+                exc,
+                extra={"bank": body.bank},
+            )
+            transactions_saved = 0
+
+        # Update last_synced_at in bank_credentials — non-fatal if it fails.
+        try:
+            sync_client = create_client(
+                settings.supabase_url,
+                settings.supabase_service_role_key.get_secret_value(),
+            )
+            sync_client.table("bank_credentials").update(
+                {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("user_id", str(user_id)).eq("bank", body.bank).execute()
+        except Exception:
+            pass  # non-fatal
+
+    # ------------------------------------------------------------------
+    # Step 5 — build a safe response from the scraper result.
     # Log only the masked account number and transaction count.
     # ------------------------------------------------------------------
     account = result.account
@@ -210,6 +265,7 @@ async def trigger_scrape(body: ScrapeRequest) -> ScrapeResponse:
             "bank": body.bank,
             "account_number_masked": account.account_number_masked,
             "transactions_scraped": transactions_scraped,
+            "transactions_saved": transactions_saved,
         },
     )
 
@@ -219,4 +275,5 @@ async def trigger_scrape(body: ScrapeRequest) -> ScrapeResponse:
         balance=account.balance,
         currency=account.currency,
         transactions_scraped=transactions_scraped,
+        transactions_saved=transactions_saved,
     )

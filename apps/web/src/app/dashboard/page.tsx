@@ -1,28 +1,105 @@
+import { createClient } from '@/lib/supabase/server';
 import { AccountCard } from '@/components/dashboard/account-card';
 import { SpendingChart } from '@/components/dashboard/spending-chart';
 import { RecentTransactions } from '@/components/dashboard/recent-transactions';
 import { HealthScore } from '@/components/dashboard/health-score';
 import type { Transaction } from '@/lib/types';
+import type { Database } from '@finpilot/shared';
 
-const MOCK_TRANSACTIONS: Transaction[] = [
-  { id: '1', description: 'Carrefour Supermarket', amount: 850, transaction_type: 'debit', transaction_date: '2026-03-14', category: 'Food & Dining', currency: 'EGP' },
-  { id: '2', description: 'Salary Deposit', amount: 15000, transaction_type: 'credit', transaction_date: '2026-03-01', category: 'Income', currency: 'EGP' },
-  { id: '3', description: 'Uber Trip', amount: 120, transaction_type: 'debit', transaction_date: '2026-03-13', category: 'Transport', currency: 'EGP' },
-  { id: '4', description: 'Netflix Subscription', amount: 149, transaction_type: 'debit', transaction_date: '2026-03-10', category: 'Entertainment', currency: 'EGP' },
-  { id: '5', description: 'Electricity Bill', amount: 430, transaction_type: 'debit', transaction_date: '2026-03-08', category: 'Utilities', currency: 'EGP' },
-  { id: '6', description: 'Amazon Purchase', amount: 650, transaction_type: 'debit', transaction_date: '2026-03-07', category: 'Shopping', currency: 'EGP' },
-  { id: '7', description: 'ATM Withdrawal', amount: 2000, transaction_type: 'debit', transaction_date: '2026-03-06', category: 'Cash', currency: 'EGP' },
-  { id: '8', description: 'Freelance Payment', amount: 3500, transaction_type: 'credit', transaction_date: '2026-03-05', category: 'Income', currency: 'EGP' },
-];
+// ---------------------------------------------------------------------------
+// Types scoped to this server component
+// ---------------------------------------------------------------------------
 
-const SPENDING_CATEGORIES = [
-  { name: 'Food & Dining', amount: 850, color: '#f59e0b' },
-  { name: 'Cash', amount: 2000, color: '#8b5cf6' },
-  { name: 'Shopping', amount: 650, color: '#3b82f6' },
-  { name: 'Utilities', amount: 430, color: '#06b6d4' },
-  { name: 'Entertainment', amount: 149, color: '#ec4899' },
-  { name: 'Transport', amount: 120, color: '#22c55e' },
-];
+type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
+type TransactionRow = Database['public']['Tables']['transactions']['Row'];
+
+interface SpendingCategory {
+  name: string;
+  amount: number;
+  color: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const CATEGORY_COLORS: Record<string, string> = {
+  'Food & Dining': '#f59e0b',
+  'Cash': '#8b5cf6',
+  'Shopping': '#3b82f6',
+  'Utilities': '#06b6d4',
+  'Entertainment': '#ec4899',
+  'Transport': '#22c55e',
+  'Income': '#10b981',
+  'Other': '#6b7280',
+};
+
+function categoryColor(name: string): string {
+  return CATEGORY_COLORS[name] ?? '#6b7280';
+}
+
+function currentMonthLabel(): string {
+  return new Intl.DateTimeFormat('en-EG', { month: 'long', year: 'numeric' }).format(new Date());
+}
+
+/**
+ * Derive spending categories from debit transactions in the current calendar month.
+ */
+function buildSpendingCategories(transactions: TransactionRow[]): SpendingCategory[] {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  const totals: Record<string, number> = {};
+  for (const tx of transactions) {
+    if (tx.transaction_type !== 'debit') continue;
+    if (tx.transaction_date < monthStart) continue;
+    const cat = tx.category ?? 'Other';
+    totals[cat] = (totals[cat] ?? 0) + tx.amount;
+  }
+
+  return Object.entries(totals)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 6)
+    .map(([name, amount]) => ({ name, amount, color: categoryColor(name) }));
+}
+
+/**
+ * Map a DB transaction row to the Transaction type expected by RecentTransactions.
+ */
+function toTransaction(row: TransactionRow): Transaction {
+  return {
+    id: row.id,
+    description: row.description,
+    amount: row.amount,
+    transaction_type: row.transaction_type as 'debit' | 'credit',
+    transaction_date: row.transaction_date,
+    category: row.category,
+    currency: row.currency,
+  };
+}
+
+/**
+ * Compute a simple financial health score (0–100) based on available data.
+ * Score is intentionally conservative when data is sparse.
+ *
+ * Formula: base 50 + up to 30 pts for positive savings rate + up to 20 pts for tx volume.
+ */
+function computeHealthScore(
+  totalIncome: number,
+  totalExpenses: number,
+  txCount: number,
+): number {
+  if (txCount === 0) return 50; // not enough data
+
+  const savingsRate = totalIncome > 0 ? (totalIncome - totalExpenses) / totalIncome : 0;
+  const savingsPts = Math.round(Math.max(0, Math.min(1, savingsRate)) * 30);
+  const volumePts = Math.min(20, Math.round((txCount / 20) * 20));
+  return Math.min(100, 50 + savingsPts + volumePts);
+}
+
+// ---------------------------------------------------------------------------
+// Icons (server-safe static SVG components)
+// ---------------------------------------------------------------------------
 
 function TotalBalanceIcon() {
   return (
@@ -56,14 +133,71 @@ function SavingsIcon() {
   );
 }
 
-export default function DashboardPage() {
+// ---------------------------------------------------------------------------
+// Page (Server Component — data fetched at request time with RLS)
+// ---------------------------------------------------------------------------
+
+export default async function DashboardPage() {
+  const supabase = await createClient();
+
+  // Auth is already guaranteed by the parent layout — just need the user id.
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id ?? '';
+
+  // Fetch bank accounts and recent transactions in parallel.
+  const [accountsResult, transactionsResult] = await Promise.all([
+    supabase
+      .from('bank_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true),
+    supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('transaction_date', { ascending: false })
+      .limit(50), // fetch 50 for KPI computation; show last 10 in table
+  ]);
+
+  const accounts: BankAccountRow[] = accountsResult.data ?? [];
+  const allTransactions: TransactionRow[] = transactionsResult.data ?? [];
+
+  // ---------------------------------------------------------------------------
+  // KPI computation
+  // ---------------------------------------------------------------------------
+  const totalBalance = accounts.reduce((sum, a) => sum + a.balance, 0);
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  let monthlyIncome = 0;
+  let monthlyExpenses = 0;
+
+  for (const tx of allTransactions) {
+    if (tx.transaction_date < monthStart) continue;
+    if (tx.transaction_type === 'credit') {
+      monthlyIncome += tx.amount;
+    } else {
+      monthlyExpenses += tx.amount;
+    }
+  }
+
+  const netSavings = monthlyIncome - monthlyExpenses;
+  const healthScore = computeHealthScore(monthlyIncome, monthlyExpenses, allTransactions.length);
+  const spendingCategories = buildSpendingCategories(allTransactions);
+  const recentTransactions: Transaction[] = allTransactions.slice(0, 10).map(toTransaction);
+
+  const hasData = accounts.length > 0 || allTransactions.length > 0;
+
   return (
     <div className="p-6 lg:p-8 space-y-8">
       {/* Page heading */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Overview</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Your financial snapshot for March 2026
+          {hasData
+            ? `Your financial snapshot for ${currentMonthLabel()}`
+            : 'Connect a bank account in Settings to see your real data'}
         </p>
       </div>
 
@@ -71,46 +205,46 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <AccountCard
           label="Total Balance"
-          amount={42350}
+          amount={totalBalance}
           currency="EGP"
-          trend="up"
-          changePercent={4.2}
+          trend="neutral"
+          changePercent={0}
           icon={<TotalBalanceIcon />}
         />
         <AccountCard
           label="Monthly Spend"
-          amount={4199}
+          amount={monthlyExpenses}
           currency="EGP"
-          trend="down"
-          changePercent={8.1}
+          trend="neutral"
+          changePercent={0}
           icon={<SpendIcon />}
         />
         <AccountCard
           label="Monthly Income"
-          amount={18500}
+          amount={monthlyIncome}
           currency="EGP"
-          trend="up"
-          changePercent={2.3}
+          trend="neutral"
+          changePercent={0}
           icon={<IncomeIcon />}
         />
         <AccountCard
           label="Net Savings"
-          amount={14301}
+          amount={netSavings}
           currency="EGP"
-          trend="up"
-          changePercent={12.5}
+          trend={netSavings >= 0 ? 'up' : 'down'}
+          changePercent={0}
           icon={<SavingsIcon />}
         />
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SpendingChart categories={SPENDING_CATEGORIES} />
-        <HealthScore score={74} />
+        <SpendingChart categories={spendingCategories} />
+        <HealthScore score={healthScore} />
       </div>
 
       {/* Recent transactions */}
-      <RecentTransactions transactions={MOCK_TRANSACTIONS} />
+      <RecentTransactions transactions={recentTransactions} />
     </div>
   );
 }

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -215,3 +215,43 @@ class DebtPayment(BaseModel):
         default=None, description="Optional memo for this specific payment"
     )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
+
+
+# ---------------------------------------------------------------------------
+# Bank credentials
+# ---------------------------------------------------------------------------
+
+SUPPORTED_BANKS_LITERAL = Literal["NBE", "CIB", "BDC", "UB"]
+
+
+class BankCredential(BaseModel):
+    """Mirrors public.bank_credentials.
+
+    Both encrypted_username and encrypted_password hold AES-256-GCM ciphertext
+    produced by the application layer.  Plaintext credentials are NEVER
+    persisted to the database and must not appear in logs or error messages.
+
+    The (user_id, bank) pair is UNIQUE — one credential set per bank per user.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(description="Primary key — gen_random_uuid()")
+    user_id: UUID = Field(description="FK to auth.users(id) — cascade-deleted with the user")
+    bank: SUPPORTED_BANKS_LITERAL = Field(
+        description="Bank identifier — one of: NBE, CIB, BDC, UB"
+    )
+    encrypted_username: str = Field(
+        description="AES-256-GCM ciphertext of the bank portal username"
+    )
+    encrypted_password: str = Field(
+        description="AES-256-GCM ciphertext of the bank portal password"
+    )
+    is_active: bool = Field(
+        default=True, description="False when the user has revoked or disabled this credential set"
+    )
+    last_synced_at: Optional[datetime] = Field(
+        default=None, description="Timestamp of the most recent successful scrape using these credentials"
+    )
+    created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
+    updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
