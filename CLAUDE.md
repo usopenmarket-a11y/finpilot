@@ -174,3 +174,23 @@ cd apps/web && npm test
 # All tests via Turbo
 turbo test
 ```
+
+## Developer Tools
+
+### Taking Screenshots
+
+Use Puppeteer to take screenshots of any deployed or local page. Puppeteer is installed as a devDependency in the root `package.json`.
+
+```bash
+# Via npm script (from repo root)
+npm run screenshot <url>
+npm run screenshot <url> <output-path>
+
+# Directly
+node tools/screenshot.js <url>
+node tools/screenshot.js <url> [output-path]
+```
+
+Output defaults to `/tmp/screenshot.png`. After running, use the Read tool on the output path to view the screenshot visually.
+
+Or use the slash command: `/screenshot <url>`
