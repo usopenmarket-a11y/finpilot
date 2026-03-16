@@ -22,9 +22,8 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, status
@@ -64,22 +63,22 @@ class DebtCreate(BaseModel):
 
     debt_type: str = Field(pattern=_DEBT_TYPE_PATTERN)
     counterparty_name: str = Field(min_length=1, max_length=256)
-    counterparty_phone: Optional[str] = Field(default=None, max_length=32)
-    counterparty_email: Optional[str] = Field(default=None, max_length=256)
+    counterparty_phone: str | None = Field(default=None, max_length=32)
+    counterparty_email: str | None = Field(default=None, max_length=256)
     original_amount: Decimal = Field(gt=Decimal("0"))
     currency: str = Field(default="EGP", pattern=_CURRENCY_PATTERN)
-    due_date: Optional[str] = Field(default=None, pattern=_DATE_PATTERN)
-    notes: Optional[str] = Field(default=None, max_length=1024)
+    due_date: str | None = Field(default=None, pattern=_DATE_PATTERN)
+    notes: str | None = Field(default=None, max_length=1024)
 
 
 class DebtUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    counterparty_phone: Optional[str] = Field(default=None, max_length=32)
-    counterparty_email: Optional[str] = Field(default=None, max_length=256)
-    due_date: Optional[str] = Field(default=None, pattern=_DATE_PATTERN)
-    notes: Optional[str] = Field(default=None, max_length=1024)
-    status: Optional[str] = Field(default=None, pattern=_DEBT_STATUS_PATTERN)
+    counterparty_phone: str | None = Field(default=None, max_length=32)
+    counterparty_email: str | None = Field(default=None, max_length=256)
+    due_date: str | None = Field(default=None, pattern=_DATE_PATTERN)
+    notes: str | None = Field(default=None, max_length=1024)
+    status: str | None = Field(default=None, pattern=_DEBT_STATUS_PATTERN)
 
 
 class DebtPaymentCreate(BaseModel):
@@ -87,7 +86,7 @@ class DebtPaymentCreate(BaseModel):
 
     amount: Decimal = Field(gt=Decimal("0"))
     payment_date: str = Field(pattern=_DATE_PATTERN)
-    notes: Optional[str] = Field(default=None, max_length=1024)
+    notes: str | None = Field(default=None, max_length=1024)
 
 
 # ---------------------------------------------------------------------------
@@ -100,13 +99,13 @@ class DebtResponse(BaseModel):
     user_id: UUID
     debt_type: str
     counterparty_name: str
-    counterparty_phone: Optional[str]
-    counterparty_email: Optional[str]
+    counterparty_phone: str | None
+    counterparty_email: str | None
     original_amount: Decimal
     outstanding_balance: Decimal
     currency: str
-    due_date: Optional[date]
-    notes: Optional[str]
+    due_date: date | None
+    notes: str | None
     status: str
     created_at: datetime
     updated_at: datetime
@@ -117,7 +116,7 @@ class PaymentResponse(BaseModel):
     debt_id: UUID
     amount: Decimal
     payment_date: date
-    notes: Optional[str]
+    notes: str | None
     created_at: datetime
 
 
@@ -215,11 +214,9 @@ async def create_debt(body: DebtCreate) -> DebtResponse:
     * 422 — Pydantic validation failure (malformed request body).
     """
     debt_id = uuid4()
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
 
-    due_date_parsed: Optional[date] = (
-        date.fromisoformat(body.due_date) if body.due_date else None
-    )
+    due_date_parsed: date | None = date.fromisoformat(body.due_date) if body.due_date else None
 
     debt: dict = {
         "id": debt_id,
@@ -257,8 +254,8 @@ async def create_debt(body: DebtCreate) -> DebtResponse:
     summary="List all debt records, optionally filtered by status or type",
 )
 async def list_debts(
-    status: Optional[str] = None,
-    debt_type: Optional[str] = None,
+    status: str | None = None,
+    debt_type: str | None = None,
 ) -> list[DebtResponse]:
     """Return all stored debts for the current user.
 
@@ -326,9 +323,6 @@ async def get_debt(debt_id: str) -> DebtDetailResponse:
     )
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # PATCH /api/v1/debts/{debt_id} — update mutable fields
 # ---------------------------------------------------------------------------
@@ -360,7 +354,7 @@ async def update_debt(debt_id: str, body: DebtUpdate) -> DebtResponse:
         update_fields["due_date"] = date.fromisoformat(raw) if raw else None
 
     debt.update(update_fields)
-    debt["updated_at"] = datetime.now(tz=timezone.utc)
+    debt["updated_at"] = datetime.now(tz=UTC)
 
     logger.info("Debt updated", extra={"debt_id": debt_id})
 
@@ -391,7 +385,7 @@ async def delete_debt(debt_id: str) -> None:
 
     debt["status"] = "settled"
     debt["outstanding_balance"] = Decimal("0")
-    debt["updated_at"] = datetime.now(tz=timezone.utc)
+    debt["updated_at"] = datetime.now(tz=UTC)
 
     logger.info("Debt soft-deleted (settled)", extra={"debt_id": debt_id})
 
@@ -436,7 +430,7 @@ async def create_payment(debt_id: str, body: DebtPaymentCreate) -> DebtResponse:
         )
 
     payment_id = uuid4()
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payment_date_parsed = date.fromisoformat(body.payment_date)
 
     payment: dict = {

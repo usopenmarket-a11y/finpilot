@@ -39,13 +39,13 @@ import hashlib
 import logging
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 from uuid import UUID
 
 from bs4 import BeautifulSoup
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.models.db import BankAccount, Transaction
 from app.scrapers.base import (
@@ -77,8 +77,7 @@ _MAX_TRANSACTIONS = 30
 
 # Login form — username / customer number field
 _SEL_USERNAME_CSS = (
-    "input[id*='UserName'], input[id*='username'], "
-    "input[name*='username'], input[name*='UserName']"
+    "input[id*='UserName'], input[id*='username'], input[name*='username'], input[name*='UserName']"
 )
 _SEL_USERNAME_XPATH = (
     "//input[contains(@id,'UserName') or contains(@id,'username') "
@@ -92,8 +91,7 @@ _SEL_PASSWORD_XPATH = "//input[@type='password']"
 
 # Login form — submit / sign-in button
 _SEL_LOGIN_BTN_CSS = (
-    "input[type='submit'], button[type='submit'], "
-    "button[id*='Login'], input[id*='LoginButton']"
+    "input[type='submit'], button[type='submit'], button[id*='Login'], input[id*='LoginButton']"
 )
 _SEL_LOGIN_BTN_XPATH = (
     "//input[@type='submit' or contains(@id,'Login')] | "
@@ -165,7 +163,7 @@ _ZERO_UUID = UUID("00000000-0000-0000-0000-000000000000")
 # ---------------------------------------------------------------------------
 
 
-def _parse_bdc_date(raw: str) -> Optional[date]:
+def _parse_bdc_date(raw: str) -> date | None:
     """Parse a date string from BDC's portal.
 
     Supported formats:
@@ -198,7 +196,7 @@ def _parse_bdc_date(raw: str) -> Optional[date]:
     return None
 
 
-def _parse_amount(raw: str) -> Optional[Decimal]:
+def _parse_amount(raw: str) -> Decimal | None:
     """Strip thousands-separators, currency symbols, and Arabic text; parse as Decimal.
 
     Handles inputs such as:
@@ -268,9 +266,7 @@ def _resolve_txn_columns(headers: list[str]) -> dict[str, int]:
 
     for i, h in enumerate(headers):
         h_lower = h.lower()
-        if col["date"] == -1 and re.search(
-            r"transaction\s*date|^date$|posting|تاريخ", h_lower
-        ):
+        if col["date"] == -1 and re.search(r"transaction\s*date|^date$|posting|تاريخ", h_lower):
             col["date"] = i
         elif col["value_date"] == -1 and re.search(r"value\s*date", h_lower):
             col["value_date"] = i
@@ -306,7 +302,7 @@ def _parse_transaction_row(
     col: dict[str, int],
     account: BankAccount,
     now: datetime,
-) -> Optional[Transaction]:
+) -> Transaction | None:
     """Convert a list of cell strings into a ``Transaction`` or return ``None`` to skip."""
 
     def cell(key: str) -> str:
@@ -324,9 +320,7 @@ def _parse_transaction_row(
         return None
 
     value_date_str = cell("value_date")
-    value_date: Optional[date] = (
-        _parse_bdc_date(value_date_str) if value_date_str else None
-    )
+    value_date: date | None = _parse_bdc_date(value_date_str) if value_date_str else None
 
     description = cell("description") or "N/A"
 
@@ -453,9 +447,7 @@ class BDCScraper(BankScraper):
         """Load the BDC login page and verify the username field is present."""
         logger.debug("BDC: navigating to login page %s", _LOGIN_URL)
         try:
-            await page.goto(
-                _LOGIN_URL, wait_until="domcontentloaded", timeout=_WAIT_TIMEOUT_MS
-            )
+            await page.goto(_LOGIN_URL, wait_until="domcontentloaded", timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise ScraperTimeoutError(
                 "BDC login page did not load within timeout", bank_code="BDC"
@@ -508,13 +500,9 @@ class BDCScraper(BankScraper):
             await self._type_human(page, _SEL_PASSWORD_CSS, password)
             await self._random_delay(1.0, 2.0)
 
-            login_btn = await self._try_selector(
-                page, _SEL_LOGIN_BTN_CSS, _SEL_LOGIN_BTN_XPATH
-            )
+            login_btn = await self._try_selector(page, _SEL_LOGIN_BTN_CSS, _SEL_LOGIN_BTN_XPATH)
             if login_btn is None:
-                raise ScraperParseError(
-                    "BDC: could not find login submit button", bank_code="BDC"
-                )
+                raise ScraperParseError("BDC: could not find login submit button", bank_code="BDC")
             await login_btn.click()
             await self._random_delay(2.0, 4.0)
         finally:
@@ -535,9 +523,7 @@ class BDCScraper(BankScraper):
             if error_el is not None:
                 err_text = (await error_el.inner_text()).strip()
                 logger.warning("BDC: login failure message detected: %r", err_text)
-                raise ScraperLoginError(
-                    "BDC: portal rejected credentials", bank_code="BDC"
-                )
+                raise ScraperLoginError("BDC: portal rejected credentials", bank_code="BDC")
         except ScraperLoginError:
             raise
         except Exception:
@@ -561,9 +547,7 @@ class BDCScraper(BankScraper):
         Non-fatal — if no modal is found the method returns silently.
         """
         try:
-            close_btn = await self._try_selector(
-                page, _SEL_MODAL_CLOSE_CSS, _SEL_MODAL_CLOSE_XPATH
-            )
+            close_btn = await self._try_selector(page, _SEL_MODAL_CLOSE_CSS, _SEL_MODAL_CLOSE_XPATH)
             if close_btn is not None:
                 logger.debug("BDC: dismissing modal overlay")
                 await close_btn.click()
@@ -634,13 +618,9 @@ class BDCScraper(BankScraper):
         account_type = _normalise_account_type(account_type_raw)
         currency = _normalise_currency(currency)
         balance = _parse_amount(balance_raw) or Decimal("0.00")
-        masked = (
-            self._mask_account_number(raw_account_number)
-            if raw_account_number
-            else "****0000"
-        )
+        masked = self._mask_account_number(raw_account_number) if raw_account_number else "****0000"
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return BankAccount(
             id=_ZERO_UUID,
             user_id=_ZERO_UUID,
@@ -659,9 +639,7 @@ class BDCScraper(BankScraper):
     # Data extraction — transactions
     # ------------------------------------------------------------------
 
-    async def _extract_transactions(
-        self, page: Page, account: BankAccount
-    ) -> list[Transaction]:
+    async def _extract_transactions(self, page: Page, account: BankAccount) -> list[Transaction]:
         """Parse the account statement table and return Transaction objects.
 
         Expected columns (BDC format):
@@ -675,9 +653,7 @@ class BDCScraper(BankScraper):
         # Locate the transaction table
         table = soup.find("table", id=re.compile(r"TransactionList|transaction", re.I))
         if table is None:
-            table = soup.find(
-                "table", class_=re.compile(r"transaction|statement", re.I)
-            )
+            table = soup.find("table", class_=re.compile(r"transaction|statement", re.I))
 
         if table is None:
             # Last resort: find any table that mentions debit and credit in its headers
@@ -699,19 +675,14 @@ class BDCScraper(BankScraper):
         # Resolve column indices from the header row
         header_row = table.find("tr")
         if header_row is None:
-            raise ScraperParseError(
-                "BDC: transaction table has no header row", bank_code="BDC"
-            )
+            raise ScraperParseError("BDC: transaction table has no header row", bank_code="BDC")
 
-        headers = [
-            th.get_text(strip=True).lower()
-            for th in header_row.find_all(["th", "td"])
-        ]
+        headers = [th.get_text(strip=True).lower() for th in header_row.find_all(["th", "td"])]
         logger.debug("BDC: transaction table headers: %r", headers)
         col = _resolve_txn_columns(headers)
 
         transactions: list[Transaction] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         data_rows = [r for r in table.find_all("tr") if r.find("td")]
 
         for row_idx, row in enumerate(data_rows[:_MAX_TRANSACTIONS]):
@@ -722,9 +693,7 @@ class BDCScraper(BankScraper):
             try:
                 txn = _parse_transaction_row(cells, col, account, now)
             except Exception as exc:
-                logger.debug(
-                    "BDC: skipping row %d due to parse error: %s", row_idx, exc
-                )
+                logger.debug("BDC: skipping row %d due to parse error: %s", row_idx, exc)
                 continue
 
             if txn is not None:
@@ -736,9 +705,7 @@ class BDCScraper(BankScraper):
     # Selector helpers
     # ------------------------------------------------------------------
 
-    async def _wait_for_selector(
-        self, page: Page, css: str, xpath: str, label: str
-    ) -> None:
+    async def _wait_for_selector(self, page: Page, css: str, xpath: str, label: str) -> None:
         """Wait for a CSS selector, falling back to XPath on timeout.
 
         Raises ``ScraperTimeoutError`` if both selectors fail within their

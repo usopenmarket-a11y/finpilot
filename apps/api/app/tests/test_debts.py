@@ -27,7 +27,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -207,9 +206,7 @@ def test_create_debt_outstanding_equals_original(client: TestClient) -> None:
     """At creation, outstanding_balance must equal original_amount."""
     data = _create_debt(client, _lent_payload(original_amount=750.0))
 
-    assert float(data["outstanding_balance"]) == pytest.approx(
-        float(data["original_amount"])
-    )
+    assert float(data["outstanding_balance"]) == pytest.approx(float(data["original_amount"]))
 
 
 def test_create_debt_returns_id(client: TestClient) -> None:
@@ -430,9 +427,7 @@ def test_patch_debt_partial_update(client: TestClient) -> None:
     # Unchanged fields
     assert data["counterparty_phone"] == "+201110000001"
     assert data["counterparty_name"] == created["counterparty_name"]
-    assert float(data["original_amount"]) == pytest.approx(
-        float(created["original_amount"])
-    )
+    assert float(data["original_amount"]) == pytest.approx(float(created["original_amount"]))
 
 
 # ===========================================================================
@@ -487,9 +482,7 @@ def test_payment_reduces_balance(client: TestClient) -> None:
 
     assert response.status_code == 201
     data = response.json()
-    assert float(data["outstanding_balance"]) == pytest.approx(
-        original_balance - 300.0
-    )
+    assert float(data["outstanding_balance"]) == pytest.approx(original_balance - 300.0)
 
 
 def test_payment_partial_sets_status_partial(client: TestClient) -> None:

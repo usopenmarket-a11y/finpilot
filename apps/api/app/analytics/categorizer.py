@@ -284,8 +284,6 @@ async def categorize_batch(
     api_key_present: bool = bool(api_key)
 
     semaphore = asyncio.Semaphore(concurrency)
-    tasks = [
-        _categorize_one(tx, client, semaphore, api_key_present) for tx in transactions
-    ]
+    tasks = [_categorize_one(tx, client, semaphore, api_key_present) for tx in transactions]
     results: list[CategorizationResult] = await asyncio.gather(*tasks)
     return results

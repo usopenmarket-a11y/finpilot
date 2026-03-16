@@ -18,7 +18,6 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import SecretStr
 
-
 # AES-256 requires exactly 32 bytes (256 bits).
 _REQUIRED_KEY_BYTES: Final[int] = 32
 
@@ -55,9 +54,7 @@ def _decode_key(key: SecretStr) -> bytes:
     try:
         key_bytes: bytes = bytes.fromhex(raw_hex)
     except ValueError as exc:
-        raise CryptoError(
-            "encryption_key is not valid hexadecimal"
-        ) from exc
+        raise CryptoError("encryption_key is not valid hexadecimal") from exc
 
     if len(key_bytes) != _REQUIRED_KEY_BYTES:
         raise CryptoError(
@@ -99,9 +96,7 @@ def encrypt(plaintext: str, key: SecretStr) -> str:
         nonce: bytes = os.urandom(_NONCE_BYTES)
         aesgcm = AESGCM(key_bytes)
         # AESGCM.encrypt returns ciphertext + 16-byte tag concatenated.
-        ciphertext_and_tag: bytes = aesgcm.encrypt(
-            nonce, plaintext.encode("utf-8"), _AAD
-        )
+        ciphertext_and_tag: bytes = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), _AAD)
         token: bytes = nonce + ciphertext_and_tag
         return base64.urlsafe_b64encode(token).decode("ascii")
     except CryptoError:
@@ -140,8 +135,7 @@ def decrypt(token: str, key: SecretStr) -> str:
 
     if len(raw) < _NONCE_BYTES:
         raise CryptoError(
-            f"token is too short: expected at least {_NONCE_BYTES} bytes, "
-            f"got {len(raw)}"
+            f"token is too short: expected at least {_NONCE_BYTES} bytes, got {len(raw)}"
         )
 
     nonce: bytes = raw[:_NONCE_BYTES]

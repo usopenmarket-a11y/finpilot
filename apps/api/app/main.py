@@ -1,5 +1,5 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,9 +24,7 @@ _ALLOWED_CORS_HEADERS = [
     "X-CSRF-Token",
 ]
 
-if settings.app_env == "production" and (
-    "*" in settings.cors_origins or not settings.cors_origins
-):
+if settings.app_env == "production" and ("*" in settings.cors_origins or not settings.cors_origins):
     raise RuntimeError(
         "CORS misconfiguration: cors_origins must not contain '*' or be empty in "
         "production.  Set CORS_ORIGINS to the explicit Vercel deployment URL(s)."

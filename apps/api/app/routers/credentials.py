@@ -19,14 +19,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from supabase import create_client
 from supabase._sync.client import Client
-from typing import Literal
 
 from app.config import settings
 
@@ -73,7 +72,7 @@ class CredentialInfo(BaseModel):
 
     bank: str
     is_active: bool
-    last_synced_at: Optional[datetime]
+    last_synced_at: datetime | None
     created_at: datetime
 
 
@@ -82,7 +81,7 @@ class CredentialInfo(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _parse_user_id(raw: Optional[str]) -> UUID:
+def _parse_user_id(raw: str | None) -> UUID:
     """Validate and parse the x-user-id header value.
 
     Raises:
@@ -115,7 +114,7 @@ def _parse_user_id(raw: Optional[str]) -> UUID:
 )
 async def save_credential(
     body: SaveCredentialRequest,
-    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> CredentialInfo:
     """Upsert encrypted credentials for the given bank.
 
@@ -174,7 +173,7 @@ async def save_credential(
     summary="List all saved credentials for the authenticated user",
 )
 async def list_credentials(
-    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> list[CredentialInfo]:
     """Return safe metadata for all stored bank credentials.
 
@@ -220,7 +219,7 @@ async def list_credentials(
 )
 async def delete_credential(
     bank: Literal["NBE", "CIB", "BDC", "UB"],
-    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> None:
     """Delete the stored credentials for the given bank.
 
@@ -235,9 +234,7 @@ async def delete_credential(
             "bank", bank
         ).execute()
     except Exception as exc:
-        logger.error(
-            "Failed to delete credentials for bank=%s user_id=%s: %s", bank, user_id, exc
-        )
+        logger.error("Failed to delete credentials for bank=%s user_id=%s: %s", bank, user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete credentials",

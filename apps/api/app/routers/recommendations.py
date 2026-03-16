@@ -31,17 +31,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.recommendations.debt_optimizer import (
     DebtItem,
     DebtOptimizationReport,
-    DebtStrategy,
-    PayoffStep,
     optimize_debt_payoff,
 )
 from app.recommendations.forecaster import (
     CashFlowForecast,
-    ForecastPoint,
     generate_forecast,
 )
 from app.recommendations.monthly_plan import (
-    ActionItem,
     CategoryBreakdown,
     MonthlyPlan,
     MonthlyPoint,
@@ -50,7 +46,6 @@ from app.recommendations.monthly_plan import (
     generate_monthly_plan,
 )
 from app.recommendations.savings import (
-    SavingsOpportunity,
     SavingsReport,
     TransactionSummary,
     detect_savings_opportunities,

@@ -8,8 +8,7 @@ stripping, and other data hygiene tasks.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import UTC, datetime
 from uuid import UUID
 
 from app.models.db import BankAccount, Transaction
@@ -58,14 +57,11 @@ def normalize(
         ValueError: If required fields are missing or invalid
     """
     # Normalize the account
-    normalized_account = _normalize_account(
-        result.account, user_id, account_id
-    )
+    normalized_account = _normalize_account(result.account, user_id, account_id)
 
     # Normalize transactions
     normalized_transactions = [
-        _normalize_transaction(txn, user_id, account_id)
-        for txn in result.transactions
+        _normalize_transaction(txn, user_id, account_id) for txn in result.transactions
     ]
 
     return NormalizedResult(
@@ -98,7 +94,7 @@ def _normalize_account(
         currency=(account.currency or "EGP").upper().strip(),
         balance=account.balance if account.balance >= 0 else account.balance,
         is_active=account.is_active,
-        last_synced_at=datetime.now(timezone.utc),
+        last_synced_at=datetime.now(UTC),
         created_at=account.created_at,
         updated_at=account.updated_at,
     )

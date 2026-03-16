@@ -46,25 +46,43 @@ from app.scrapers.base import (
     ScraperResult,
     ScraperTimeoutError,
 )
+from app.scrapers.cib import (
+    CIBScraper,
+    _parse_cib_date,
+)
+from app.scrapers.cib import (
+    _make_external_id as cib_make_external_id,
+)
+from app.scrapers.cib import (
+    _parse_amount as cib_parse_amount,
+)
 
 # Import module-level helpers directly so we can unit-test them without
 # instantiating the full scraper class.
 from app.scrapers.nbe import (
     NBEScraper,
-    _extract_currency_from_balance as nbe_extract_currency,
-    _make_external_id as nbe_make_external_id,
-    _normalise_account_type as nbe_normalise_account_type,
-    _normalise_currency as nbe_normalise_currency,
-    _parse_amount as nbe_parse_amount,
     _parse_nbe_date,
-    _parse_oj_table_rows as nbe_parse_oj_table_rows,
-    _parse_transaction_row as nbe_parse_transaction_row,
 )
-from app.scrapers.cib import (
-    CIBScraper,
-    _make_external_id as cib_make_external_id,
-    _parse_cib_date,
-    _parse_amount as cib_parse_amount,
+from app.scrapers.nbe import (
+    _extract_currency_from_balance as nbe_extract_currency,
+)
+from app.scrapers.nbe import (
+    _make_external_id as nbe_make_external_id,
+)
+from app.scrapers.nbe import (
+    _normalise_account_type as nbe_normalise_account_type,
+)
+from app.scrapers.nbe import (
+    _normalise_currency as nbe_normalise_currency,
+)
+from app.scrapers.nbe import (
+    _parse_amount as nbe_parse_amount,
+)
+from app.scrapers.nbe import (
+    _parse_oj_table_rows as nbe_parse_oj_table_rows,
+)
+from app.scrapers.nbe import (
+    _parse_transaction_row as nbe_parse_transaction_row,
 )
 
 # ---------------------------------------------------------------------------
@@ -305,6 +323,7 @@ class TestExceptionHierarchy:
 
     def test_scraper_exception_has_timestamp(self) -> None:
         import time
+
         before = time.time()
         exc = ScraperLoginError("msg", bank_code="NBE")
         after = time.time()
@@ -550,10 +569,26 @@ class TestNbeParseTransactionRow:
 
     def _cells_debit(self) -> list[str]:
         # Col: TxnDate | ValueDate | Ref | Description | Debit | Credit | Balance
-        return ["15 Jan 2025", "15 Jan 2025", "REF001", "ATM Withdrawal", "EGP 500.00", "", "EGP 14,750.75"]
+        return [
+            "15 Jan 2025",
+            "15 Jan 2025",
+            "REF001",
+            "ATM Withdrawal",
+            "EGP 500.00",
+            "",
+            "EGP 14,750.75",
+        ]
 
     def _cells_credit(self) -> list[str]:
-        return ["10 Jan 2025", "10 Jan 2025", "REF002", "Salary Credit", "", "EGP 5,000.00", "EGP 15,250.75"]
+        return [
+            "10 Jan 2025",
+            "10 Jan 2025",
+            "REF002",
+            "Salary Credit",
+            "",
+            "EGP 5,000.00",
+            "EGP 15,250.75",
+        ]
 
     def test_debit_row_parsed_correctly(self) -> None:
         account = _make_bank_account("NBE")
@@ -731,10 +766,10 @@ def _build_nbe_mock_page(
 
     mock_page.content = AsyncMock(
         side_effect=[
-            dashboard_html,   # raw_html["dashboard"]
-            dashboard_html,   # _extract_account -> page.content()
-            txn_html,         # raw_html["transactions"]
-            txn_html,         # _extract_transactions page 1
+            dashboard_html,  # raw_html["dashboard"]
+            dashboard_html,  # _extract_account -> page.content()
+            txn_html,  # raw_html["transactions"]
+            txn_html,  # _extract_transactions page 1
         ]
     )
 
@@ -835,8 +870,8 @@ class TestNbeScraperScrape:
         # then times out on the Logout link wait inside _wait_for_dashboard.
         mock_page.wait_for_selector = AsyncMock(
             side_effect=[
-                mock_element,           # #login_username (navigate_to_login)
-                mock_element,           # #login_password (login step 2)
+                mock_element,  # #login_username (navigate_to_login)
+                mock_element,  # #login_password (login step 2)
                 _PwTimeout("timeout"),  # a:has-text('Logout') — login rejected
             ]
         )
@@ -954,10 +989,10 @@ class TestCibScraperScrape:
 
         mock_page.content = AsyncMock(
             side_effect=[
-                _CIB_DASHBOARD_HTML,    # raw_html["dashboard"]
-                _CIB_DASHBOARD_HTML,    # _extract_account -> page.content()
-                _CIB_TRANSACTIONS_HTML, # raw_html["transactions"]
-                _CIB_TRANSACTIONS_HTML, # _extract_transactions -> page.content()
+                _CIB_DASHBOARD_HTML,  # raw_html["dashboard"]
+                _CIB_DASHBOARD_HTML,  # _extract_account -> page.content()
+                _CIB_TRANSACTIONS_HTML,  # raw_html["transactions"]
+                _CIB_TRANSACTIONS_HTML,  # _extract_transactions -> page.content()
             ]
         )
 
@@ -966,7 +1001,9 @@ class TestCibScraperScrape:
         mock_element.inner_text = AsyncMock(return_value="")
 
         # CIB error selectors — must return None so _wait_for_dashboard proceeds
-        _CIB_ERROR_CSS = ".error-message, .alert-danger, [class*='loginError'], [class*='error-msg']"
+        _CIB_ERROR_CSS = (
+            ".error-message, .alert-danger, [class*='loginError'], [class*='error-msg']"
+        )
         _CIB_ERROR_XPATH = (
             "xpath=//*[contains(@class,'error-message') or contains(@class,'alert-danger') "
             "or contains(@class,'loginError')]"
@@ -987,18 +1024,14 @@ class TestCibScraperScrape:
         assert result.transactions[0].transaction_type == "debit"
         assert result.transactions[1].transaction_type == "credit"
 
-    async def test_login_error_raises_scraper_login_error(
-        self, cib_scraper: CIBScraper
-    ) -> None:
+    async def test_login_error_raises_scraper_login_error(self, cib_scraper: CIBScraper) -> None:
         """scrape() raises ScraperLoginError when error-message element is found."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
         mock_page.content = AsyncMock(return_value=_CIB_LOGIN_ERROR_HTML)
 
         mock_error_el = AsyncMock()
-        mock_error_el.inner_text = AsyncMock(
-            return_value="Invalid credentials. Please try again."
-        )
+        mock_error_el.inner_text = AsyncMock(return_value="Invalid credentials. Please try again.")
         mock_page.query_selector = AsyncMock(return_value=mock_error_el)
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
@@ -1032,9 +1065,7 @@ class TestCibScraperScrape:
 
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("timeout")
-        )
+        mock_page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("timeout"))
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             with pytest.raises(ScraperTimeoutError):
@@ -1042,9 +1073,7 @@ class TestCibScraperScrape:
 
         mock_browser.close.assert_awaited_once()
 
-    async def test_cib_transactions_use_cib_date_format(
-        self, cib_scraper: CIBScraper
-    ) -> None:
+    async def test_cib_transactions_use_cib_date_format(self, cib_scraper: CIBScraper) -> None:
         """Transactions parsed from CIB HTML use DD-MMM-YYYY dates correctly."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1060,7 +1089,9 @@ class TestCibScraperScrape:
         mock_element.click = AsyncMock(return_value=None)
         mock_element.inner_text = AsyncMock(return_value="")
 
-        _CIB_ERROR_CSS = ".error-message, .alert-danger, [class*='loginError'], [class*='error-msg']"
+        _CIB_ERROR_CSS = (
+            ".error-message, .alert-danger, [class*='loginError'], [class*='error-msg']"
+        )
         _CIB_ERROR_XPATH = (
             "xpath=//*[contains(@class,'error-message') or contains(@class,'alert-danger') "
             "or contains(@class,'loginError')]"

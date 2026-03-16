@@ -3,8 +3,8 @@
 # raw transaction/balance data using Playwright (with BeautifulSoup4 fallback).
 
 from app.scrapers.base import (
-    BankScraper,
     BankPortalUnreachableError,
+    BankScraper,
     ScraperException,
     ScraperLoginError,
     ScraperOTPRequired,

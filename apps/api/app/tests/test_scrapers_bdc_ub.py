@@ -51,20 +51,34 @@ from app.scrapers.base import (
 )
 from app.scrapers.bdc import (
     BDCScraper,
-    _make_external_id as bdc_make_external_id,
-    _normalise_account_type as bdc_normalise_account_type,
-    _normalise_currency as bdc_normalise_currency,
-    _parse_amount as bdc_parse_amount,
     _parse_bdc_date,
+)
+from app.scrapers.bdc import (
+    _make_external_id as bdc_make_external_id,
+)
+from app.scrapers.bdc import (
+    _parse_amount as bdc_parse_amount,
+)
+from app.scrapers.bdc import (
     _parse_transaction_row as bdc_parse_transaction_row,
+)
+from app.scrapers.bdc import (
     _resolve_txn_columns as bdc_resolve_txn_columns,
 )
 from app.scrapers.ub import (
     UBScraper,
-    _make_external_id as ub_make_external_id,
-    _parse_amount as ub_parse_amount,
     _parse_ub_date,
+)
+from app.scrapers.ub import (
+    _make_external_id as ub_make_external_id,
+)
+from app.scrapers.ub import (
+    _parse_amount as ub_parse_amount,
+)
+from app.scrapers.ub import (
     _parse_transaction_row as ub_parse_transaction_row,
+)
+from app.scrapers.ub import (
     _resolve_txn_columns as ub_resolve_txn_columns,
 )
 
@@ -706,9 +720,18 @@ class TestParseUbDate:
 
     def test_dd_mmm_yyyy_all_months(self) -> None:
         months = [
-            ("Jan", 1), ("Feb", 2), ("Mar", 3), ("Apr", 4),
-            ("May", 5), ("Jun", 6), ("Jul", 7), ("Aug", 8),
-            ("Sep", 9), ("Oct", 10), ("Nov", 11), ("Dec", 12),
+            ("Jan", 1),
+            ("Feb", 2),
+            ("Mar", 3),
+            ("Apr", 4),
+            ("May", 5),
+            ("Jun", 6),
+            ("Jul", 7),
+            ("Aug", 8),
+            ("Sep", 9),
+            ("Oct", 10),
+            ("Nov", 11),
+            ("Dec", 12),
         ]
         for abbr, month_num in months:
             result = _parse_ub_date(f"15-{abbr}-2025")
@@ -1012,9 +1035,7 @@ class TestBdcScraperScrape:
         return BDCScraper(username="bdc_test_user", password="test_password_123")
 
     @pytest.mark.asyncio
-    async def test_happy_path_returns_scraper_result(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
+    async def test_happy_path_returns_scraper_result(self, bdc_scraper: BDCScraper) -> None:
         """scrape() returns ScraperResult with bank_name == 'BDC' and transactions."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1052,9 +1073,7 @@ class TestBdcScraperScrape:
         assert result.transactions[1].transaction_type == "credit"
 
     @pytest.mark.asyncio
-    async def test_happy_path_account_number_masked(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
+    async def test_happy_path_account_number_masked(self, bdc_scraper: BDCScraper) -> None:
         """account_number_masked follows ****XXXX format."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.content = AsyncMock(
@@ -1080,9 +1099,7 @@ class TestBdcScraperScrape:
         assert result.account.account_number_masked.startswith("****")
 
     @pytest.mark.asyncio
-    async def test_happy_path_raw_html_keys_present(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
+    async def test_happy_path_raw_html_keys_present(self, bdc_scraper: BDCScraper) -> None:
         """ScraperResult.raw_html must contain 'dashboard' and 'transactions' keys."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.content = AsyncMock(
@@ -1109,18 +1126,14 @@ class TestBdcScraperScrape:
         assert "transactions" in result.raw_html
 
     @pytest.mark.asyncio
-    async def test_login_error_raises_scraper_login_error(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
+    async def test_login_error_raises_scraper_login_error(self, bdc_scraper: BDCScraper) -> None:
         """scrape() raises ScraperLoginError when failureNotification element detected."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
         mock_page.content = AsyncMock(return_value=_BDC_LOGIN_ERROR_HTML)
 
         mock_error_el = AsyncMock()
-        mock_error_el.inner_text = AsyncMock(
-            return_value="Invalid username or password."
-        )
+        mock_error_el.inner_text = AsyncMock(return_value="Invalid username or password.")
         # All query_selector calls return the error element — simulates the
         # portal presenting the failure notification on the first CSS check.
         mock_page.query_selector = AsyncMock(return_value=mock_error_el)
@@ -1154,9 +1167,7 @@ class TestBdcScraperScrape:
         assert exc_info.value.bank_code == "BDC"
 
     @pytest.mark.asyncio
-    async def test_browser_is_always_closed_on_login_error(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
+    async def test_browser_is_always_closed_on_login_error(self, bdc_scraper: BDCScraper) -> None:
         """browser.close() is called in finally even when ScraperLoginError is raised."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1172,17 +1183,13 @@ class TestBdcScraperScrape:
         mock_browser.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_browser_is_always_closed_on_timeout(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
+    async def test_browser_is_always_closed_on_timeout(self, bdc_scraper: BDCScraper) -> None:
         """browser.close() is called in finally even when ScraperTimeoutError is raised."""
         from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("timeout")
-        )
+        mock_page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("timeout"))
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             with pytest.raises(ScraperTimeoutError):
@@ -1204,9 +1211,7 @@ class TestUbScraperScrape:
         return UBScraper(username="ub_test_user", password="test_password_123")
 
     @pytest.mark.asyncio
-    async def test_happy_path_returns_scraper_result(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_happy_path_returns_scraper_result(self, ub_scraper: UBScraper) -> None:
         """scrape() returns ScraperResult with bank_name == 'UB' and transactions."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1240,9 +1245,7 @@ class TestUbScraperScrape:
         assert result.transactions[1].transaction_type == "credit"
 
     @pytest.mark.asyncio
-    async def test_happy_path_transactions_use_ub_date_format(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_happy_path_transactions_use_ub_date_format(self, ub_scraper: UBScraper) -> None:
         """Transactions parsed from UB HTML use DD-MMM-YYYY dates correctly."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1270,9 +1273,7 @@ class TestUbScraperScrape:
         assert result.transactions[1].transaction_date == date(2025, 1, 5)
 
     @pytest.mark.asyncio
-    async def test_happy_path_raw_html_keys_present(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_happy_path_raw_html_keys_present(self, ub_scraper: UBScraper) -> None:
         """ScraperResult.raw_html must contain 'dashboard' and 'transactions' keys."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.content = AsyncMock(
@@ -1299,9 +1300,7 @@ class TestUbScraperScrape:
         assert "transactions" in result.raw_html
 
     @pytest.mark.asyncio
-    async def test_login_error_raises_scraper_login_error(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_login_error_raises_scraper_login_error(self, ub_scraper: UBScraper) -> None:
         """scrape() raises ScraperLoginError when error element detected."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1340,9 +1339,7 @@ class TestUbScraperScrape:
         assert exc_info.value.bank_code == "UB"
 
     @pytest.mark.asyncio
-    async def test_browser_is_always_closed_on_login_error(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_browser_is_always_closed_on_login_error(self, ub_scraper: UBScraper) -> None:
         """browser.close() is called in finally even when ScraperLoginError is raised."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1360,17 +1357,13 @@ class TestUbScraperScrape:
         mock_browser.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_browser_is_always_closed_on_timeout(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_browser_is_always_closed_on_timeout(self, ub_scraper: UBScraper) -> None:
         """browser.close() is called in finally even when ScraperTimeoutError is raised."""
         from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("timeout")
-        )
+        mock_page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("timeout"))
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             with pytest.raises(ScraperTimeoutError):
@@ -1379,9 +1372,7 @@ class TestUbScraperScrape:
         mock_browser.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_happy_path_account_number_masked(
-        self, ub_scraper: UBScraper
-    ) -> None:
+    async def test_happy_path_account_number_masked(self, ub_scraper: UBScraper) -> None:
         """account_number_masked follows ****XXXX format."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.content = AsyncMock(

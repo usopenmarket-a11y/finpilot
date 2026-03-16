@@ -69,14 +69,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 from uuid import UUID
 
 from bs4 import BeautifulSoup
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.models.db import BankAccount, Transaction
 from app.scrapers.base import (
@@ -177,7 +176,7 @@ _ZERO_UUID = UUID("00000000-0000-0000-0000-000000000000")
 # ---------------------------------------------------------------------------
 
 
-def _parse_nbe_date(raw: str) -> Optional[date]:
+def _parse_nbe_date(raw: str) -> date | None:
     """Parse a date string from NBE alahlynet's ``DD Mon YYYY`` format.
 
     Accepted formats:
@@ -217,7 +216,7 @@ def _parse_nbe_date(raw: str) -> Optional[date]:
     return None
 
 
-def _parse_amount(raw: str) -> Optional[Decimal]:
+def _parse_amount(raw: str) -> Decimal | None:
     """Strip currency prefix, thousands separators and convert to Decimal.
 
     Handles inputs like:
@@ -335,7 +334,7 @@ def _parse_transaction_row(
     cells: list[str],
     account: BankAccount,
     now: datetime,
-) -> Optional[Transaction]:
+) -> Transaction | None:
     """Convert a list of cell strings (7 columns) into a ``Transaction``.
 
     Column order (fixed, from Oracle JET binding):
@@ -353,10 +352,12 @@ def _parse_transaction_row(
         return None
 
     value_date_str = cells[_COL_VALUE_DATE].strip() if len(cells) > _COL_VALUE_DATE else ""
-    value_date: Optional[date] = _parse_nbe_date(value_date_str) if value_date_str else None
+    value_date: date | None = _parse_nbe_date(value_date_str) if value_date_str else None
 
     reference = cells[_COL_REFERENCE].strip() if len(cells) > _COL_REFERENCE else None
-    description = (cells[_COL_DESCRIPTION].strip() if len(cells) > _COL_DESCRIPTION else "") or "N/A"
+    description = (
+        cells[_COL_DESCRIPTION].strip() if len(cells) > _COL_DESCRIPTION else ""
+    ) or "N/A"
 
     debit_str = cells[_COL_DEBIT] if len(cells) > _COL_DEBIT else ""
     credit_str = cells[_COL_CREDIT] if len(cells) > _COL_CREDIT else ""
@@ -378,7 +379,7 @@ def _parse_transaction_row(
         return None
 
     external_id = _make_external_id(txn_date, description, amount)
-    reference_val: Optional[str] = reference if reference else None
+    reference_val: str | None = reference if reference else None
 
     return Transaction(
         id=_ZERO_UUID,
@@ -551,9 +552,7 @@ class NBEScraper(BankScraper):
         first_row = await page.query_selector(_SEL_ACCOUNT_ROWS)
         if first_row is None:
             await self._safe_screenshot(page, "first_account_row_missing")
-            raise ScraperParseError(
-                "NBE: could not locate first account row", bank_code="NBE"
-            )
+            raise ScraperParseError("NBE: could not locate first account row", bank_code="NBE")
 
         menu_icon = await first_row.query_selector(_SEL_MENU_ICON)
         if menu_icon is None:
@@ -573,7 +572,7 @@ class NBEScraper(BankScraper):
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "account_activity_missing")
             raise ScraperTimeoutError(
-                f"NBE: 'Account Activity' menu item not found", bank_code="NBE"
+                "NBE: 'Account Activity' menu item not found", bank_code="NBE"
             ) from exc
 
         await activity_item.click()
@@ -592,9 +591,7 @@ class NBEScraper(BankScraper):
         # 6. Click Apply and wait for table cells to load (AJAX)
         apply_btn = await page.query_selector(_SEL_APPLY_BTN)
         if apply_btn is None:
-            raise ScraperParseError(
-                "NBE: Apply button disappeared before click", bank_code="NBE"
-            )
+            raise ScraperParseError("NBE: Apply button disappeared before click", bank_code="NBE")
         await apply_btn.click()
         await self._random_delay(2.0, 3.5)
 
@@ -703,9 +700,7 @@ class NBEScraper(BankScraper):
                 phrase in page_text.lower()
                 for phrase in ("invalid", "incorrect", "wrong", "خطأ", "غير صحيح")
             ):
-                raise ScraperLoginError(
-                    "NBE: portal rejected credentials", bank_code="NBE"
-                )
+                raise ScraperLoginError("NBE: portal rejected credentials", bank_code="NBE")
 
             await self._safe_screenshot(page, "dashboard_timeout")
             raise ScraperTimeoutError(
@@ -734,9 +729,7 @@ class NBEScraper(BankScraper):
         rows = soup.select(_SEL_ACCOUNT_ROWS)
         if not rows:
             await self._safe_screenshot(page, "account_rows_parse_missing")
-            raise ScraperParseError(
-                "NBE: could not locate account rows in DOM", bank_code="NBE"
-            )
+            raise ScraperParseError("NBE: could not locate account rows in DOM", bank_code="NBE")
 
         first_row = rows[0]
 
@@ -772,7 +765,7 @@ class NBEScraper(BankScraper):
         balance = _parse_amount(balance_str) or Decimal("0.00")
 
         masked = self._mask_account_number(raw_account_number)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         return BankAccount(
             id=_ZERO_UUID,
@@ -792,9 +785,7 @@ class NBEScraper(BankScraper):
     # Data extraction — transactions
     # ------------------------------------------------------------------
 
-    async def _extract_transactions(
-        self, page: Page, account: BankAccount
-    ) -> list[Transaction]:
+    async def _extract_transactions(self, page: Page, account: BankAccount) -> list[Transaction]:
         """Parse transaction rows from the Oracle JET ``oj-table#ViewStatement1``.
 
         Handles pagination by clicking "Next Page" until no more pages exist or
@@ -803,7 +794,7 @@ class NBEScraper(BankScraper):
         Returns up to ``_MAX_TRANSACTIONS`` Transaction objects.
         """
         transactions: list[Transaction] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         page_num = 0
 
         while len(transactions) < _MAX_TRANSACTIONS:
@@ -816,9 +807,7 @@ class NBEScraper(BankScraper):
 
             if not rows and page_num == 1:
                 await self._safe_screenshot(page, "txn_table_empty")
-                raise ScraperParseError(
-                    "NBE: transaction table rendered no rows", bank_code="NBE"
-                )
+                raise ScraperParseError("NBE: transaction table rendered no rows", bank_code="NBE")
 
             for row_idx, cells in enumerate(rows):
                 if len(transactions) >= _MAX_TRANSACTIONS:
@@ -849,13 +838,11 @@ class NBEScraper(BankScraper):
             await next_btn.click()
             await self._random_delay(1.5, 3.0)
             try:
-                await page.wait_for_selector(
-                    _SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS
-                )
+                await page.wait_for_selector(_SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS)
             except PlaywrightTimeoutError as exc:
                 await self._safe_screenshot(page, "txn_next_page_timeout")
                 raise ScraperTimeoutError(
-                    f"NBE: transaction table did not reload after page {page_num} → {page_num+1}",
+                    f"NBE: transaction table did not reload after page {page_num} → {page_num + 1}",
                     bank_code="NBE",
                 ) from exc
 

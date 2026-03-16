@@ -276,9 +276,7 @@ def generate_monthly_plan(
         health -= HEALTH_PENALTY_NEGATIVE_NET
 
     dominant_categories: list[CategoryBreakdown] = [
-        c
-        for c in spending.by_category
-        if c.percentage > CATEGORY_DOMINANCE_THRESHOLD_PCT
+        c for c in spending.by_category if c.percentage > CATEGORY_DOMINANCE_THRESHOLD_PCT
     ]
     if dominant_categories:
         health -= HEALTH_PENALTY_CATEGORY_DOMINANCE
@@ -333,9 +331,7 @@ def generate_monthly_plan(
 
     # Medium priority: categories consuming more than 30 % of spending
     review_categories: list[CategoryBreakdown] = [
-        c
-        for c in spending.by_category
-        if c.percentage > CATEGORY_REVIEW_THRESHOLD_PCT
+        c for c in spending.by_category if c.percentage > CATEGORY_REVIEW_THRESHOLD_PCT
     ]
     for cat in review_categories:
         items.append(
@@ -403,9 +399,7 @@ def generate_monthly_plan(
             f"and you ended the period with a positive balance of EGP {spending.net:,.2f}"
         )
     else:
-        balance_phrase = (
-            f"and you ended the period with a deficit of EGP {abs(spending.net):,.2f}"
-        )
+        balance_phrase = f"and you ended the period with a deficit of EGP {abs(spending.net):,.2f}"
 
     summary: str = f"{trend_phrase} {balance_phrase}."
 

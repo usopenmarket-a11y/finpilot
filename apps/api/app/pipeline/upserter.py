@@ -47,20 +47,21 @@ async def upsert_account(
         "currency": account.currency,
         "balance": str(account.balance),
         "is_active": account.is_active,
-        "last_synced_at": account.last_synced_at.isoformat()
-        if account.last_synced_at
-        else None,
+        "last_synced_at": account.last_synced_at.isoformat() if account.last_synced_at else None,
     }
 
-    response = await supabase_client.table("bank_accounts").upsert(
-        account_data,
-        on_conflict="user_id,bank_name,account_number_masked",
-    ).execute()
+    response = (
+        await supabase_client.table("bank_accounts")
+        .upsert(
+            account_data,
+            on_conflict="user_id,bank_name,account_number_masked",
+        )
+        .execute()
+    )
 
     if not response.data:
         raise ValueError(
-            f"Failed to upsert account for user_id={user_id}, "
-            f"bank_name={account.bank_name}"
+            f"Failed to upsert account for user_id={user_id}, bank_name={account.bank_name}"
         )
 
     # Extract the account ID from the response
@@ -109,10 +110,14 @@ async def insert_transactions(
 
     # Batch insert with conflict handling
     # NOTE: Supabase insert() with ignore_duplicates=True handles ON CONFLICT DO NOTHING
-    response = await supabase_client.table("transactions").insert(
-        transaction_dicts,
-        count="exact",  # Request exact count of inserted rows
-    ).execute()
+    response = (
+        await supabase_client.table("transactions")
+        .insert(
+            transaction_dicts,
+            count="exact",  # Request exact count of inserted rows
+        )
+        .execute()
+    )
 
     # The response.count contains the number of successfully inserted rows
     inserted_count = response.count if response.count is not None else len(transactions)

@@ -7,21 +7,21 @@ validation behaviour.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now() -> datetime:
     """Return a timezone-aware UTC datetime for use in model fixtures."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def _today() -> date:
@@ -256,7 +256,7 @@ def test_bank_account_defaults() -> None:
 
 def test_bank_account_all_supported_banks() -> None:
     """BankAccount accepts all four supported bank names."""
-    from app.models.db import BankAccount, SUPPORTED_BANKS
+    from app.models.db import SUPPORTED_BANKS, BankAccount
 
     for bank in SUPPORTED_BANKS:
         account = BankAccount(

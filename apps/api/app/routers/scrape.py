@@ -16,9 +16,9 @@ Security contract
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -76,12 +76,8 @@ class ScrapeRequest(BaseModel):
     bank: Literal["NBE", "CIB", "BDC", "UB"] = Field(
         description="Target bank — must be one of the supported scrapers"
     )
-    encrypted_username: str = Field(
-        description="AES-256-GCM token of the bank portal username"
-    )
-    encrypted_password: str = Field(
-        description="AES-256-GCM token of the bank portal password"
-    )
+    encrypted_username: str = Field(description="AES-256-GCM token of the bank portal username")
+    encrypted_password: str = Field(description="AES-256-GCM token of the bank portal password")
 
 
 class ScrapeResponse(BaseModel):
@@ -97,9 +93,7 @@ class ScrapeResponse(BaseModel):
     )
     balance: Decimal = Field(description="Current account balance reported by the bank portal")
     currency: str = Field(description="ISO 4217 currency code")
-    transactions_scraped: int = Field(
-        description="Number of transactions returned by the scraper"
-    )
+    transactions_scraped: int = Field(description="Number of transactions returned by the scraper")
     transactions_saved: int = Field(
         description="Number of new transactions inserted into the database by the pipeline"
     )
@@ -133,8 +127,8 @@ async def trigger_scrape(body: ScrapeRequest, request: Request) -> ScrapeRespons
     # Optional user context — pipeline and last_synced_at update only run
     # when an authenticated user id is provided via the x-user-id header.
     # ------------------------------------------------------------------
-    raw_user_id: Optional[str] = request.headers.get("x-user-id")
-    user_id: Optional[UUID] = None
+    raw_user_id: str | None = request.headers.get("x-user-id")
+    user_id: UUID | None = None
     if raw_user_id:
         try:
             user_id = UUID(raw_user_id)
@@ -230,7 +224,9 @@ async def trigger_scrape(body: ScrapeRequest, request: Request) -> ScrapeRespons
                 settings.supabase_url,
                 settings.supabase_service_role_key.get_secret_value(),
             )
-            pipeline_result = await run_pipeline(result, user_id=user_id, supabase_client=supabase_client)
+            pipeline_result = await run_pipeline(
+                result, user_id=user_id, supabase_client=supabase_client
+            )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
             logger.warning(
@@ -247,7 +243,7 @@ async def trigger_scrape(body: ScrapeRequest, request: Request) -> ScrapeRespons
                 settings.supabase_service_role_key.get_secret_value(),
             )
             sync_client.table("bank_credentials").update(
-                {"last_synced_at": datetime.now(timezone.utc).isoformat()}
+                {"last_synced_at": datetime.now(UTC).isoformat()}
             ).eq("user_id", str(user_id)).eq("bank", body.bank).execute()
         except Exception:
             pass  # non-fatal

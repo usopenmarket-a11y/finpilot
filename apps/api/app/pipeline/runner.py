@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from supabase import AsyncClient
 
-from app.models.db import BankAccount, Transaction
+from app.models.db import Transaction
 from app.pipeline.deduplicator import filter_new_transactions
 from app.pipeline.normalizer import normalize
 from app.pipeline.upserter import insert_transactions, upsert_account
@@ -85,9 +85,7 @@ async def run_pipeline(
     normalized = normalize(result, user_id, placeholder_account_id)
 
     # Stage 2: Upsert account to get the real account_id
-    real_account_id = await upsert_account(
-        normalized.account, user_id, supabase_client
-    )
+    real_account_id = await upsert_account(normalized.account, user_id, supabase_client)
     logger.info(
         "Account upserted: account_id=%s (user_id=%s)",
         real_account_id,
@@ -133,12 +131,10 @@ async def run_pipeline(
     # Stage 5: Insert transactions
     inserted_count = 0
     if new_transactions:
-        inserted_count = await insert_transactions(
-            new_transactions, supabase_client
-        )
+        inserted_count = await insert_transactions(new_transactions, supabase_client)
 
     # Stage 6: Summarize
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result_obj = PipelineRunResult(
         account_id=real_account_id,
         account_number_masked=normalized.account.account_number_masked,

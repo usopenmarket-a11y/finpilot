@@ -81,9 +81,7 @@ class TransactionSummary(BaseModel):
         description="Direction: debit (outgoing) | credit (incoming)"
     )
     transaction_date: date = Field(description="Date the transaction was posted")
-    category: str | None = Field(
-        default=None, description="Optional AI-assigned spending category"
-    )
+    category: str | None = Field(default=None, description="Optional AI-assigned spending category")
 
 
 # ---------------------------------------------------------------------------
@@ -123,15 +121,11 @@ class SavingsOpportunity(BaseModel):
     ] = Field(description="Category of the savings opportunity")
     title: str = Field(description="Short headline for the opportunity")
     description: str = Field(description="Explanation and recommended action")
-    estimated_monthly_saving: Decimal = Field(
-        ge=ZERO, description="Estimated monthly EGP saving"
-    )
+    estimated_monthly_saving: Decimal = Field(ge=ZERO, description="Estimated monthly EGP saving")
     transactions: list[str] = Field(
         description="Description strings of transactions that triggered this finding"
     )
-    confidence_score: float = Field(
-        ge=0.0, le=1.0, description="Pattern confidence (0–1)"
-    )
+    confidence_score: float = Field(ge=0.0, le=1.0, description="Pattern confidence (0–1)")
     generated_at: datetime = Field(
         default_factory=datetime.utcnow,
         description="UTC timestamp when this opportunity was detected",
@@ -437,9 +431,7 @@ def _detect_irregular_spikes(
     for txn in debits:
         if txn.category is None:
             continue
-        by_category[txn.category].append(
-            (txn.amount, txn.description, txn.transaction_date)
-        )
+        by_category[txn.category].append((txn.amount, txn.description, txn.transaction_date))
 
     opportunities: list[SavingsOpportunity] = []
 
@@ -538,9 +530,7 @@ def detect_savings_opportunities(
     all_opportunities.extend(_detect_irregular_spikes(debits))
 
     # Sort descending by estimated_monthly_saving, then cap
-    all_opportunities.sort(
-        key=lambda o: o.estimated_monthly_saving, reverse=True
-    )
+    all_opportunities.sort(key=lambda o: o.estimated_monthly_saving, reverse=True)
     top_opportunities = all_opportunities[:MAX_OPPORTUNITIES]
 
     total_saving = _round(

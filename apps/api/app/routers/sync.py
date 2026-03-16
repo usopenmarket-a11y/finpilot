@@ -13,8 +13,8 @@ Security contract
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Literal, Optional
+from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -26,7 +26,6 @@ from app.crypto import CryptoError, decrypt
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
-    BankScraper,
     BDCScraper,
     CIBScraper,
     NBEScraper,
@@ -70,7 +69,7 @@ class SyncResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _parse_user_id(raw: Optional[str]) -> UUID:
+def _parse_user_id(raw: str | None) -> UUID:
     if not raw:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -98,7 +97,7 @@ def _parse_user_id(raw: Optional[str]) -> UUID:
 )
 async def sync_bank(
     bank: Literal["NBE", "CIB", "BDC", "UB"],
-    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> SyncResponse:
     """Read stored encrypted credentials, run the scraper and ETL pipeline.
 
@@ -222,23 +221,27 @@ async def sync_bank(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
         )
-        pipeline_result = await run_pipeline(result, user_id=user_id, supabase_client=pipeline_client)
+        pipeline_result = await run_pipeline(
+            result, user_id=user_id, supabase_client=pipeline_client
+        )
         transactions_saved = pipeline_result.transactions_new
     except Exception as exc:
-        logger.warning("Pipeline failed during sync (scrape succeeded): %s", exc, extra={"bank": bank})
+        logger.warning(
+            "Pipeline failed during sync (scrape succeeded): %s", exc, extra={"bank": bank}
+        )
 
     # ------------------------------------------------------------------
     # Step 5 — update last_synced_at (non-fatal).
     # ------------------------------------------------------------------
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         update_client = create_client(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
         )
-        update_client.table("bank_credentials").update(
-            {"last_synced_at": now_iso}
-        ).eq("user_id", str(user_id)).eq("bank", bank).execute()
+        update_client.table("bank_credentials").update({"last_synced_at": now_iso}).eq(
+            "user_id", str(user_id)
+        ).eq("bank", bank).execute()
     except Exception:
         pass  # non-fatal
 

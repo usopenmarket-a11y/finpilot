@@ -14,11 +14,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ---------------------------------------------------------------------------
 # User profile
@@ -31,7 +30,7 @@ class UserProfile(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID = Field(description="FK to auth.users(id) — same value as the Supabase user UID")
-    full_name: Optional[str] = Field(default=None, description="User's display name")
+    full_name: str | None = Field(default=None, description="User's display name")
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
 
@@ -61,7 +60,7 @@ class BankAccount(BaseModel):
     currency: str = Field(default="EGP", description="ISO 4217 currency code")
     balance: Decimal = Field(description="Current account balance (NUMERIC 15,2)")
     is_active: bool = Field(default=True, description="Whether the account is actively synced")
-    last_synced_at: Optional[datetime] = Field(
+    last_synced_at: datetime | None = Field(
         default=None, description="Timestamp of the most recent successful scrape"
     )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
@@ -92,21 +91,19 @@ class Transaction(BaseModel):
     )
     amount: Decimal = Field(description="Transaction amount (NUMERIC 15,2). Always positive.")
     currency: str = Field(default="EGP", description="ISO 4217 currency code")
-    transaction_type: str = Field(
-        description="Direction of money flow — one of: debit, credit"
-    )
+    transaction_type: str = Field(description="Direction of money flow — one of: debit, credit")
     description: str = Field(description="Raw description text extracted from the bank statement")
-    category: Optional[str] = Field(
+    category: str | None = Field(
         default=None, description="Top-level AI-assigned spending category"
     )
-    sub_category: Optional[str] = Field(
+    sub_category: str | None = Field(
         default=None, description="Granular AI-assigned spending sub-category"
     )
     transaction_date: date = Field(description="Date the transaction was posted")
-    value_date: Optional[date] = Field(
+    value_date: date | None = Field(
         default=None, description="Value date (settlement date) where provided by the bank"
     )
-    balance_after: Optional[Decimal] = Field(
+    balance_after: Decimal | None = Field(
         default=None, description="Account balance immediately after this transaction"
     )
     raw_data: dict[str, Any] = Field(
@@ -148,10 +145,10 @@ class Loan(BaseModel):
     monthly_installment: Decimal = Field(
         description="Fixed monthly repayment amount (NUMERIC 15,2)"
     )
-    next_payment_date: Optional[date] = Field(
+    next_payment_date: date | None = Field(
         default=None, description="Date the next installment is due"
     )
-    maturity_date: Optional[date] = Field(
+    maturity_date: date | None = Field(
         default=None, description="Date on which the loan is fully repaid"
     )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
@@ -177,10 +174,10 @@ class Debt(BaseModel):
         description="Whether the user lent money ('lent') or borrowed it ('borrowed')"
     )
     counterparty_name: str = Field(description="Name of the person money was lent to/borrowed from")
-    counterparty_phone: Optional[str] = Field(
+    counterparty_phone: str | None = Field(
         default=None, description="Optional contact phone number for the counterparty"
     )
-    counterparty_email: Optional[str] = Field(
+    counterparty_email: str | None = Field(
         default=None, description="Optional contact email for the counterparty"
     )
     original_amount: Decimal = Field(description="Initial debt amount (NUMERIC 15,2)")
@@ -188,10 +185,8 @@ class Debt(BaseModel):
         description="Remaining unpaid amount — reduced as payments are recorded (NUMERIC 15,2)"
     )
     currency: str = Field(default="EGP", description="ISO 4217 currency code")
-    due_date: Optional[date] = Field(
-        default=None, description="Agreed repayment deadline (if any)"
-    )
-    notes: Optional[str] = Field(
+    due_date: date | None = Field(default=None, description="Agreed repayment deadline (if any)")
+    notes: str | None = Field(
         default=None, description="Free-text context (e.g. purpose of the loan)"
     )
     status: str = Field(
@@ -211,9 +206,7 @@ class DebtPayment(BaseModel):
     debt_id: UUID = Field(description="FK to public.debts(id)")
     amount: Decimal = Field(description="Amount paid in this instalment (NUMERIC 15,2)")
     payment_date: date = Field(description="Calendar date the payment was made")
-    notes: Optional[str] = Field(
-        default=None, description="Optional memo for this specific payment"
-    )
+    notes: str | None = Field(default=None, description="Optional memo for this specific payment")
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
 
 
@@ -238,9 +231,7 @@ class BankCredential(BaseModel):
 
     id: UUID = Field(description="Primary key — gen_random_uuid()")
     user_id: UUID = Field(description="FK to auth.users(id) — cascade-deleted with the user")
-    bank: SUPPORTED_BANKS_LITERAL = Field(
-        description="Bank identifier — one of: NBE, CIB, BDC, UB"
-    )
+    bank: SUPPORTED_BANKS_LITERAL = Field(description="Bank identifier — one of: NBE, CIB, BDC, UB")
     encrypted_username: str = Field(
         description="AES-256-GCM ciphertext of the bank portal username"
     )
@@ -250,8 +241,9 @@ class BankCredential(BaseModel):
     is_active: bool = Field(
         default=True, description="False when the user has revoked or disabled this credential set"
     )
-    last_synced_at: Optional[datetime] = Field(
-        default=None, description="Timestamp of the most recent successful scrape using these credentials"
+    last_synced_at: datetime | None = Field(
+        default=None,
+        description="Timestamp of the most recent successful scrape using these credentials",
     )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")

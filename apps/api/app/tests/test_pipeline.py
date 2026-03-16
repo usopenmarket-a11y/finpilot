@@ -12,9 +12,9 @@ All Supabase interactions are intercepted by AsyncMock — no real DB connection
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -30,7 +30,7 @@ from app.scrapers.base import ScraperResult
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime.now(tz=timezone.utc)
+_NOW = datetime.now(tz=UTC)
 _TODAY = date.today()
 
 
@@ -156,9 +156,7 @@ def supabase() -> AsyncMock:
 class TestNormalizer:
     """Tests for app.pipeline.normalizer.normalize()."""
 
-    def test_normalize_sets_user_id_and_account_id(
-        self, scraper_result_3: ScraperResult
-    ) -> None:
+    def test_normalize_sets_user_id_and_account_id(self, scraper_result_3: ScraperResult) -> None:
         """normalize() stamps user_id and account_id onto every transaction."""
         uid = uuid4()
         aid = uuid4()
@@ -183,40 +181,28 @@ class TestNormalizer:
         assert result.account.currency == "EGP"
         assert result.transactions[0].currency == "EGP"
 
-    def test_normalize_transaction_type_lowercased(
-        self, user_id: UUID, account_id: UUID
-    ) -> None:
+    def test_normalize_transaction_type_lowercased(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() converts transaction_type to lowercase."""
         raw_txn = _make_transaction(transaction_type="Debit")
-        scraper_result = ScraperResult(
-            account=_make_bank_account("NBE"), transactions=[raw_txn]
-        )
+        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
         assert result.transactions[0].transaction_type == "debit"
 
-    def test_normalize_strips_description_whitespace(
-        self, user_id: UUID, account_id: UUID
-    ) -> None:
+    def test_normalize_strips_description_whitespace(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() strips leading/trailing whitespace from description."""
         raw_txn = _make_transaction(description="  ATM Withdrawal  ")
-        scraper_result = ScraperResult(
-            account=_make_bank_account("NBE"), transactions=[raw_txn]
-        )
+        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
         assert result.transactions[0].description == "ATM Withdrawal"
 
-    def test_normalize_amount_is_positive_decimal(
-        self, user_id: UUID, account_id: UUID
-    ) -> None:
+    def test_normalize_amount_is_positive_decimal(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() ensures amount is always a positive Decimal (abs applied)."""
         raw_txn = _make_transaction(amount=Decimal("-350.75"))
-        scraper_result = ScraperResult(
-            account=_make_bank_account("NBE"), transactions=[raw_txn]
-        )
+        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
@@ -224,18 +210,12 @@ class TestNormalizer:
         assert result.transactions[0].amount > 0
         assert isinstance(result.transactions[0].amount, Decimal)
 
-    def test_normalize_sets_is_categorized_false(
-        self, user_id: UUID, account_id: UUID
-    ) -> None:
+    def test_normalize_sets_is_categorized_false(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() forces is_categorized=False on all transactions."""
         # Construct a transaction that claims to be categorized already.
         raw_txn = _make_transaction()
-        raw_txn = raw_txn.model_copy(
-            update={"is_categorized": True, "category": "Food"}
-        )
-        scraper_result = ScraperResult(
-            account=_make_bank_account("NBE"), transactions=[raw_txn]
-        )
+        raw_txn = raw_txn.model_copy(update={"is_categorized": True, "category": "Food"})
+        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
@@ -245,9 +225,9 @@ class TestNormalizer:
         self, scraper_result_3: ScraperResult, user_id: UUID, account_id: UUID
     ) -> None:
         """normalize() sets account.last_synced_at to a recent UTC datetime."""
-        before = datetime.now(tz=timezone.utc)
+        before = datetime.now(tz=UTC)
         result = normalize(scraper_result_3, user_id, account_id)
-        after = datetime.now(tz=timezone.utc)
+        after = datetime.now(tz=UTC)
 
         synced = result.account.last_synced_at
         assert synced is not None
@@ -276,9 +256,7 @@ class TestDeduplicator:
         self, account_id: UUID, supabase: AsyncMock
     ) -> None:
         """Returns all transactions when the DB has no existing external_ids."""
-        transactions = [
-            _make_transaction(external_id=f"TXN-{i:04d}") for i in range(4)
-        ]
+        transactions = [_make_transaction(external_id=f"TXN-{i:04d}") for i in range(4)]
 
         # Stub DB returning empty data (no existing rows).
         builder = MagicMock()
@@ -362,9 +340,7 @@ class TestDeduplicator:
 class TestUpserter:
     """Tests for app.pipeline.upserter.upsert_account() and insert_transactions()."""
 
-    async def test_upsert_account_calls_correct_table(
-        self, user_id: UUID
-    ) -> None:
+    async def test_upsert_account_calls_correct_table(self, user_id: UUID) -> None:
         """upsert_account() targets the 'bank_accounts' table."""
         account = _make_bank_account("NBE")
         returned_uuid = uuid4()
@@ -418,9 +394,7 @@ class TestUpserter:
 
     async def test_insert_transactions_returns_correct_count(self) -> None:
         """insert_transactions() returns the count from the Supabase response."""
-        transactions = [
-            _make_transaction(external_id=f"TXN-{i:03d}") for i in range(5)
-        ]
+        transactions = [_make_transaction(external_id=f"TXN-{i:03d}") for i in range(5)]
 
         supabase = AsyncMock()
         builder = MagicMock()
@@ -499,9 +473,7 @@ class TestRunner:
                 if this_call == 1:
                     # Deduplication SELECT response
                     execute_result = MagicMock()
-                    execute_result.data = [
-                        {"external_id": eid} for eid in existing_external_ids
-                    ]
+                    execute_result.data = [{"external_id": eid} for eid in existing_external_ids]
                     builder.execute = AsyncMock(return_value=execute_result)
                     builder.select = MagicMock(return_value=builder)
                     builder.eq = MagicMock(return_value=builder)
@@ -536,9 +508,9 @@ class TestRunner:
             insert_count=3,
         )
 
-        before = datetime.now(tz=timezone.utc)
+        before = datetime.now(tz=UTC)
         result = await run_pipeline(scraper_result, uid, supabase)
-        after = datetime.now(tz=timezone.utc)
+        after = datetime.now(tz=UTC)
 
         assert isinstance(result, PipelineRunResult)
         assert result.account_id == real_account_uuid
@@ -557,9 +529,7 @@ class TestRunner:
         n_new = n_total - n_existing
 
         scraper_result = make_scraper_result("CIB", n_transactions=n_total)
-        existing_ids = [
-            scraper_result.transactions[i].external_id for i in range(n_existing)
-        ]
+        existing_ids = [scraper_result.transactions[i].external_id for i in range(n_existing)]
 
         supabase = self._make_pipeline_supabase(
             account_uuid=real_account_uuid,
@@ -593,7 +563,7 @@ class TestRunner:
 
     def test_pipeline_run_result_has_required_fields(self) -> None:
         """PipelineRunResult dataclass exposes all documented fields."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         pipeline_result = PipelineRunResult(
             account_id=uuid4(),
             account_number_masked="****9999",

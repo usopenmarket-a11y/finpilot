@@ -17,8 +17,8 @@ from app.models.db import BankAccount, Loan
 # Thresholds
 # ---------------------------------------------------------------------------
 
-_CAUTION_THRESHOLD = 30.0   # utilization % — below is "healthy"
-_DANGER_THRESHOLD = 75.0    # utilization % — above is "critical"
+_CAUTION_THRESHOLD = 30.0  # utilization % — below is "healthy"
+_DANGER_THRESHOLD = 75.0  # utilization % — above is "critical"
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -144,9 +144,7 @@ def compute_credit_report(
         current_balance: Decimal = Decimal("0")
 
         if credit_limit > Decimal("0"):
-            utilization_pct = float(
-                current_balance / credit_limit * 100
-            )
+            utilization_pct = float(current_balance / credit_limit * 100)
         else:
             utilization_pct = 0.0
 
@@ -186,12 +184,8 @@ def compute_credit_report(
     # ------------------------------------------------------------------ #
     # Aggregate totals
     # ------------------------------------------------------------------ #
-    total_card_debt: Decimal = sum(
-        (c.current_balance for c in credit_cards), Decimal("0")
-    )
-    total_loan_debt: Decimal = sum(
-        (ln.outstanding_balance for ln in loan_summaries), Decimal("0")
-    )
+    total_card_debt: Decimal = sum((c.current_balance for c in credit_cards), Decimal("0"))
+    total_loan_debt: Decimal = sum((ln.outstanding_balance for ln in loan_summaries), Decimal("0"))
     total_debt: Decimal = total_card_debt + total_loan_debt
 
     total_monthly_obligations: Decimal = sum(

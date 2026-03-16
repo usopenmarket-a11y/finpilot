@@ -11,7 +11,7 @@ calls, no database calls.
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,8 +25,8 @@ from app.recommendations.monthly_plan import TrendReport
 FORECAST_HORIZON: int = 3
 
 # Expense growth rates per additional forecast month
-EXPENSE_GROWTH_RATE_UP: Decimal = Decimal("0.03")    # +3 % compounding
-EXPENSE_GROWTH_RATE_DOWN: Decimal = Decimal("-0.02") # -2 % per month
+EXPENSE_GROWTH_RATE_UP: Decimal = Decimal("0.03")  # +3 % compounding
+EXPENSE_GROWTH_RATE_DOWN: Decimal = Decimal("-0.02")  # -2 % per month
 EXPENSE_GROWTH_RATE_FLAT: Decimal = Decimal("0.00")  # no change
 
 # Income pressure when spending is trending up (-2 % per forecast month)
@@ -203,16 +203,12 @@ def generate_forecast(
 
     # Determine whether income faces pressure (only when spending is "up")
     income_monthly_adjustment: Decimal = (
-        INCOME_PRESSURE_RATE_UP
-        if trends.spend_trend_direction == "up"
-        else Decimal("0")
+        INCOME_PRESSURE_RATE_UP if trends.spend_trend_direction == "up" else Decimal("0")
     )
 
     # Sparse-data penalty applied uniformly across all months
     sparse_penalty: float = (
-        SPARSE_DATA_CONFIDENCE_PENALTY
-        if trends.lookback_months < SPARSE_DATA_THRESHOLD
-        else 0.0
+        SPARSE_DATA_CONFIDENCE_PENALTY if trends.lookback_months < SPARSE_DATA_THRESHOLD else 0.0
     )
 
     # Walk forward through FORECAST_HORIZON months starting from the month
@@ -245,9 +241,7 @@ def generate_forecast(
         # Base decays linearly by CONFIDENCE_DECAY_PER_MONTH per step,
         # then sparse penalty is applied uniformly.
         raw_confidence: float = (
-            BASE_CONFIDENCE
-            - (step - 1) * CONFIDENCE_DECAY_PER_MONTH
-            - sparse_penalty
+            BASE_CONFIDENCE - (step - 1) * CONFIDENCE_DECAY_PER_MONTH - sparse_penalty
         )
         confidence: float = _clamp_confidence(raw_confidence)
 
@@ -266,12 +260,8 @@ def generate_forecast(
     # ------------------------------------------------------------------ #
     # Summary statistics
     # ------------------------------------------------------------------ #
-    total_net: Decimal = sum(
-        (fp.projected_net for fp in forecast_points), Decimal("0")
-    )
-    avg_projected_monthly_net: Decimal = _egp(
-        total_net / Decimal(FORECAST_HORIZON)
-    )
+    total_net: Decimal = sum((fp.projected_net for fp in forecast_points), Decimal("0"))
+    avg_projected_monthly_net: Decimal = _egp(total_net / Decimal(FORECAST_HORIZON))
 
     # Trend direction classification
     improving_threshold: Decimal = trends.avg_monthly_income * IMPROVING_NET_INCOME_RATIO

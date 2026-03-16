@@ -7,7 +7,7 @@ Decimal to avoid floating-point rounding errors.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
@@ -71,9 +71,7 @@ def compute_spending_breakdown(
     """
     # Filter to the requested window
     in_window: list[Transaction] = [
-        tx
-        for tx in transactions
-        if period_start <= tx.transaction_date <= period_end
+        tx for tx in transactions if period_start <= tx.transaction_date <= period_end
     ]
 
     currency: str = in_window[0].currency if in_window else "EGP"
@@ -95,9 +93,7 @@ def compute_spending_breakdown(
     # Build per-category breakdown
     by_category: list[CategoryBreakdown] = []
     for cat, total in category_totals.items():
-        percentage: float = (
-            float(total / total_spending * 100) if total_spending else 0.0
-        )
+        percentage: float = float(total / total_spending * 100) if total_spending else 0.0
         by_category.append(
             CategoryBreakdown(
                 category=cat,

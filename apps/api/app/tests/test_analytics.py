@@ -13,8 +13,7 @@ unittest.mock.  The tests are pure unit tests — no ASGI app, no DB.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -24,14 +23,13 @@ import pytest
 
 from app.models.db import BankAccount, Loan, Transaction
 
-
 # ---------------------------------------------------------------------------
 # Shared datetime helper
 # ---------------------------------------------------------------------------
 
 
 def _now() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -177,9 +175,7 @@ class TestCategorizerRules:
         mock_anthropic_client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_salary_transfer_matches_rule(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
+    async def test_salary_transfer_matches_rule(self, mock_anthropic_client: MagicMock) -> None:
         """Test 2 — 'salary transfer' → category='Transfers', sub_category='Salary'."""
         from app.analytics.categorizer import categorize_transaction
 
@@ -196,9 +192,7 @@ class TestCategorizerRules:
         mock_anthropic_client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_arabic_transfer_matches_rule(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
+    async def test_arabic_transfer_matches_rule(self, mock_anthropic_client: MagicMock) -> None:
         """Test 3 — Arabic 'تحويل' → category='Transfers', method='rule'."""
         from app.analytics.categorizer import categorize_transaction
 
@@ -214,9 +208,7 @@ class TestCategorizerRules:
         mock_anthropic_client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_large_credit_matches_rule(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
+    async def test_large_credit_matches_rule(self, mock_anthropic_client: MagicMock) -> None:
         """Test 4 — large credit (amount>5000, type='credit') → 'Transfers'."""
         from app.analytics.categorizer import categorize_transaction
 
@@ -420,9 +412,7 @@ class TestCategorizeBatch:
         assert ai_result.category == "Shopping"
 
     @pytest.mark.asyncio
-    async def test_batch_empty_list_returns_empty(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
+    async def test_batch_empty_list_returns_empty(self, mock_anthropic_client: MagicMock) -> None:
         """Test 9 — empty transaction list → empty results, no API calls."""
         from app.analytics.categorizer import categorize_batch
 
@@ -432,9 +422,7 @@ class TestCategorizeBatch:
         mock_anthropic_client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_batch_no_api_key_all_rule_method(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
+    async def test_batch_no_api_key_all_rule_method(self, mock_anthropic_client: MagicMock) -> None:
         """Batch with empty API key assigns method='rule' even for non-matching transactions."""
         from app.analytics.categorizer import categorize_batch
 
@@ -479,8 +467,12 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="500.00", transaction_type="debit", transaction_date=date(2026, 1, 10)),
-            make_transaction(amount="300.00", transaction_type="debit", transaction_date=date(2026, 1, 15)),
+            make_transaction(
+                amount="500.00", transaction_type="debit", transaction_date=date(2026, 1, 10)
+            ),
+            make_transaction(
+                amount="300.00", transaction_type="debit", transaction_date=date(2026, 1, 15)
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -493,8 +485,12 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="10000.00", transaction_type="credit", transaction_date=date(2026, 1, 5)),
-            make_transaction(amount="5000.00", transaction_type="credit", transaction_date=date(2026, 1, 25)),
+            make_transaction(
+                amount="10000.00", transaction_type="credit", transaction_date=date(2026, 1, 5)
+            ),
+            make_transaction(
+                amount="5000.00", transaction_type="credit", transaction_date=date(2026, 1, 25)
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -508,9 +504,24 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="100.00", transaction_type="debit", category="Groceries", transaction_date=date(2026, 1, 1)),
-            make_transaction(amount="800.00", transaction_type="debit", category="Rent & Housing", transaction_date=date(2026, 1, 2)),
-            make_transaction(amount="250.00", transaction_type="debit", category="Food & Dining", transaction_date=date(2026, 1, 3)),
+            make_transaction(
+                amount="100.00",
+                transaction_type="debit",
+                category="Groceries",
+                transaction_date=date(2026, 1, 1),
+            ),
+            make_transaction(
+                amount="800.00",
+                transaction_type="debit",
+                category="Rent & Housing",
+                transaction_date=date(2026, 1, 2),
+            ),
+            make_transaction(
+                amount="250.00",
+                transaction_type="debit",
+                category="Food & Dining",
+                transaction_date=date(2026, 1, 3),
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -523,9 +534,15 @@ class TestComputeSpendingBreakdown:
         """Test 15 — transactions outside [period_start, period_end] are ignored."""
         from app.analytics.spending import compute_spending_breakdown
 
-        in_range = make_transaction(amount="200.00", transaction_type="debit", transaction_date=date(2026, 2, 15))
-        out_before = make_transaction(amount="999.00", transaction_type="debit", transaction_date=date(2026, 1, 31))
-        out_after = make_transaction(amount="999.00", transaction_type="debit", transaction_date=date(2026, 3, 1))
+        in_range = make_transaction(
+            amount="200.00", transaction_type="debit", transaction_date=date(2026, 2, 15)
+        )
+        out_before = make_transaction(
+            amount="999.00", transaction_type="debit", transaction_date=date(2026, 1, 31)
+        )
+        out_after = make_transaction(
+            amount="999.00", transaction_type="debit", transaction_date=date(2026, 3, 1)
+        )
 
         breakdown = compute_spending_breakdown(
             [in_range, out_before, out_after],
@@ -540,7 +557,12 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="150.00", transaction_type="debit", category=None, transaction_date=date(2026, 1, 10)),
+            make_transaction(
+                amount="150.00",
+                transaction_type="debit",
+                category=None,
+                transaction_date=date(2026, 1, 10),
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -553,9 +575,24 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="400.00", transaction_type="debit", category="Groceries", transaction_date=date(2026, 1, 1)),
-            make_transaction(amount="300.00", transaction_type="debit", category="Food & Dining", transaction_date=date(2026, 1, 2)),
-            make_transaction(amount="300.00", transaction_type="debit", category="Transportation", transaction_date=date(2026, 1, 3)),
+            make_transaction(
+                amount="400.00",
+                transaction_type="debit",
+                category="Groceries",
+                transaction_date=date(2026, 1, 1),
+            ),
+            make_transaction(
+                amount="300.00",
+                transaction_type="debit",
+                category="Food & Dining",
+                transaction_date=date(2026, 1, 2),
+            ),
+            make_transaction(
+                amount="300.00",
+                transaction_type="debit",
+                category="Transportation",
+                transaction_date=date(2026, 1, 3),
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -568,9 +605,15 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="15000.00", transaction_type="credit", transaction_date=date(2026, 1, 1)),
-            make_transaction(amount="5000.00", transaction_type="debit", transaction_date=date(2026, 1, 10)),
-            make_transaction(amount="3000.00", transaction_type="debit", transaction_date=date(2026, 1, 20)),
+            make_transaction(
+                amount="15000.00", transaction_type="credit", transaction_date=date(2026, 1, 1)
+            ),
+            make_transaction(
+                amount="5000.00", transaction_type="debit", transaction_date=date(2026, 1, 10)
+            ),
+            make_transaction(
+                amount="3000.00", transaction_type="debit", transaction_date=date(2026, 1, 20)
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -584,8 +627,12 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="100.00", transaction_type="debit", transaction_date=date(2026, 1, 1)),
-            make_transaction(amount="200.00", transaction_type="debit", transaction_date=date(2026, 1, 31)),
+            make_transaction(
+                amount="100.00", transaction_type="debit", transaction_date=date(2026, 1, 1)
+            ),
+            make_transaction(
+                amount="200.00", transaction_type="debit", transaction_date=date(2026, 1, 31)
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -596,7 +643,12 @@ class TestComputeSpendingBreakdown:
         from app.analytics.spending import compute_spending_breakdown
 
         txns = [
-            make_transaction(amount="100.00", transaction_type="debit", currency="USD", transaction_date=date(2026, 1, 5)),
+            make_transaction(
+                amount="100.00",
+                transaction_type="debit",
+                currency="USD",
+                transaction_date=date(2026, 1, 5),
+            ),
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
@@ -628,8 +680,12 @@ class TestComputeTrends:
         from app.analytics.trends import compute_trends
 
         txns = [
-            make_transaction(amount="1000.00", transaction_type="debit", transaction_date=date(2026, 1, 10)),
-            make_transaction(amount="500.00", transaction_type="debit", transaction_date=date(2026, 1, 20)),
+            make_transaction(
+                amount="1000.00", transaction_type="debit", transaction_date=date(2026, 1, 10)
+            ),
+            make_transaction(
+                amount="500.00", transaction_type="debit", transaction_date=date(2026, 1, 20)
+            ),
         ]
 
         report = compute_trends(txns)
@@ -646,9 +702,13 @@ class TestComputeTrends:
 
         txns = [
             # January: 1000 spending
-            make_transaction(amount="1000.00", transaction_type="debit", transaction_date=date(2026, 1, 15)),
+            make_transaction(
+                amount="1000.00", transaction_type="debit", transaction_date=date(2026, 1, 15)
+            ),
             # February: 1500 spending → +50% change
-            make_transaction(amount="1500.00", transaction_type="debit", transaction_date=date(2026, 2, 15)),
+            make_transaction(
+                amount="1500.00", transaction_type="debit", transaction_date=date(2026, 2, 15)
+            ),
         ]
 
         report = compute_trends(txns)
@@ -680,12 +740,24 @@ class TestComputeTrends:
 
     def test_monthly_snapshot_fields(self) -> None:
         """Test 23 — MonthlySnapshot has year, month, total_spending, total_income, net, transaction_count, top_category."""
-        from app.analytics.trends import compute_trends, MonthlySnapshot
+        from app.analytics.trends import MonthlySnapshot, compute_trends
 
         txns = [
-            make_transaction(amount="300.00", transaction_type="debit", category="Food & Dining", transaction_date=date(2026, 3, 5)),
-            make_transaction(amount="700.00", transaction_type="debit", category="Rent & Housing", transaction_date=date(2026, 3, 20)),
-            make_transaction(amount="5000.00", transaction_type="credit", transaction_date=date(2026, 3, 1)),
+            make_transaction(
+                amount="300.00",
+                transaction_type="debit",
+                category="Food & Dining",
+                transaction_date=date(2026, 3, 5),
+            ),
+            make_transaction(
+                amount="700.00",
+                transaction_type="debit",
+                category="Rent & Housing",
+                transaction_date=date(2026, 3, 20),
+            ),
+            make_transaction(
+                amount="5000.00", transaction_type="credit", transaction_date=date(2026, 3, 1)
+            ),
         ]
 
         report = compute_trends(txns, lookback_months=6)
@@ -707,9 +779,15 @@ class TestComputeTrends:
         from app.analytics.trends import compute_trends
 
         txns = [
-            make_transaction(amount="1000.00", transaction_type="debit", transaction_date=date(2026, 1, 15)),
-            make_transaction(amount="2000.00", transaction_type="debit", transaction_date=date(2026, 2, 15)),
-            make_transaction(amount="3000.00", transaction_type="debit", transaction_date=date(2026, 3, 15)),
+            make_transaction(
+                amount="1000.00", transaction_type="debit", transaction_date=date(2026, 1, 15)
+            ),
+            make_transaction(
+                amount="2000.00", transaction_type="debit", transaction_date=date(2026, 2, 15)
+            ),
+            make_transaction(
+                amount="3000.00", transaction_type="debit", transaction_date=date(2026, 3, 15)
+            ),
         ]
 
         report = compute_trends(txns, lookback_months=6)
@@ -722,9 +800,15 @@ class TestComputeTrends:
         from app.analytics.trends import compute_trends
 
         txns = [
-            make_transaction(amount="100.00", transaction_type="debit", transaction_date=date(2026, 3, 1)),
-            make_transaction(amount="100.00", transaction_type="debit", transaction_date=date(2026, 1, 1)),
-            make_transaction(amount="100.00", transaction_type="debit", transaction_date=date(2026, 2, 1)),
+            make_transaction(
+                amount="100.00", transaction_type="debit", transaction_date=date(2026, 3, 1)
+            ),
+            make_transaction(
+                amount="100.00", transaction_type="debit", transaction_date=date(2026, 1, 1)
+            ),
+            make_transaction(
+                amount="100.00", transaction_type="debit", transaction_date=date(2026, 2, 1)
+            ),
         ]
 
         report = compute_trends(txns)
@@ -738,9 +822,13 @@ class TestComputeTrends:
 
         txns = [
             # January: only income, no spending
-            make_transaction(amount="10000.00", transaction_type="credit", transaction_date=date(2026, 1, 1)),
+            make_transaction(
+                amount="10000.00", transaction_type="credit", transaction_date=date(2026, 1, 1)
+            ),
             # February: spending present
-            make_transaction(amount="500.00", transaction_type="debit", transaction_date=date(2026, 2, 15)),
+            make_transaction(
+                amount="500.00", transaction_type="debit", transaction_date=date(2026, 2, 15)
+            ),
         ]
 
         report = compute_trends(txns)

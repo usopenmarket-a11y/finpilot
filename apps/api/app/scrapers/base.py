@@ -22,7 +22,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from playwright.async_api import (
     Browser,
@@ -278,9 +278,7 @@ class BankScraper(ABC):
             try:
                 await playwright.stop()
             except Exception as exc:
-                logger.debug(
-                    "%s playwright stop error (ignored): %s", self.bank_name, exc
-                )
+                logger.debug("%s playwright stop error (ignored): %s", self.bank_name, exc)
             self._playwright = None
 
     # ------------------------------------------------------------------
@@ -319,7 +317,7 @@ class BankScraper(ABC):
 
     async def _safe_screenshot(
         self, page: Page, label: str, full_page: bool = False
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """Capture a debug screenshot and return its path.
 
         This helper MUST only be called on post-authentication pages.  NEVER

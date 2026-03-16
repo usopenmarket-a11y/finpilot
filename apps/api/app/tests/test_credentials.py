@@ -17,7 +17,7 @@ Security contract verified:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 # ---------------------------------------------------------------------------
 
 VALID_USER_ID = str(uuid4())
-FAKE_CREATED_AT = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc).isoformat()
+FAKE_CREATED_AT = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC).isoformat()
 
 
 @pytest.fixture(scope="module")

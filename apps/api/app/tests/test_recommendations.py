@@ -52,33 +52,30 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# ---------------------------------------------------------------------------
-# Engine imports
-# ---------------------------------------------------------------------------
-
-from app.recommendations.monthly_plan import (
-    CategoryBreakdown,
-    MonthlyPlan,
-    MonthlyPoint,
-    SpendingBreakdown,
-    TrendReport,
-    generate_monthly_plan,
-)
-from app.recommendations.forecaster import (
-    CashFlowForecast,
-    generate_forecast,
-)
 from app.recommendations.debt_optimizer import (
     DebtItem,
     DebtOptimizationReport,
     optimize_debt_payoff,
+)
+from app.recommendations.forecaster import (
+    generate_forecast,
+)
+
+# ---------------------------------------------------------------------------
+# Engine imports
+# ---------------------------------------------------------------------------
+from app.recommendations.monthly_plan import (
+    CategoryBreakdown,
+    MonthlyPoint,
+    SpendingBreakdown,
+    TrendReport,
+    generate_monthly_plan,
 )
 from app.recommendations.savings import (
     SavingsReport,
     TransactionSummary,
     detect_savings_opportunities,
 )
-
 
 # ===========================================================================
 # Fixture factories — shared by both test levels
@@ -509,9 +506,7 @@ def test_forecast_avg_projected_net_is_mean_of_points() -> None:
 
     nets = [fp.projected_net for fp in forecast.forecast_points]
     expected_avg = sum(nets) / Decimal("3")
-    assert forecast.avg_projected_monthly_net == pytest.approx(
-        float(expected_avg), abs=0.01
-    )
+    assert forecast.avg_projected_monthly_net == pytest.approx(float(expected_avg), abs=0.01)
 
 
 # ===========================================================================
@@ -571,9 +566,7 @@ def test_debt_optimizer_payoff_reduces_balance_to_zero() -> None:
     report = optimize_debt_payoff(debts, monthly_budget=Decimal("2000"))
 
     # The last PayoffStep for this debt should show remaining_balance == 0
-    last_steps = [
-        s for s in report.snowball.monthly_steps if s.debt_id == "d1"
-    ]
+    last_steps = [s for s in report.snowball.monthly_steps if s.debt_id == "d1"]
     assert last_steps[-1].remaining_balance == Decimal("0")
 
 

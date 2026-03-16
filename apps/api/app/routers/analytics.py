@@ -111,10 +111,10 @@ async def categorize_transactions(
     # Build Transaction-like objects expected by the categorizer.  We pass only
     # the fields the categorizer actually reads: id, description, amount,
     # transaction_type.  Extra fields default to safe values.
-    from app.models.db import Transaction  # local import avoids circular risk
-
     from datetime import datetime
     from uuid import uuid4
+
+    from app.models.db import Transaction  # local import avoids circular risk
 
     _sentinel_account_id = uuid4()
     _sentinel_user_id = uuid4()

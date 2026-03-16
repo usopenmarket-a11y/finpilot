@@ -7,8 +7,7 @@ Decimal to avoid floating-point rounding errors.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import date, timezone
+from dataclasses import dataclass
 from decimal import Decimal
 
 from app.models.db import Transaction
@@ -117,9 +116,7 @@ def compute_trends(
     # ------------------------------------------------------------------ #
     # Build MonthlySnapshot objects for ALL months that have data
     # ------------------------------------------------------------------ #
-    all_keys: list[tuple[int, int]] = sorted(
-        set(spending_by_month) | set(income_by_month)
-    )
+    all_keys: list[tuple[int, int]] = sorted(set(spending_by_month) | set(income_by_month))
 
     all_snapshots: list[MonthlySnapshot] = []
     for key in all_keys:
@@ -161,12 +158,8 @@ def compute_trends(
         income_change_pct = _pct_change(previous.total_income, latest.total_income)
 
     if window:
-        avg_spending = sum(
-            (s.total_spending for s in window), Decimal("0")
-        ) / Decimal(len(window))
-        avg_income = sum(
-            (s.total_income for s in window), Decimal("0")
-        ) / Decimal(len(window))
+        avg_spending = sum((s.total_spending for s in window), Decimal("0")) / Decimal(len(window))
+        avg_income = sum((s.total_income for s in window), Decimal("0")) / Decimal(len(window))
     else:
         avg_spending = Decimal("0")
         avg_income = Decimal("0")

@@ -67,9 +67,7 @@ class DebtItem(BaseModel):
     debt_type: Literal["loan", "lent", "borrowed"] = Field(
         description="Debt classification: loan | lent | borrowed"
     )
-    outstanding_balance: Decimal = Field(
-        ge=ZERO, description="Remaining balance in EGP (>= 0)"
-    )
+    outstanding_balance: Decimal = Field(ge=ZERO, description="Remaining balance in EGP (>= 0)")
     interest_rate: Decimal = Field(
         ge=ZERO,
         le=Decimal("1"),
@@ -118,9 +116,7 @@ class PayoffStep(BaseModel):
     month: int = Field(ge=1, description="1-based month index within the simulation")
     debt_id: str = Field(description="Identifier of the debt this step applies to")
     payment: Decimal = Field(description="Total EGP paid toward this debt this month")
-    remaining_balance: Decimal = Field(
-        description="Balance remaining after this payment (EGP)"
-    )
+    remaining_balance: Decimal = Field(description="Balance remaining after this payment (EGP)")
     interest_charged: Decimal = Field(
         description="Interest accrued this month before payment (EGP)"
     )
@@ -156,15 +152,9 @@ class DebtStrategy(BaseModel):
     strategy_name: Literal["snowball", "avalanche"] = Field(
         description="Name of the payoff strategy"
     )
-    total_months: int = Field(
-        ge=0, description="Months to debt-free (capped at MAX_MONTHS)"
-    )
-    total_interest_paid: Decimal = Field(
-        description="Total interest paid across all debts in EGP"
-    )
-    total_paid: Decimal = Field(
-        description="Total EGP disbursed (principal + interest)"
-    )
+    total_months: int = Field(ge=0, description="Months to debt-free (capped at MAX_MONTHS)")
+    total_interest_paid: Decimal = Field(description="Total interest paid across all debts in EGP")
+    total_paid: Decimal = Field(description="Total EGP disbursed (principal + interest)")
     monthly_steps: list[PayoffStep] = Field(
         description="Month-by-month payment breakdown (capped at 120 months)"
     )
@@ -328,9 +318,7 @@ def _simulate(
             extra = _round(extra)
             balances[priority_id] = _round(balances[priority_id] - extra)
             remaining_budget = _round(remaining_budget - extra)
-            min_payments_made[priority_id] = _round(
-                min_payments_made[priority_id] + extra
-            )
+            min_payments_made[priority_id] = _round(min_payments_made[priority_id] + extra)
 
         # Step 4 — record PayoffStep for every active debt this month
         for debt_id in active_ids:
@@ -424,20 +412,12 @@ def optimize_debt_payoff(
     active_debts = [d for d in debts if d.outstanding_balance > ZERO]
 
     # Run both simulations
-    snow_steps, snow_months, snow_interest = _simulate(
-        active_debts, monthly_budget, "snowball"
-    )
-    aval_steps, aval_months, aval_interest = _simulate(
-        active_debts, monthly_budget, "avalanche"
-    )
+    snow_steps, snow_months, snow_interest = _simulate(active_debts, monthly_budget, "snowball")
+    aval_steps, aval_months, aval_interest = _simulate(active_debts, monthly_budget, "avalanche")
 
     # Compute totals for each strategy
-    snow_total_paid = _round(
-        sum(d.outstanding_balance for d in active_debts) + snow_interest
-    )
-    aval_total_paid = _round(
-        sum(d.outstanding_balance for d in active_debts) + aval_interest
-    )
+    snow_total_paid = _round(sum(d.outstanding_balance for d in active_debts) + snow_interest)
+    aval_total_paid = _round(sum(d.outstanding_balance for d in active_debts) + aval_interest)
 
     confidence = _compute_confidence(active_debts)
 

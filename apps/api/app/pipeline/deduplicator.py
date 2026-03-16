@@ -44,16 +44,10 @@ async def filter_new_transactions(
         return []
 
     # Fetch all external_ids for this account
-    existing_external_ids = await _fetch_existing_external_ids(
-        account_id, supabase_client
-    )
+    existing_external_ids = await _fetch_existing_external_ids(account_id, supabase_client)
 
     # Filter to only new transactions
-    new_transactions = [
-        txn
-        for txn in transactions
-        if txn.external_id not in existing_external_ids
-    ]
+    new_transactions = [txn for txn in transactions if txn.external_id not in existing_external_ids]
 
     # Log deduplication stats
     skipped_count = len(transactions) - len(new_transactions)
@@ -84,9 +78,12 @@ async def _fetch_existing_external_ids(
     Raises:
         Exception: If the query fails
     """
-    response = await supabase_client.table("transactions").select(
-        "external_id"
-    ).eq("account_id", str(account_id)).execute()
+    response = (
+        await supabase_client.table("transactions")
+        .select("external_id")
+        .eq("account_id", str(account_id))
+        .execute()
+    )
 
     # Extract external_ids from the response
     external_ids: set[str] = set()
