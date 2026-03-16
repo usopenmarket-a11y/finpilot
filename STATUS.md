@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M6 complete)
+**Last reviewed:** 2026-03-16 (M7 complete)
 
 ---
 
@@ -14,7 +14,7 @@
 | M4 | Analytics Engine | COMPLETE | 100% |
 | M5 | Debt Tracker (CRUD) | COMPLETE | 100% |
 | M6 | Recommendations Engine | COMPLETE | 100% |
-| M7 | Frontend Dashboard | NOT STARTED | 0% |
+| M7 | Frontend Dashboard | COMPLETE | 100% |
 | M8 | Production Deploy & Monitoring | NOT STARTED | 0% |
 
 ---
@@ -124,18 +124,37 @@
 
 ---
 
+---
+
+## M7 Detailed Breakdown (100% — COMPLETE)
+
+### Done
+- [x] `src/lib/types.ts` — TypeScript interfaces for all domain models (Debt, Transaction, MonthlyPlan, etc.)
+- [x] `src/components/ui/` — 7 hand-rolled primitives: badge, card, button, input, modal, select, empty-state
+- [x] `src/components/layout/sidebar.tsx` — mobile drawer + desktop sticky, nav links, sign-out
+- [x] `src/components/layout/dashboard-layout.tsx` — responsive wrapper with sidebar
+- [x] `src/components/dashboard/` — account-card (KPI), spending-chart (CSS bars), recent-transactions (table), health-score (SVG gauge)
+- [x] `src/components/transactions/transaction-table.tsx` — filter, sort, pagination
+- [x] `src/components/debts/` — debt-list, add-debt-form, payment-modal (calls `api.post('/debts/…')`)
+- [x] `src/components/recommendations/` — monthly-plan-card, savings-opportunities, forecast-chart (grouped CSS bars)
+- [x] `src/hooks/use-debts.ts` + `use-transactions.ts` — fetch + loading + error + refetch pattern
+- [x] Pages: `/dashboard`, `/dashboard/transactions`, `/dashboard/debts`, `/dashboard/recommendations`, `/dashboard/settings`
+- [x] `src/app/dashboard/layout.tsx` — server-side auth guard, redirects unauthenticated users
+- [x] Fixed pre-existing scaffold errors: Geist→Inter/JetBrains_Mono (Next.js 14), Supabase cookie type annotations
+- [x] `tsc --noEmit`: **zero errors**
+
+---
+
 ## Current Focus
 
-**M7 — Frontend Dashboard**
+**M8 — Production Deploy & Monitoring**
 
-### M7 entry points
-- `apps/web/src/` — all UI work here (Next.js 15 + Tailwind + shadcn/ui)
-- Deliverables:
-  - Dashboard page with account balance overview and spending charts
-  - Transaction explorer with filters and pagination
-  - Debt tracker UI (CRUD, payment flow, settlement status)
-  - Recommendations panel (monthly plan, forecast, savings opportunities)
-  - Responsive layout (mobile + desktop), dark mode support
+### M8 entry points
+- Deploy backend to Render (auto via git push — workflow exists)
+- Deploy frontend to Vercel (need `vercel link` first)
+- Set environment variables in both platforms
+- Configure Sentry error tracking
+- Health monitoring / uptime checks
 
 ---
 
@@ -153,6 +172,7 @@
 
 | Commit | Description |
 |--------|-------------|
+| `08a08e4` | M7: Frontend Dashboard — 28 files, 5 pages, 0 TS errors |
 | `e4e2414` | M6: Recommendations Engine — 4 modules + 4 endpoints + 59 tests (478 total) |
 | `8c42469` | M5: Debt Tracker CRUD — debts router + 52 tests (419 total passing) |
 | `b46fb81` | M4: Analytics engine — categorizer, spending, trends, credit + 4 API endpoints (46 new tests) |
