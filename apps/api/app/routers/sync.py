@@ -26,6 +26,7 @@ from app.crypto import CryptoError, decrypt
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
+    BankScraper,
     BDCScraper,
     CIBScraper,
     NBEScraper,
@@ -144,6 +145,7 @@ async def sync_bank(
         )
 
     row = response.data
+    assert isinstance(row, dict)
     enc_username: str = row["encrypted_username"]
     enc_password: str = row["encrypted_password"]
 
@@ -171,7 +173,7 @@ async def sync_bank(
     # Step 3 — run the scraper.
     # ------------------------------------------------------------------
     scraper_class = _SCRAPER_MAP[bank]
-    scraper = scraper_class(username=username, password=password)
+    scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
 
     logger.info("Sync initiated via stored credentials", extra={"bank": bank})
     try:
@@ -214,9 +216,9 @@ async def sync_bank(
     # ------------------------------------------------------------------
     transactions_saved = 0
     try:
-        from supabase import create_client as _mk  # local import to keep top-of-file clean
+        from supabase.async_client import AsyncClient
 
-        pipeline_client = _mk(
+        pipeline_client = AsyncClient(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
         )

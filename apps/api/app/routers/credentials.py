@@ -25,6 +25,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from supabase import create_client
+from supabase._sync.client import Client
 from typing import Literal
 
 from app.config import settings
@@ -39,7 +40,7 @@ router = APIRouter(tags=["credentials"])
 # ---------------------------------------------------------------------------
 
 
-def _get_client():  # type: ignore[return]
+def _get_client() -> Client:
     """Create a synchronous Supabase client using the service-role key."""
     return create_client(
         settings.supabase_url,
@@ -156,6 +157,7 @@ async def save_credential(
         )
 
     row = rows[0]
+    assert isinstance(row, dict)
     logger.info("Credentials saved for bank=%s user_id=%s", body.bank, user_id)
     return CredentialInfo(
         bank=row["bank"],
@@ -197,15 +199,18 @@ async def list_credentials(
             detail="Failed to retrieve credentials",
         ) from exc
 
-    return [
-        CredentialInfo(
-            bank=row["bank"],
-            is_active=row["is_active"],
-            last_synced_at=row.get("last_synced_at"),
-            created_at=row["created_at"],
+    result: list[CredentialInfo] = []
+    for row in response.data:
+        assert isinstance(row, dict)
+        result.append(
+            CredentialInfo(
+                bank=row["bank"],
+                is_active=row["is_active"],
+                last_synced_at=row.get("last_synced_at"),
+                created_at=row["created_at"],
+            )
         )
-        for row in response.data
-    ]
+    return result
 
 
 @router.delete(
