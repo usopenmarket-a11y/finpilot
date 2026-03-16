@@ -11,3 +11,6 @@
 | [project_analytics_test_patterns.md](project_analytics_test_patterns.md) | project | Fixture factories, Anthropic mock pattern, and key behavioural contracts confirmed by test_analytics.py |
 | [project_router_analytics_bug.md](project_router_analytics_bug.md) | project | app/routers/analytics.py imports `compute_trend_report` but function is named `compute_trends` — Backend Agent must fix |
 | [project_conftest_lazy_import.md](project_conftest_lazy_import.md) | project | conftest.py defers app.main import into the client fixture to prevent broken router imports from blocking pure-unit test collection |
+| [project_test_patterns.md](project_test_patterns.md) | project | Established async mode rules, dual client-fixture pattern (async vs sync TestClient), teardown via clear_storage(), and helper factory conventions |
+| [project_debt_router_contract.md](project_debt_router_contract.md) | project | M5 Debt Tracker endpoint contract — settlement logic, schema constraints, required clear_storage() export, and 400/422/404 edge cases |
+| [project_recommendations_test_patterns.md](project_recommendations_test_patterns.md) | project | M6 router wire-format gap (transaction_count), savings.py empty-sum bug, mini-app test pattern, and all four module contracts |
