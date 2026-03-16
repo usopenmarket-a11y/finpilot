@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M4 complete)
+**Last reviewed:** 2026-03-16 (M5 complete)
 
 ---
 
@@ -12,7 +12,7 @@
 | M2 | NBE & CIB Scrapers | COMPLETE | 100% |
 | M3 | BDC & UB Scrapers + Pipeline | COMPLETE | 100% |
 | M4 | Analytics Engine | COMPLETE | 100% |
-| M5 | Debt Tracker (CRUD) | NOT STARTED | 0% |
+| M5 | Debt Tracker (CRUD) | COMPLETE | 100% |
 | M6 | Recommendations Engine | NOT STARTED | 0% |
 | M7 | Frontend Dashboard | NOT STARTED | 0% |
 | M8 | Production Deploy & Monitoring | NOT STARTED | 0% |
@@ -83,17 +83,40 @@
 - [x] `apps/api/app/routers/analytics.py` — 4 endpoints: `POST /api/v1/analytics/categorize`, `/spending`, `/trends`, `/credit`; all with `extra="forbid"`, no PII in logs
 - [x] 46 analytics unit tests (all passing)
 - [x] `anthropic>=0.40.0` added to `pyproject.toml`
-- [x] Fixed broken import `compute_trend_report` → `compute_trends` in router
+
+---
+
+## M5 Detailed Breakdown (100% — COMPLETE)
+
+### Done
+- [x] `apps/api/app/routers/debts.py` — full CRUD with in-memory storage (swappable for Supabase)
+  - `POST /api/v1/debts` — create debt (lent/borrowed); outstanding_balance = original_amount
+  - `GET /api/v1/debts` — list with `?status=` and `?debt_type=` filters
+  - `GET /api/v1/debts/{id}` — detail view with full payment history (`DebtDetailResponse`)
+  - `PATCH /api/v1/debts/{id}` — partial update (phone, email, due_date, notes, status)
+  - `DELETE /api/v1/debts/{id}` — soft-delete: status → `settled`, balance → 0
+  - `POST /api/v1/debts/{id}/payments` — record payment; returns updated debt with new balance+status
+- [x] Settlement logic: `active` → `partial` → `settled` based on outstanding_balance
+- [x] 400 guard: payment amount cannot exceed outstanding balance
+- [x] `clear_storage()` export for test isolation
+- [x] `apps/api/app/main.py` — debts router registered at `/api/v1`
+- [x] 52 tests in `test_debts.py` — all passing; **419 total tests passing**
+
+---
 
 ## Current Focus
 
-**M4 is complete. Next: M5 — Debt Tracker CRUD.**
+**M6 — Recommendations Engine**
 
-### M5 entry points
-- `apps/api/app/routers/debts.py` — full CRUD for debts + payments
-- Endpoints: `POST/GET/PATCH/DELETE /api/v1/debts`, `POST /api/v1/debts/{id}/payments`
-- Settlement flow: auto-update debt status (active → partial → settled)
-- Uses existing `Debt`, `DebtPayment` DB models and `DebtCreate`, `DebtPaymentCreate` API schemas
+### M6 entry points
+- `apps/api/app/recommendations/` — all new files (currently empty `__init__.py` only)
+- Deliverables:
+  - `monthly_plan.py` — monthly action plan generator using analytics output
+  - `forecaster.py` — 3-month cash flow forecast based on trend data
+  - `debt_optimizer.py` — snowball vs avalanche comparison using loan/debt data
+  - `savings.py` — detect recurring charges, unused subscriptions, high-fee accounts
+  - `router.py` → `apps/api/app/routers/recommendations.py` — POST endpoints wiring it all together
+- Uses output from M4 analytics (spending breakdown, trends, credit report) and M5 debt data
 
 ---
 
@@ -102,7 +125,7 @@
 | Blocker | Owner | Action Required |
 |---------|-------|-----------------|
 | Render MCP workspace not selected | User | Select a Render workspace so the devops agent can monitor the backend service |
-| Vercel project not linked | User | Run `cd apps/web && vercel link` to enable MCP frontend status checks |
+| Vercel project not deployed | User | No Vercel project found — run `cd apps/web && vercel link` or deploy via `vercel --prod` |
 | `CLAUDE_API_KEY` not set | User | Required for M4 analytics categorization (Claude Haiku 4.5) — add to `apps/api/.env` and Render env vars |
 
 ---
@@ -111,11 +134,10 @@
 
 | Commit | Description |
 |--------|-------------|
+| `8c42469` | M5: Debt Tracker CRUD — debts router + 52 tests (419 total passing) |
+| `b46fb81` | M4: Analytics engine — categorizer, spending, trends, credit + 4 API endpoints (46 new tests) |
 | `0b3f26a` | M3: BDC & UB scrapers + full ETL pipeline (normalizer, deduplicator, upserter, runner) |
 | `994ee89` | M2: NBE & CIB scrapers + `POST /api/v1/scrape` endpoint |
-| `8eeaec6` | DevOps docs, agent configs, uv lockfile |
-| `eabf68d` | M1: AES-256-GCM encryption module |
-| `6bbf1c4` | M1: Foundation & project scaffolding |
 
 ---
 
@@ -125,7 +147,7 @@
 |---------|--------|-------|
 | Supabase DB | LIVE | 6 tables, RLS enabled on all, 0 rows (fresh) |
 | Render (backend) | UNKNOWN | MCP workspace not selected — user action required |
-| Vercel (frontend) | UNKNOWN | Project not linked locally — user action required |
+| Vercel (frontend) | NOT DEPLOYED | No projects found in Vercel team — needs initial deploy |
 | GitHub Actions CI | CONFIGURED | Workflows exist; not yet verified against a real push |
 
 ---
@@ -141,4 +163,5 @@
 | `test_scrapers_bdc_ub.py` | 143 | ✅ (BDC + UB) |
 | `test_pipeline.py` | 21 | ✅ |
 | `test_analytics.py` | 46 | ✅ |
-| **Total** | **367** | **✅ 367/367 passing** |
+| `test_debts.py` | 52 | ✅ |
+| **Total** | **419** | **✅ 419/419 passing (3m 25s)** |
