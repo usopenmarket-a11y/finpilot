@@ -20,10 +20,7 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # NOTE: ESLint 9 is incompatible with Next.js 14. The frontend agent must either:
-      #   1. Downgrade ESLint to ^8 in package.json, OR
-      #   2. Upgrade Next.js to 15+ (which supports ESLint 9)
-      # For now, type-check only. Frontend agent: please resolve this dependency conflict.
+      - run: pnpm --filter web lint
       - run: pnpm --filter web type-check
 
   test-backend:
