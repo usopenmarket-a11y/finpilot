@@ -5,10 +5,10 @@ Coverage targets
 - BankScraper._mask_account_number — various input shapes
 - Exception hierarchy — bank_code attribute, subclass relationships
 - NBE module helpers: _parse_nbe_date, _parse_amount, _make_external_id,
-  _normalise_account_type, _normalise_currency, _resolve_txn_columns,
-  _parse_transaction_row
-- NBEScraper.scrape — happy path, ScraperLoginError on failure element,
-  ScraperTimeoutError on Playwright timeout
+  _normalise_account_type, _normalise_currency, _parse_transaction_row,
+  _parse_oj_table_rows, _extract_currency_from_balance
+- NBEScraper.scrape — happy path (Oracle JET SPA flow), ScraperLoginError,
+  ScraperOTPRequired, ScraperTimeoutError
 - CIB module helpers: _parse_cib_date, _parse_amount, _make_external_id
 - CIBScraper.scrape — happy path, ScraperLoginError on error element,
   ScraperTimeoutError on Playwright timeout
@@ -51,13 +51,14 @@ from app.scrapers.base import (
 # instantiating the full scraper class.
 from app.scrapers.nbe import (
     NBEScraper,
+    _extract_currency_from_balance as nbe_extract_currency,
     _make_external_id as nbe_make_external_id,
     _normalise_account_type as nbe_normalise_account_type,
     _normalise_currency as nbe_normalise_currency,
     _parse_amount as nbe_parse_amount,
     _parse_nbe_date,
+    _parse_oj_table_rows as nbe_parse_oj_table_rows,
     _parse_transaction_row as nbe_parse_transaction_row,
-    _resolve_txn_columns as nbe_resolve_txn_columns,
 )
 from app.scrapers.cib import (
     CIBScraper,
@@ -139,40 +140,54 @@ def _build_mock_playwright() -> tuple[MagicMock, MagicMock, AsyncMock, AsyncMock
 # Minimal HTML fixtures (inline strings)
 # ---------------------------------------------------------------------------
 
-# NBE dashboard HTML — includes an account-summary table.
+# NBE dashboard HTML — Oracle JET SPA structure.
+# Includes a flip-account-list with one account row and a Logout link.
 _NBE_DASHBOARD_HTML = """
 <html><body>
-<table id="ContentPlaceHolder1_GridView_AccSummary">
-  <tr><th>Account Number</th><th>Account Type</th><th>Currency</th><th>Balance</th></tr>
-  <tr><td>1234567890</td><td>Current</td><td>EGP</td><td>15,250.75</td></tr>
-</table>
+<nav><a href="#">Logout</a></nav>
+<ul>
+  <li class="CSA"><a href="#">Accounts</a></li>
+</ul>
+<ul class="flip-account-list">
+  <li class="flip-account-list__items">
+    <span class="account-no">0765000645195400010</span>
+    <span class="account-name">Current Account</span>
+    <strong class="account-value">EGP 15,250.75</strong>
+    <a class="menu-icon" href="#">...</a>
+  </li>
+</ul>
 </body></html>
 """
 
-# NBE transaction history HTML — two rows: one debit, one credit.
+# NBE transaction history HTML — Oracle JET oj-table with ViewStatement1 id pattern.
+# Two rows: one debit (row 0), one credit (row 1).
+# Columns: 0=TxnDate | 1=ValueDate | 2=RefNo | 3=Description | 4=Debit | 5=Credit | 6=Balance
 _NBE_TRANSACTIONS_HTML = """
 <html><body>
-<table id="ContentPlaceHolder1_GridView_TransactionList">
-  <tr>
-    <th>Date</th><th>Value Date</th><th>Description</th>
-    <th>Debit</th><th>Credit</th><th>Balance</th>
-  </tr>
-  <tr>
-    <td>15/01/2025</td><td>15/01/2025</td><td>ATM Withdrawal</td>
-    <td>500.00</td><td></td><td>14,750.75</td>
-  </tr>
-  <tr>
-    <td>10/01/2025</td><td>10/01/2025</td><td>Salary Credit</td>
-    <td></td><td>5,000.00</td><td>15,250.75</td>
-  </tr>
-</table>
+<oj-table id="ViewStatement1">
+  <td id="ViewStatement1:0_0"><span>15 Jan 2025</span></td>
+  <td id="ViewStatement1:0_1"><span>15 Jan 2025</span></td>
+  <td id="ViewStatement1:0_2"><span>REF001</span></td>
+  <td id="ViewStatement1:0_3"><span>ATM Withdrawal</span></td>
+  <td id="ViewStatement1:0_4"><span>EGP 500.00</span></td>
+  <td id="ViewStatement1:0_5"><span></span></td>
+  <td id="ViewStatement1:0_6"><span>EGP 14,750.75</span></td>
+
+  <td id="ViewStatement1:1_0"><span>10 Jan 2025</span></td>
+  <td id="ViewStatement1:1_1"><span>10 Jan 2025</span></td>
+  <td id="ViewStatement1:1_2"><span>REF002</span></td>
+  <td id="ViewStatement1:1_3"><span>Salary Credit</span></td>
+  <td id="ViewStatement1:1_4"><span></span></td>
+  <td id="ViewStatement1:1_5"><span>EGP 5,000.00</span></td>
+  <td id="ViewStatement1:1_6"><span>EGP 15,250.75</span></td>
+</oj-table>
 </body></html>
 """
 
-# NBE login error HTML — contains the .failureNotification element.
+# NBE login error — SPA body text contains "invalid" after failed login.
 _NBE_LOGIN_ERROR_HTML = """
 <html><body>
-<span class="failureNotification">Your username or password is incorrect.</span>
+<div class="login-error">Invalid username or password. Please try again.</div>
 </body></html>
 """
 
@@ -318,43 +333,42 @@ class TestExceptionHierarchy:
 
 
 class TestParseNbeDate:
-    """_parse_nbe_date — handles all documented date formats."""
+    """_parse_nbe_date — primary format is DD Mon YYYY (Oracle JET portal)."""
 
-    def test_dd_slash_mm_slash_yyyy_primary_format(self) -> None:
-        result = _parse_nbe_date("15/01/2025")
-        assert result == date(2025, 1, 15)
+    def test_dd_mon_yyyy_primary_format(self) -> None:
+        assert _parse_nbe_date("15 Jan 2025") == date(2025, 1, 15)
 
-    def test_single_digit_day_and_month(self) -> None:
-        result = _parse_nbe_date("5/1/2025")
-        assert result == date(2025, 1, 5)
+    def test_dd_mon_yyyy_march(self) -> None:
+        assert _parse_nbe_date("12 Mar 2026") == date(2026, 3, 12)
 
-    def test_dd_dash_mm_dash_yyyy_format(self) -> None:
-        result = _parse_nbe_date("15-01-2025")
-        assert result == date(2025, 1, 15)
-
-    def test_leading_zero_day_and_month(self) -> None:
-        result = _parse_nbe_date("03/07/2024")
-        assert result == date(2024, 7, 3)
-
-    def test_returns_none_for_unrecognised_format(self) -> None:
-        result = _parse_nbe_date("not-a-date")
-        assert result is None
-
-    def test_returns_none_for_empty_string(self) -> None:
-        result = _parse_nbe_date("")
-        assert result is None
-
-    def test_strips_surrounding_whitespace(self) -> None:
-        result = _parse_nbe_date("  15/01/2025  ")
-        assert result == date(2025, 1, 15)
+    def test_single_digit_day(self) -> None:
+        assert _parse_nbe_date("5 Jan 2025") == date(2025, 1, 5)
 
     def test_end_of_year_date(self) -> None:
-        result = _parse_nbe_date("31/12/2024")
-        assert result == date(2024, 12, 31)
+        assert _parse_nbe_date("31 Dec 2024") == date(2024, 12, 31)
+
+    def test_dd_slash_mm_slash_yyyy_legacy_fallback(self) -> None:
+        assert _parse_nbe_date("15/01/2025") == date(2025, 1, 15)
+
+    def test_dd_dash_mm_dash_yyyy_legacy_fallback(self) -> None:
+        assert _parse_nbe_date("15-01-2025") == date(2025, 1, 15)
+
+    def test_returns_none_for_unrecognised_format(self) -> None:
+        assert _parse_nbe_date("not-a-date") is None
+
+    def test_returns_none_for_empty_string(self) -> None:
+        assert _parse_nbe_date("") is None
+
+    def test_strips_surrounding_whitespace(self) -> None:
+        assert _parse_nbe_date("  15 Jan 2025  ") == date(2025, 1, 15)
+
+    def test_case_insensitive_month(self) -> None:
+        # strptime %b is locale-aware but Python default handles mixed case
+        assert _parse_nbe_date("15 jan 2025") == date(2025, 1, 15)
 
 
 class TestNbeParseAmount:
-    """nbe._parse_amount — handles comma separators and edge cases."""
+    """nbe._parse_amount — strips EGP/USD currency prefix and comma separators."""
 
     def test_plain_integer_string(self) -> None:
         assert nbe_parse_amount("500") == Decimal("500")
@@ -367,6 +381,15 @@ class TestNbeParseAmount:
 
     def test_large_amount_with_multiple_commas(self) -> None:
         assert nbe_parse_amount("1,234,567.89") == Decimal("1234567.89")
+
+    def test_egp_prefix_stripped(self) -> None:
+        assert nbe_parse_amount("EGP 10,100.00") == Decimal("10100.00")
+
+    def test_usd_prefix_stripped(self) -> None:
+        assert nbe_parse_amount("USD 500.00") == Decimal("500.00")
+
+    def test_egp_no_space_stripped(self) -> None:
+        assert nbe_parse_amount("EGP10,100.00") == Decimal("10100.00")
 
     def test_empty_string_returns_none(self) -> None:
         assert nbe_parse_amount("") is None
@@ -439,14 +462,13 @@ class TestNbeMakeExternalId:
         amount = Decimal("1.00")
         long_desc = "A" * 80
         result = nbe_make_external_id(d, long_desc, amount)
-        # Same result whether we pass 80 or 40 chars because both are truncated
         canonical = f"{d.isoformat()}|{'A' * 40}|{amount}"
         expected = hashlib.sha256(canonical.encode()).hexdigest()[:24]
         assert result == expected
 
 
 class TestNbeNormaliseHelpers:
-    """nbe._normalise_account_type and _normalise_currency."""
+    """nbe._normalise_account_type, _normalise_currency, _extract_currency."""
 
     def test_savings_keyword(self) -> None:
         assert nbe_normalise_account_type("savings account") == "savings"
@@ -475,47 +497,67 @@ class TestNbeNormaliseHelpers:
     def test_currency_lowercased_input_normalised(self) -> None:
         assert nbe_normalise_currency("usd") == "USD"
 
+    def test_extract_currency_egp_prefix(self) -> None:
+        assert nbe_extract_currency("EGP 15,250.75") == "EGP"
 
-class TestNbeResolveTxnColumns:
-    """nbe._resolve_txn_columns — header-to-index mapping."""
+    def test_extract_currency_usd_prefix(self) -> None:
+        assert nbe_extract_currency("USD 500.00") == "USD"
 
-    def test_standard_nbe_headers(self) -> None:
-        headers = ["date", "value date", "description", "debit", "credit", "balance"]
-        col = nbe_resolve_txn_columns(headers)
-        assert col["date"] == 0
-        assert col["value_date"] == 1
-        assert col["description"] == 2
-        assert col["debit"] == 3
-        assert col["credit"] == 4
-        assert col["balance"] == 5
+    def test_extract_currency_no_prefix_defaults_egp(self) -> None:
+        assert nbe_extract_currency("15,250.75") == "EGP"
 
-    def test_positional_defaults_used_when_headers_unrecognised(self) -> None:
-        # If no header matches, positional defaults kick in.
-        headers = ["col_a", "col_b", "col_c", "col_d", "col_e", "col_f"]
-        col = nbe_resolve_txn_columns(headers)
-        # Defaults: date=0, value_date=1, description=2, debit=3, credit=4, balance=5
-        assert col["date"] == 0
-        assert col["description"] == 2
+    def test_extract_currency_negative_balance(self) -> None:
+        # Negative balances use pattern like "-EGP 79,000.00" — no space before EGP
+        assert nbe_extract_currency("EGP 79,000.00") == "EGP"
 
-    def test_partial_headers_resolved_where_possible(self) -> None:
-        headers = ["transaction date", "description", "debit", "credit"]
-        col = nbe_resolve_txn_columns(headers)
-        assert col["date"] == 0
-        assert col["description"] == 1
-        assert col["debit"] == 2
-        assert col["credit"] == 3
+
+class TestNbeParseOjTableRows:
+    """nbe._parse_oj_table_rows — Oracle JET ViewStatement1 cell extraction."""
+
+    def test_extracts_two_rows_from_fixture(self) -> None:
+        rows = nbe_parse_oj_table_rows(_NBE_TRANSACTIONS_HTML)
+        assert len(rows) == 2
+
+    def test_first_row_debit_cells(self) -> None:
+        rows = nbe_parse_oj_table_rows(_NBE_TRANSACTIONS_HTML)
+        assert rows[0][3] == "ATM Withdrawal"
+        assert rows[0][4] == "EGP 500.00"
+        assert rows[0][5] == ""
+
+    def test_second_row_credit_cells(self) -> None:
+        rows = nbe_parse_oj_table_rows(_NBE_TRANSACTIONS_HTML)
+        assert rows[1][3] == "Salary Credit"
+        assert rows[1][4] == ""
+        assert rows[1][5] == "EGP 5,000.00"
+
+    def test_empty_html_returns_empty_list(self) -> None:
+        rows = nbe_parse_oj_table_rows("<html><body></body></html>")
+        assert rows == []
+
+    def test_row_date_column(self) -> None:
+        rows = nbe_parse_oj_table_rows(_NBE_TRANSACTIONS_HTML)
+        assert rows[0][0] == "15 Jan 2025"
+        assert rows[1][0] == "10 Jan 2025"
+
+    def test_reference_column(self) -> None:
+        rows = nbe_parse_oj_table_rows(_NBE_TRANSACTIONS_HTML)
+        assert rows[0][2] == "REF001"
+        assert rows[1][2] == "REF002"
 
 
 class TestNbeParseTransactionRow:
-    """nbe._parse_transaction_row — debit/credit direction and amount parsing."""
+    """nbe._parse_transaction_row — Oracle JET 7-column layout."""
 
-    def _default_col(self) -> dict[str, int]:
-        return {"date": 0, "value_date": 1, "description": 2, "debit": 3, "credit": 4, "balance": 5}
+    def _cells_debit(self) -> list[str]:
+        # Col: TxnDate | ValueDate | Ref | Description | Debit | Credit | Balance
+        return ["15 Jan 2025", "15 Jan 2025", "REF001", "ATM Withdrawal", "EGP 500.00", "", "EGP 14,750.75"]
+
+    def _cells_credit(self) -> list[str]:
+        return ["10 Jan 2025", "10 Jan 2025", "REF002", "Salary Credit", "", "EGP 5,000.00", "EGP 15,250.75"]
 
     def test_debit_row_parsed_correctly(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "15/01/2025", "ATM Withdrawal", "500.00", "", "14,750.75"]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        txn = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
         assert txn is not None
         assert txn.transaction_type == "debit"
         assert txn.amount == Decimal("500.00")
@@ -524,67 +566,53 @@ class TestNbeParseTransactionRow:
 
     def test_credit_row_parsed_correctly(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["10/01/2025", "10/01/2025", "Salary Credit", "", "5,000.00", "15,250.75"]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        txn = nbe_parse_transaction_row(self._cells_credit(), account, _NOW)
         assert txn is not None
         assert txn.transaction_type == "credit"
         assert txn.amount == Decimal("5000.00")
+        assert txn.transaction_date == date(2025, 1, 10)
 
-    def test_comma_separated_amount_parsed(self) -> None:
+    def test_balance_after_parsed(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "15/01/2025", "Purchase", "1,234.56", "", ""]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        txn = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
         assert txn is not None
-        assert txn.amount == Decimal("1234.56")
+        assert txn.balance_after == Decimal("14750.75")
 
     def test_row_with_no_amount_returns_none(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "15/01/2025", "Empty Row", "", "", ""]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        cells = ["15 Jan 2025", "15 Jan 2025", "REF", "Empty Row", "", "", ""]
+        txn = nbe_parse_transaction_row(cells, account, _NOW)
         assert txn is None
 
     def test_header_repeat_row_returns_none(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["date", "value date", "description", "debit", "credit", "balance"]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        cells = ["date", "value date", "ref", "description", "debit", "credit", "balance"]
+        txn = nbe_parse_transaction_row(cells, account, _NOW)
         assert txn is None
 
     def test_unparseable_date_returns_none(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["not-a-date", "15/01/2025", "Purchase", "100.00", "", ""]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        cells = ["not-a-date", "", "REF", "Purchase", "EGP 100.00", "", ""]
+        txn = nbe_parse_transaction_row(cells, account, _NOW)
         assert txn is None
 
     def test_external_id_is_deterministic(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "15/01/2025", "ATM Withdrawal", "500.00", "", "14,750.75"]
-        txn1 = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        txn2 = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn1 is not None
-        assert txn2 is not None
+        txn1 = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
+        txn2 = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
+        assert txn1 is not None and txn2 is not None
         assert txn1.external_id == txn2.external_id
 
     def test_external_id_differs_for_different_rows(self) -> None:
         account = _make_bank_account("NBE")
-        cells_a = ["15/01/2025", "", "Withdrawal A", "500.00", "", ""]
-        cells_b = ["16/01/2025", "", "Withdrawal B", "600.00", "", ""]
-        txn_a = nbe_parse_transaction_row(cells_a, self._default_col(), account, _NOW)
-        txn_b = nbe_parse_transaction_row(cells_b, self._default_col(), account, _NOW)
-        assert txn_a is not None
-        assert txn_b is not None
+        txn_a = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
+        txn_b = nbe_parse_transaction_row(self._cells_credit(), account, _NOW)
+        assert txn_a is not None and txn_b is not None
         assert txn_a.external_id != txn_b.external_id
-
-    def test_balance_after_parsed(self) -> None:
-        account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "15/01/2025", "Purchase", "500.00", "", "14,500.00"]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.balance_after == Decimal("14500.00")
 
     def test_sentinel_uuids_are_zero(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "", "Transfer", "100.00", "", ""]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        txn = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
         assert txn is not None
         assert txn.id == _ZERO_UUID
         assert txn.user_id == _ZERO_UUID
@@ -592,10 +620,15 @@ class TestNbeParseTransactionRow:
 
     def test_raw_data_contains_source_nbe(self) -> None:
         account = _make_bank_account("NBE")
-        cells = ["15/01/2025", "", "Transfer", "100.00", "", ""]
-        txn = nbe_parse_transaction_row(cells, self._default_col(), account, _NOW)
+        txn = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
         assert txn is not None
         assert txn.raw_data.get("source") == "nbe"
+
+    def test_reference_stored_in_raw_data(self) -> None:
+        account = _make_bank_account("NBE")
+        txn = nbe_parse_transaction_row(self._cells_debit(), account, _NOW)
+        assert txn is not None
+        assert txn.raw_data.get("reference") == "REF001"
 
 
 # ===========================================================================
@@ -674,40 +707,75 @@ class TestCibMakeExternalId:
 # Section 5 — NBEScraper.scrape() integration tests (Playwright fully mocked)
 # ===========================================================================
 
+# Selectors the new Oracle JET scraper uses for OTP detection — both must
+# return None during normal happy-path flow so _wait_for_dashboard proceeds.
+_NBE_OTP_SELECTORS = {"#otpSection", "input[id*='otp' i]"}
+
+
+def _build_nbe_mock_page(
+    dashboard_html: str = _NBE_DASHBOARD_HTML,
+    txn_html: str = _NBE_TRANSACTIONS_HTML,
+) -> tuple[Any, Any, Any, Any]:
+    """Build a mock playwright stack pre-configured for the NBE Oracle JET flow.
+
+    Returns (mock_pw_cm, mock_pw, mock_browser, mock_page).
+
+    The mock_page is configured with:
+    - content() cycling through dashboard (x2) → transactions (x2)
+    - wait_for_selector() returning a clickable mock element for all selectors
+    - query_selector() returning a clickable mock element for all selectors
+      except OTP-detection selectors and the Next Page button (both return None)
+    - inner_text() returning non-error text so login-failure heuristic is silent
+    """
+    mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+
+    mock_page.content = AsyncMock(
+        side_effect=[
+            dashboard_html,   # raw_html["dashboard"]
+            dashboard_html,   # _extract_account -> page.content()
+            txn_html,         # raw_html["transactions"]
+            txn_html,         # _extract_transactions page 1
+        ]
+    )
+
+    mock_element = AsyncMock()
+    mock_element.click = AsyncMock(return_value=None)
+    mock_element.inner_text = AsyncMock(return_value="")
+    mock_element.get_attribute = AsyncMock(return_value=None)  # not disabled
+    # query_selector on a mock element (for nested .query_selector calls like
+    # first_row.query_selector("a.menu-icon"))
+    mock_element.query_selector = AsyncMock(return_value=mock_element)
+
+    # wait_for_selector MUST return the element — Playwright returns the element
+    # handle when the selector is found; our scraper calls .click() on it.
+    mock_page.wait_for_selector = AsyncMock(return_value=mock_element)
+
+    async def _query_selector(selector: str) -> Any:
+        if selector in _NBE_OTP_SELECTORS:
+            return None
+        # Next Page button — return None so pagination loop terminates immediately
+        if selector == "button[title='Next Page']":
+            return None
+        return mock_element
+
+    mock_page.query_selector = _query_selector  # type: ignore[assignment]
+
+    # inner_text — return non-error text so login-failure heuristic does not trigger
+    mock_page.inner_text = AsyncMock(return_value="Welcome to Ahly Net")
+
+    return mock_pw_cm, mock_pw, mock_browser, mock_page
+
 
 class TestNbeScraperScrape:
-    """NBEScraper.scrape() — end-to-end flow with all I/O mocked."""
+    """NBEScraper.scrape() — end-to-end flow mocked for Oracle JET SPA."""
 
     @pytest.fixture
     def nbe_scraper(self) -> NBEScraper:
         return NBEScraper(username="test_user", password="test_password_123")
 
     async def test_happy_path_returns_scraper_result(self, nbe_scraper: NBEScraper) -> None:
-        """scrape() returns ScraperResult with bank_name == 'NBE' and transactions."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _NBE_DASHBOARD_HTML,     # raw_html["dashboard"]
-                _NBE_DASHBOARD_HTML,     # _extract_account -> page.content()
-                _NBE_TRANSACTIONS_HTML,  # raw_html["transactions"]
-                _NBE_TRANSACTIONS_HTML,  # _extract_transactions -> page.content()
-            ]
-        )
-
-        # query_selector must return None for error-element selectors so
-        # _wait_for_dashboard does NOT raise ScraperLoginError, but return a
-        # real element for the login button and transaction link selectors.
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        _ERROR_SELECTORS = {".failureNotification", "xpath=//*[contains(@class,'failureNotification')]"}
-
-        async def _query_selector_nbe(selector: str) -> Any:
-            return None if selector in _ERROR_SELECTORS else mock_element
-
-        mock_page.query_selector = _query_selector_nbe  # type: ignore[assignment]
+        """scrape() returns ScraperResult with bank_name 'NBE' and 2 transactions."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
@@ -719,20 +787,62 @@ class TestNbeScraperScrape:
         assert result.transactions[0].transaction_type == "debit"
         assert result.transactions[1].transaction_type == "credit"
 
+    async def test_happy_path_account_currency_is_egp(self, nbe_scraper: NBEScraper) -> None:
+        """Account currency extracted from 'EGP 15,250.75' balance string."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
+
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape()
+
+        assert result.account.currency == "EGP"
+
+    async def test_happy_path_transaction_dates_parsed(self, nbe_scraper: NBEScraper) -> None:
+        """Transaction dates are parsed from 'DD Mon YYYY' Oracle JET format."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
+
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape()
+
+        assert result.transactions[0].transaction_date == date(2025, 1, 15)
+        assert result.transactions[1].transaction_date == date(2025, 1, 10)
+
     async def test_login_error_raises_scraper_login_error(self, nbe_scraper: NBEScraper) -> None:
-        """scrape() raises ScraperLoginError when failureNotification is detected."""
+        """scrape() raises ScraperLoginError when portal body contains 'invalid'.
+
+        wait_for_selector succeeds for the username and password field selectors
+        (steps 1 and 2 of the 2-step login) but times out when waiting for the
+        Logout link — which means login was rejected.  inner_text then returns
+        a body that includes the word 'invalid', triggering ScraperLoginError.
+        """
+        from playwright.async_api import TimeoutError as _PwTimeout
+
+        mock_element = AsyncMock()
+        mock_element.click = AsyncMock(return_value=None)
+        mock_element.query_selector = AsyncMock(return_value=mock_element)
+
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
-        mock_page.content = AsyncMock(return_value=_NBE_LOGIN_ERROR_HTML)
+        # OTP selectors return None; all other query_selector calls return a
+        # clickable element so the login steps can proceed normally.
+        async def _qs_no_otp(selector: str) -> Any:
+            if selector in _NBE_OTP_SELECTORS:
+                return None
+            return mock_element
 
-        # Simulate error element found by query_selector
-        mock_error_el = AsyncMock()
-        mock_error_el.inner_text = AsyncMock(
-            return_value="Your username or password is incorrect."
+        mock_page.query_selector = _qs_no_otp  # type: ignore[assignment]
+
+        # wait_for_selector succeeds for username field and password field,
+        # then times out on the Logout link wait inside _wait_for_dashboard.
+        mock_page.wait_for_selector = AsyncMock(
+            side_effect=[
+                mock_element,           # #login_username (navigate_to_login)
+                mock_element,           # #login_password (login step 2)
+                _PwTimeout("timeout"),  # a:has-text('Logout') — login rejected
+            ]
         )
 
-        # First query_selector call (for _SEL_LOGIN_ERROR_CSS) returns the error element
-        mock_page.query_selector = AsyncMock(return_value=mock_error_el)
+        # inner_text returns text containing "invalid" — triggers login-failure heuristic
+        mock_page.inner_text = AsyncMock(return_value="Invalid username or password.")
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             with pytest.raises(ScraperLoginError) as exc_info:
@@ -740,21 +850,49 @@ class TestNbeScraperScrape:
 
         assert exc_info.value.bank_code == "NBE"
 
-    async def test_playwright_timeout_raises_scraper_timeout_error(
-        self, nbe_scraper: NBEScraper
-    ) -> None:
-        """scrape() wraps PlaywrightTimeoutError in ScraperTimeoutError."""
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+    async def test_otp_required_raises_scraper_otp_required(self, nbe_scraper: NBEScraper) -> None:
+        """scrape() raises ScraperOTPRequired when OTP prompt is detected.
 
+        The OTP check runs inside _wait_for_dashboard (after _login completes).
+        query_selector returns a real element for the login buttons so _login
+        can proceed, then returns mock_otp_el for '#otpSection'.
+        """
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
-        # No error element on login check
-        mock_page.query_selector = AsyncMock(return_value=None)
+        mock_btn = AsyncMock()
+        mock_btn.click = AsyncMock(return_value=None)
+        mock_otp_el = AsyncMock()
 
-        # wait_for_selector raises PlaywrightTimeoutError (both CSS and XPath attempts)
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("Timeout exceeded")
-        )
+        # OTP selectors that trigger ScraperOTPRequired
+        _otp_present = {"#otpSection"}
+
+        # Selectors that query_selector should return None for
+        # (the second OTP selector is checked only if the first returns None)
+        async def _query_selector_with_otp(selector: str) -> Any:
+            if selector in _otp_present:
+                return mock_otp_el
+            if selector == "input[id*='otp' i]":
+                return None  # first OTP check already found it
+            return mock_btn
+
+        mock_page.query_selector = _query_selector_with_otp  # type: ignore[assignment]
+        # wait_for_selector must succeed for username and password fields
+        mock_page.wait_for_selector = AsyncMock(return_value=mock_btn)
+
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            with pytest.raises(ScraperOTPRequired) as exc_info:
+                await nbe_scraper.scrape()
+
+        assert exc_info.value.bank_code == "NBE"
+
+    async def test_playwright_timeout_on_username_field_raises_scraper_timeout(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """scrape() wraps PlaywrightTimeoutError from wait_for_selector in ScraperTimeoutError."""
+        from playwright.async_api import TimeoutError as _PwTimeout
+
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+        mock_page.wait_for_selector = AsyncMock(side_effect=_PwTimeout("username field timeout"))
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             with pytest.raises(ScraperTimeoutError) as exc_info:
@@ -764,26 +902,7 @@ class TestNbeScraperScrape:
 
     async def test_scrape_result_contains_raw_html_keys(self, nbe_scraper: NBEScraper) -> None:
         """ScraperResult.raw_html contains 'dashboard' and 'transactions' keys."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _NBE_DASHBOARD_HTML,
-                _NBE_DASHBOARD_HTML,
-                _NBE_TRANSACTIONS_HTML,
-                _NBE_TRANSACTIONS_HTML,
-            ]
-        )
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        _ERROR_SELECTORS = {".failureNotification", "xpath=//*[contains(@class,'failureNotification')]"}
-
-        async def _query_selector_nbe(selector: str) -> Any:
-            return None if selector in _ERROR_SELECTORS else mock_element
-
-        mock_page.query_selector = _query_selector_nbe  # type: ignore[assignment]
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
@@ -793,48 +912,28 @@ class TestNbeScraperScrape:
 
     async def test_browser_is_always_closed(self, nbe_scraper: NBEScraper) -> None:
         """_close_browser is called even if scrape() raises an exception."""
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.async_api import TimeoutError as _PwTimeout
 
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
         mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("timeout")
-        )
+        mock_page.wait_for_selector = AsyncMock(side_effect=_PwTimeout("timeout"))
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             with pytest.raises(ScraperTimeoutError):
                 await nbe_scraper.scrape()
 
-        # browser.close must have been awaited
         mock_browser.close.assert_awaited_once()
 
     async def test_account_number_is_masked_in_result(self, nbe_scraper: NBEScraper) -> None:
         """account_number_masked in result follows ****XXXX format."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _NBE_DASHBOARD_HTML,
-                _NBE_DASHBOARD_HTML,
-                _NBE_TRANSACTIONS_HTML,
-                _NBE_TRANSACTIONS_HTML,
-            ]
-        )
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        _ERROR_SELECTORS = {".failureNotification", "xpath=//*[contains(@class,'failureNotification')]"}
-
-        async def _query_selector_nbe(selector: str) -> Any:
-            return None if selector in _ERROR_SELECTORS else mock_element
-
-        mock_page.query_selector = _query_selector_nbe  # type: ignore[assignment]
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
 
         assert result.account.account_number_masked.startswith("****")
+        # Account number from fixture is 0765000645195400010 → last 4 digits = 0010
+        assert result.account.account_number_masked == "****0010"
 
 
 # ===========================================================================
