@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M5 complete)
+**Last reviewed:** 2026-03-16 (M6 complete)
 
 ---
 
@@ -13,7 +13,7 @@
 | M3 | BDC & UB Scrapers + Pipeline | COMPLETE | 100% |
 | M4 | Analytics Engine | COMPLETE | 100% |
 | M5 | Debt Tracker (CRUD) | COMPLETE | 100% |
-| M6 | Recommendations Engine | NOT STARTED | 0% |
+| M6 | Recommendations Engine | COMPLETE | 100% |
 | M7 | Frontend Dashboard | NOT STARTED | 0% |
 | M8 | Production Deploy & Monitoring | NOT STARTED | 0% |
 
@@ -104,19 +104,38 @@
 
 ---
 
+---
+
+## M6 Detailed Breakdown (100% — COMPLETE)
+
+### Done
+- [x] `apps/api/app/recommendations/monthly_plan.py` — health-scored monthly action plan; items ranked high→medium→low; confidence=0.4 when sparse (<3 months)
+- [x] `apps/api/app/recommendations/forecaster.py` — 3-month cash flow forecast; per-month confidence decay (0.9→0.8→0.7); expense growth by trend direction
+- [x] `apps/api/app/recommendations/debt_optimizer.py` — snowball vs avalanche simulation (cap 120 months); avalanche recommended unless all APR==0
+- [x] `apps/api/app/recommendations/savings.py` — 4-pass detector: duplicate charges, recurring subscriptions (3+ months), high fees (keywords + EGP>50), irregular spikes (mean+2σ); top-10 ranked
+- [x] `apps/api/app/routers/recommendations.py` — 4 endpoints:
+  - `POST /api/v1/recommendations/monthly-plan`
+  - `POST /api/v1/recommendations/forecast`
+  - `POST /api/v1/recommendations/debt-optimizer`
+  - `POST /api/v1/recommendations/savings`
+- [x] Bug fix: `savings.py` `sum()` with empty generator raised `AttributeError` — fixed with `Decimal("0")` start value
+- [x] `apps/api/app/main.py` — recommendations router registered
+- [x] 59 tests (unit + HTTP) — all passing; **478 total tests passing**
+
+---
+
 ## Current Focus
 
-**M6 — Recommendations Engine**
+**M7 — Frontend Dashboard**
 
-### M6 entry points
-- `apps/api/app/recommendations/` — all new files (currently empty `__init__.py` only)
+### M7 entry points
+- `apps/web/src/` — all UI work here (Next.js 15 + Tailwind + shadcn/ui)
 - Deliverables:
-  - `monthly_plan.py` — monthly action plan generator using analytics output
-  - `forecaster.py` — 3-month cash flow forecast based on trend data
-  - `debt_optimizer.py` — snowball vs avalanche comparison using loan/debt data
-  - `savings.py` — detect recurring charges, unused subscriptions, high-fee accounts
-  - `router.py` → `apps/api/app/routers/recommendations.py` — POST endpoints wiring it all together
-- Uses output from M4 analytics (spending breakdown, trends, credit report) and M5 debt data
+  - Dashboard page with account balance overview and spending charts
+  - Transaction explorer with filters and pagination
+  - Debt tracker UI (CRUD, payment flow, settlement status)
+  - Recommendations panel (monthly plan, forecast, savings opportunities)
+  - Responsive layout (mobile + desktop), dark mode support
 
 ---
 
@@ -134,6 +153,7 @@
 
 | Commit | Description |
 |--------|-------------|
+| `e4e2414` | M6: Recommendations Engine — 4 modules + 4 endpoints + 59 tests (478 total) |
 | `8c42469` | M5: Debt Tracker CRUD — debts router + 52 tests (419 total passing) |
 | `b46fb81` | M4: Analytics engine — categorizer, spending, trends, credit + 4 API endpoints (46 new tests) |
 | `0b3f26a` | M3: BDC & UB scrapers + full ETL pipeline (normalizer, deduplicator, upserter, runner) |
@@ -164,4 +184,5 @@
 | `test_pipeline.py` | 21 | ✅ |
 | `test_analytics.py` | 46 | ✅ |
 | `test_debts.py` | 52 | ✅ |
-| **Total** | **419** | **✅ 419/419 passing (3m 25s)** |
+| `test_recommendations.py` | 59 | ✅ |
+| **Total** | **478** | **✅ 478/478 passing (3m 25s)** |
