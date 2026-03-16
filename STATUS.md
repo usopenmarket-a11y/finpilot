@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (M7 complete)
+**Last reviewed:** 2026-03-16 (M8 in progress — deploy prep complete, awaiting git push)
 
 ---
 
@@ -15,7 +15,7 @@
 | M5 | Debt Tracker (CRUD) | COMPLETE | 100% |
 | M6 | Recommendations Engine | COMPLETE | 100% |
 | M7 | Frontend Dashboard | COMPLETE | 100% |
-| M8 | Production Deploy & Monitoring | NOT STARTED | 0% |
+| M8 | Production Deploy & Monitoring | IN PROGRESS | 60% |
 
 ---
 
@@ -145,16 +145,35 @@
 
 ---
 
+---
+
+## M8 Detailed Breakdown (60% — IN PROGRESS)
+
+### Done
+- [x] `apps/api/.env` — all 5 secrets filled: Supabase URL/anon/service_role, ENCRYPTION_KEY, CLAUDE_API_KEY
+- [x] `apps/web/.env.local` — Supabase public keys + API URL for local dev
+- [x] `apps/web/next.config.mjs` — replaced `next.config.ts` (Next.js 14 requires `.js`/`.mjs`); API proxy rewrite preserved
+- [x] `render.yaml` — fixed `healthCheckPath: /api/v1/health`
+- [x] `vercel.json` — removed broken `${{ secrets.API_URL }}` template syntax
+- [x] Frontend build: `pnpm build` → **11 routes compile, 0 errors**
+- [x] Render FINPILOT workspace selected via MCP
+- [x] All env vars prepared for Render deployment
+
+### Blocked (needs manual action)
+- [ ] **Render**: Add a payment method at dashboard.render.com/billing (required even for free tier via API) → then run `/milestone M8` again to create the service
+- [ ] **Git push**: No GitHub auth in this environment — push commits manually: `git push origin main`
+- [ ] **Vercel**: After push, GitHub Actions will auto-deploy if `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` secrets are set in GitHub repo settings
+
+### Remaining after push
+- [ ] Set Vercel env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`
+- [ ] Update `CORS_ORIGINS` on Render with actual Vercel deployment URL
+- [ ] Verify `GET /api/v1/health` returns 200 in production
+
+---
+
 ## Current Focus
 
-**M8 — Production Deploy & Monitoring**
-
-### M8 entry points
-- Deploy backend to Render (auto via git push — workflow exists)
-- Deploy frontend to Vercel (need `vercel link` first)
-- Set environment variables in both platforms
-- Configure Sentry error tracking
-- Health monitoring / uptime checks
+**Manual steps required to complete M8** — see blockers above.
 
 ---
 
@@ -162,9 +181,9 @@
 
 | Blocker | Owner | Action Required |
 |---------|-------|-----------------|
-| Render MCP workspace not selected | User | Select a Render workspace so the devops agent can monitor the backend service |
-| Vercel project not deployed | User | No Vercel project found — run `cd apps/web && vercel link` or deploy via `vercel --prod` |
-| `CLAUDE_API_KEY` not set | User | Required for M4 analytics categorization (Claude Haiku 4.5) — add to `apps/api/.env` and Render env vars |
+| Render billing | User | Add payment method at dashboard.render.com/billing (free tier still requires card on file for API creation) |
+| Git push | User | Run `git push origin main` from your terminal — no GitHub auth available in Claude Code environment |
+| Vercel GitHub secrets | User | Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` to GitHub repo secrets for auto-deploy |
 
 ---
 
@@ -172,6 +191,7 @@
 
 | Commit | Description |
 |--------|-------------|
+| `4f6c0c4` | M8: Deploy prep — next.config.mjs, vercel.json, render.yaml fixes; build passes |
 | `08a08e4` | M7: Frontend Dashboard — 28 files, 5 pages, 0 TS errors |
 | `e4e2414` | M6: Recommendations Engine — 4 modules + 4 endpoints + 59 tests (478 total) |
 | `8c42469` | M5: Debt Tracker CRUD — debts router + 52 tests (419 total passing) |
