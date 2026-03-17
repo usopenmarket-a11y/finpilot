@@ -113,7 +113,9 @@ _PAGE_LOAD_TIMEOUT_MS = 150_000
 
 # Default Playwright wait timeout in milliseconds.
 # Set high to handle Oregon→Egypt latency (~120-150ms RTT) for AJAX calls.
-_WAIT_TIMEOUT_MS = 90_000
+# Increased to 120s (was 90s) — OAAM auth flow from Render Oregon→Egypt can
+# exceed 90s under load.
+_WAIT_TIMEOUT_MS = 120_000
 
 # Shorter timeout for optional / conditional element checks.
 _SHORT_TIMEOUT_MS = 20_000
@@ -600,7 +602,7 @@ class NBEScraper(BankScraper):
 
         logger.info("NBE: DOM content loaded — waiting for username field %r", _SEL_USERNAME)
         try:
-            await page.wait_for_selector(_SEL_USERNAME, timeout=_WAIT_TIMEOUT_MS)
+            await page.wait_for_selector(_SEL_USERNAME, timeout=_PAGE_LOAD_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise ScraperTimeoutError(
                 f"NBE: username field ({_SEL_USERNAME!r}) not found", bank_code="NBE"
@@ -846,7 +848,9 @@ class NBEScraper(BankScraper):
                 )
             logger.info("NBE: clicking password submit button")
             await password_btn.click()
-            await self._random_delay(1.0, 2.0)
+            # Give OAAM more time to complete the auth handshake before
+            # _wait_for_dashboard starts polling for li.loggedInUser.
+            await self._random_delay(2.0, 3.0)
 
         finally:
             del username
@@ -898,6 +902,23 @@ class NBEScraper(BankScraper):
             if logout_found:
                 logger.info("NBE: login confirmed via logout fallback selector")
                 return
+
+            # Neither CSS selector found — check if the SPA URL has moved away
+            # from the login page.  After successful authentication the Oracle JET
+            # SPA replaces the ?page=home fragment with the dashboard path.  If the
+            # URL no longer contains "?page=home" (or contains no "?page=" at all),
+            # the login succeeded even though the nav selectors are still rendering.
+            try:
+                current_url = page.url
+                if isinstance(current_url, str) and (
+                    "page=home" not in current_url or "?page=" not in current_url
+                ):
+                    logger.info(
+                        "NBE: login confirmed via URL change — URL=%r", current_url
+                    )
+                    return
+            except Exception:
+                pass
 
             # Neither selector found — check if bad-credentials state is showing.
             # The NBE SPA may display an error modal or re-render the login form.
