@@ -4,19 +4,30 @@ Login URL: https://www.alahlynet.com.eg/?page=home
 
 Portal type
 -----------
-Oracle JET single-page application (SPA).  All navigation stays on the same
-base URL — page state changes are indicated by the ``?page=`` query parameter
-but the browser URL may not actually change between SPA views.  ``networkidle``
-waits are used throughout to let AJAX settle before inspecting the DOM.
+Oracle Banking Digital Experience (OBDX) SPA backed by Oracle JET.  All
+navigation stays on the same base URL — page state changes are indicated by
+the ``?page=`` query parameter.  ``networkidle`` waits are used throughout to
+let AJAX settle before inspecting the DOM.
 
 Scrape flow
 -----------
 1. Navigate to login page and wait for ``#login_username``.
 2. Enter username → click ``#username-button`` (step 1 of 2-step login).
-3. Wait for password field ``#login_password`` to appear (SPA renders it
-   dynamically after step 1 completes).
-4. Enter password → click ``button.btn-login``.
-5. Confirm login by waiting for ``a:has-text('Logout')`` in the DOM.
+   The button triggers an OAAM (Oracle Adaptive Access Manager) API call to
+   ``getOAAMImageForMobile()`` which validates the username and returns the
+   user's security image.  Only after this call succeeds does the SPA set
+   ``userNameSubmitted(true)`` and render the password step.
+3. Wait for password field ``#login_password`` to appear.  This field is
+   dynamically injected into a ``loginContainer`` modal overlay by the SPA
+   component after the OAAM call succeeds.  The field is technically an
+   ``input[type="text"]`` with CSS ``text-security: disc`` applied to mask
+   characters visually.
+4. Enter password → click ``button.btn-login-2`` (the password-step submit).
+   Note: ``#username-button`` carries class ``btn-login`` (step 1); the
+   password step uses a *separate* button with class ``btn-login-2``.
+5. Confirm login by waiting for ``li.loggedInUser`` (the logged-in username
+   badge in the nav bar) — more reliable than ``a:has-text('Logout')`` since
+   the logout anchor may be icon-only.
 6. Click the Accounts Summary widget ``li.CSA a`` to flip the account card
    and reveal the account list.
 7. Locate the first ``li.flip-account-list__items`` row; extract account
@@ -41,10 +52,11 @@ must collect the OTP from the user and resume the scrape session.
 
 Selector strategy
 -----------------
-Oracle JET components render custom elements (``oj-table``, ``oj-select-one``
-etc.) that wrap standard HTML.  Inner cells are queried by the stable
-``id="ViewStatement1:{row}_{col}"`` pattern which Oracle JET generates
-deterministically from the data-bound ``<oj-table>`` definition.
+Selectors are verified against live HTML captured via ``recon_nbe.py`` (see
+``/tmp/finpilot_debug/nbe_recon/login_page.html`` and ``dom_inputs.txt``).
+
+Oracle JET renders inner cells with ``id="ViewStatement1:{row}_{col}"`` that
+the transaction parser matches against a stable regex pattern.
 
 Date parsing
 ------------
@@ -105,19 +117,47 @@ _SHORT_TIMEOUT_MS = 8_000
 _MAX_TRANSACTIONS = 50
 
 # ---------------------------------------------------------------------------
-# Selector catalogue (Oracle JET SPA — alahlynet.com.eg)
+# Selector catalogue (OBDX / Oracle JET SPA — alahlynet.com.eg)
+#
+# All selectors below were verified against live HTML captured by recon_nbe.py
+# on 2026-03-17.  Re-run recon_nbe.py whenever portal changes are suspected.
 # ---------------------------------------------------------------------------
 
-# Step 1 — username input and submit button
+# Step 1 — username input and submit button.
+# Both elements are present in the initial page HTML (pre-JS render).
+# Confirmed: id="login_username" type=text placeholder="User ID"
+# Confirmed: id="username-button" class="btn-login action-button-primary"
 _SEL_USERNAME = "#login_username"
 _SEL_USERNAME_BTN = "#username-button"
 
-# Step 2 — password field (rendered dynamically by SPA after username step)
+# Step 2 — password field and submit button.
+#
+# These elements are NOT present in the initial page HTML.  After clicking
+# #username-button the SPA calls OAAM's getOAAMImageForMobile() API, then
+# sets userNameSubmitted(true) which injects a .loginContainer modal popup
+# containing the password form.
+#
+# The password input: id="login_password", technically type=text with CSS
+# text-security:disc masking (not type=password).
+#
+# The submit button: class="btn-login-2" (60%-width green button for step 2).
+# NOTE: class "btn-login" belongs to #username-button (step 1 — full width).
+# Using "button.btn-login" would match the WRONG button.
 _SEL_PASSWORD = "#login_password"
-_SEL_PASSWORD_BTN = "button.btn-login"
+_SEL_PASSWORD_BTN = "button.btn-login-2"
+# Fallback chain tried in order if btn-login-2 is not found:
+_SEL_PASSWORD_BTN_FALLBACKS = [
+    ".loginContainer button.action-button-primary",
+    "button:not(#username-button).btn-login",
+]
 
-# Confirms successful login — Logout link present in the nav
-_SEL_LOGOUT = "a:has-text('Logout')"
+# Confirms successful login.
+# After login the nav bar renders a li.loggedInUser element with the
+# welcome text / username.  The logout anchor uses class no-navigation-logout
+# but may be icon-only (no reliable text).  li.loggedInUser is safer.
+_SEL_LOGGED_IN = "li.loggedInUser"
+# Legacy fallback kept for backward compatibility if CSS classes change:
+_SEL_LOGOUT = "a.no-navigation-logout, a:has-text('Logout')"
 
 # OTP detection — either a dedicated OTP section or any OTP input
 _SEL_OTP_SECTION = "#otpSection"
@@ -476,6 +516,33 @@ class NBEScraper(BankScraper):
 
         except Exception as exc:
             await self._safe_screenshot(page, "unexpected_error")
+            # Capture diagnostic context so we can debug without re-running.
+            # Log page URL and a safe snippet of the current HTML (first 500 chars
+            # of body text, stripped of scripts/styles) — never log credentials.
+            _diag_url = "<unknown>"
+            _diag_html_snippet = "<unavailable>"
+            try:
+                _diag_url = page.url
+            except Exception:
+                pass
+            try:
+                _diag_html_snippet = (await page.inner_text("body"))[:500].replace("\n", " ")
+            except Exception:
+                try:
+                    _raw = await page.content()
+                    # Strip script/style blocks for a clean snippet
+                    _clean = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", _raw, flags=re.S)
+                    _diag_html_snippet = _clean[:500]
+                except Exception:
+                    pass
+
+            logger.error(
+                "NBE scrape failed — url=%r error=%s: %s | page_text_snippet=%r",
+                _diag_url,
+                type(exc).__name__,
+                exc,
+                _diag_html_snippet,
+            )
             raise ScraperParseError(
                 f"NBE unexpected error during scrape: {type(exc).__name__}: {exc}",
                 bank_code="NBE",
@@ -612,7 +679,14 @@ class NBEScraper(BankScraper):
         """Execute the 2-step login flow.
 
         Step 1: Enter username → click ``#username-button``.
-        Step 2: Wait for password field → enter password → click ``.btn-login``.
+          After the click the SPA calls OAAM's ``getOAAMImageForMobile()``
+          API to validate the username.  Only on success does it set
+          ``userNameSubmitted(true)`` and inject the password form.
+
+        Step 2: Wait for ``#login_password`` → enter password → click
+          ``button.btn-login-2`` (the 60%-width green submit for step 2).
+          IMPORTANT: ``button.btn-login`` is the step-1 username button
+          (full width, id="username-button").  Using it here would be wrong.
 
         Credentials are typed character-by-character and deleted from local
         scope in the ``finally`` block.
@@ -633,14 +707,17 @@ class NBEScraper(BankScraper):
                     bank_code="NBE",
                 )
             await username_btn.click()
-            await self._random_delay(1.5, 3.0)
+            # The OAAM API call can take several seconds — wait generously.
+            await self._random_delay(2.5, 4.0)
 
-            # Step 2 — wait for password field to render
+            # Step 2 — wait for password field to render inside loginContainer popup.
+            # The field uses id="login_password" with CSS text-security masking.
             try:
                 await page.wait_for_selector(_SEL_PASSWORD, timeout=_WAIT_TIMEOUT_MS)
             except PlaywrightTimeoutError as exc:
                 raise ScraperTimeoutError(
-                    f"NBE: password field ({_SEL_PASSWORD!r}) did not appear after username step",
+                    f"NBE: password field ({_SEL_PASSWORD!r}) did not appear after username "
+                    f"step — OAAM call may have failed or username is not recognised",
                     bank_code="NBE",
                 ) from exc
 
@@ -648,10 +725,24 @@ class NBEScraper(BankScraper):
             await self._type_human(page, _SEL_PASSWORD, password)
             await self._random_delay(0.8, 1.5)
 
+            # Find the password step submit button (class="btn-login-2").
+            # Try primary selector first, then fallbacks in order.
             password_btn = await page.query_selector(_SEL_PASSWORD_BTN)
             if password_btn is None:
+                logger.debug(
+                    "NBE: %r not found — trying fallback password button selectors",
+                    _SEL_PASSWORD_BTN,
+                )
+                for fallback_sel in _SEL_PASSWORD_BTN_FALLBACKS:
+                    password_btn = await page.query_selector(fallback_sel)
+                    if password_btn is not None:
+                        logger.debug("NBE: password button found via fallback %r", fallback_sel)
+                        break
+
+            if password_btn is None:
                 raise ScraperParseError(
-                    f"NBE: login submit button ({_SEL_PASSWORD_BTN!r}) not found",
+                    f"NBE: password submit button not found "
+                    f"(tried {_SEL_PASSWORD_BTN!r} and {_SEL_PASSWORD_BTN_FALLBACKS!r})",
                     bank_code="NBE",
                 )
             await password_btn.click()
@@ -666,7 +757,9 @@ class NBEScraper(BankScraper):
 
         Checks for:
         1. OTP prompt — raises ``ScraperOTPRequired`` immediately.
-        2. ``a:has-text('Logout')`` appearing in DOM — confirms success.
+        2. ``li.loggedInUser`` appearing in DOM — confirms successful session.
+           Falls back to ``a.no-navigation-logout`` if the primary selector
+           is absent (portal CSS class changes).
         3. Timeout — raises ``ScraperTimeoutError``.
 
         Does NOT screenshot at this stage because the login form may still be
@@ -684,11 +777,25 @@ class NBEScraper(BankScraper):
                 session_token="",  # Populated by API layer with real session token
             )
 
-        # Wait for the Logout link which confirms a successful authenticated session
+        # Wait for the loggedInUser nav badge which confirms an authenticated session.
+        # li.loggedInUser is more reliable than looking for Logout link text because
+        # the logout anchor on alahlynet.com.eg may be icon-only (no visible text).
         try:
-            await page.wait_for_selector(_SEL_LOGOUT, timeout=_WAIT_TIMEOUT_MS)
+            await page.wait_for_selector(_SEL_LOGGED_IN, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError:
-            # Before raising timeout, check if bad-credentials state is showing.
+            # li.loggedInUser not found — try the logout link fallback before giving up
+            logout_found = False
+            try:
+                await page.wait_for_selector(_SEL_LOGOUT, timeout=_SHORT_TIMEOUT_MS)
+                logout_found = True
+            except PlaywrightTimeoutError:
+                pass
+
+            if logout_found:
+                logger.debug("NBE: login confirmed via logout fallback selector")
+                return
+
+            # Neither selector found — check if bad-credentials state is showing.
             # The NBE SPA may display an error modal or re-render the login form.
             page_text = ""
             try:
@@ -704,7 +811,7 @@ class NBEScraper(BankScraper):
 
             await self._safe_screenshot(page, "dashboard_timeout")
             raise ScraperTimeoutError(
-                "NBE: dashboard (Logout link) not found within timeout",
+                "NBE: dashboard (loggedInUser / logout selectors) not found within timeout",
                 bank_code="NBE",
             )
 
