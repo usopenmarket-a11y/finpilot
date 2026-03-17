@@ -618,9 +618,7 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: waiting for accounts widget %r", _SEL_ACCOUNTS_WIDGET)
         try:
-            accounts_widget = await page.wait_for_selector(
-                _SEL_ACCOUNTS_WIDGET, timeout=_WAIT_TIMEOUT_MS
-            )
+            await page.wait_for_selector(_SEL_ACCOUNTS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "accounts_widget_missing")
             raise ScraperTimeoutError(
@@ -629,7 +627,9 @@ class NBEScraper(BankScraper):
             ) from exc
 
         logger.info("NBE: clicking accounts widget to reveal account list")
-        await accounts_widget.click()
+        # Use page.click() instead of handle.click() — the Oracle JET SPA re-renders
+        # elements after interaction, which detaches stored ElementHandles.
+        await page.click(_SEL_ACCOUNTS_WIDGET)
         await self._random_delay(0.8, 1.5)
 
         logger.info("NBE: waiting for account rows %r", _SEL_ACCOUNT_ROWS)
@@ -659,13 +659,11 @@ class NBEScraper(BankScraper):
         logger.info("NBE: navigating to Account Activity")
         await self._random_delay(0.8, 1.5)
 
-        # 1. Click the 3-dots context menu icon on the first account row
-        first_row = await page.query_selector(_SEL_ACCOUNT_ROWS)
-        if first_row is None:
-            await self._safe_screenshot(page, "first_account_row_missing")
-            raise ScraperParseError("NBE: could not locate first account row", bank_code="NBE")
-
-        menu_icon = await first_row.query_selector(_SEL_MENU_ICON)
+        # 1. Click the 3-dots context menu icon on the first account row.
+        # Use page.click() with a composed CSS selector to avoid stale ElementHandle
+        # errors — the Oracle JET SPA re-renders after every interaction.
+        menu_icon_sel = f"{_SEL_ACCOUNT_ROWS} {_SEL_MENU_ICON}"
+        menu_icon = await page.query_selector(menu_icon_sel)
         if menu_icon is None:
             await self._safe_screenshot(page, "menu_icon_missing")
             raise ScraperParseError(
@@ -673,15 +671,13 @@ class NBEScraper(BankScraper):
             )
 
         logger.info("NBE: clicking account context menu icon")
-        await menu_icon.click()
+        await page.click(menu_icon_sel)
         await self._random_delay(0.8, 1.5)
 
         # 4. Click "Account Activity"
         logger.info("NBE: waiting for 'Account Activity' menu item")
         try:
-            activity_item = await page.wait_for_selector(
-                _SEL_ACCOUNT_ACTIVITY, timeout=_SHORT_TIMEOUT_MS
-            )
+            await page.wait_for_selector(_SEL_ACCOUNT_ACTIVITY, timeout=_SHORT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "account_activity_missing")
             raise ScraperTimeoutError(
@@ -689,7 +685,7 @@ class NBEScraper(BankScraper):
             ) from exc
 
         logger.info("NBE: clicking 'Account Activity' — navigating to transactions page")
-        await activity_item.click()
+        await page.click(_SEL_ACCOUNT_ACTIVITY)
         await self._random_delay(1.0, 2.0)
 
         # 5. Wait for the transaction table OR the Apply button — whichever arrives first.
