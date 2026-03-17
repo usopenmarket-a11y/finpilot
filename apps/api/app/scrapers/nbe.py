@@ -768,18 +768,26 @@ class NBEScraper(BankScraper):
         logger.info("NBE: clicked account context menu icon (index=%d)", account_index)
         await self._random_delay(0.8, 1.5)
 
-        # 4. Click "Account Activity"
-        logger.info("NBE: waiting for 'Account Activity' menu item")
+        # 4. Click "Account Activity" — must target the VISIBLE menu item only.
+        # "span:has-text('Account Activity')" matches one span per account row
+        # (4 total), but only the one inside the currently-open context menu
+        # popup is actually visible.  page.click() always picks the first DOM
+        # match regardless of visibility, so for accounts 1-3 it always clicks
+        # account 0's item instead of the open one.
+        # Playwright's :visible pseudo-class restricts the match to elements
+        # that are currently displayed — exactly what we need.
+        _SEL_ACCOUNT_ACTIVITY_VISIBLE = f"{_SEL_ACCOUNT_ACTIVITY}:visible"
+        logger.info("NBE: waiting for visible 'Account Activity' menu item")
         try:
-            await page.wait_for_selector(_SEL_ACCOUNT_ACTIVITY, timeout=_SHORT_TIMEOUT_MS)
+            await page.wait_for_selector(_SEL_ACCOUNT_ACTIVITY_VISIBLE, timeout=_SHORT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "account_activity_missing")
             raise ScraperTimeoutError(
-                "NBE: 'Account Activity' menu item not found", bank_code="NBE"
+                "NBE: 'Account Activity' menu item not found (visible)", bank_code="NBE"
             ) from exc
 
-        logger.info("NBE: clicking 'Account Activity' — navigating to transactions page")
-        await page.click(_SEL_ACCOUNT_ACTIVITY)
+        logger.info("NBE: clicking visible 'Account Activity' — navigating to transactions page")
+        await page.click(_SEL_ACCOUNT_ACTIVITY_VISIBLE)
         await self._random_delay(1.0, 2.0)
 
         # 5. Wait for the transaction table OR the Apply button — whichever arrives first.
