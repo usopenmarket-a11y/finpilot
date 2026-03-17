@@ -785,6 +785,13 @@ def _build_nbe_mock_page(
     # handle when the selector is found; our scraper calls .click() on it.
     mock_page.wait_for_selector = AsyncMock(return_value=mock_element)
 
+    # wait_for_load_state — used after Apply click for networkidle wait
+    mock_page.wait_for_load_state = AsyncMock(return_value=None)
+
+    # evaluate — used for JS cell-count check after networkidle; return > 0 so
+    # the scraper proceeds without the fallback wait_for_selector path.
+    mock_page.evaluate = AsyncMock(return_value=7)
+
     async def _query_selector(selector: str) -> Any:
         if selector in _NBE_OTP_SELECTORS:
             return None

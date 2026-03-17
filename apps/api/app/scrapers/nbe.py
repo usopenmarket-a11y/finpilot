@@ -109,7 +109,7 @@ _LOGIN_URL = "https://www.alahlynet.com.eg/?page=home"
 
 # Playwright timeout for page.goto() calls — longer to handle slow international
 # connections from Render (Oregon, US West) to the NBE portal (Egypt).
-_PAGE_LOAD_TIMEOUT_MS = 120_000
+_PAGE_LOAD_TIMEOUT_MS = 150_000
 
 # Default Playwright wait timeout in milliseconds.
 # Set high to handle Oregon→Egypt latency (~120-150ms RTT) for AJAX calls.
@@ -186,8 +186,20 @@ _SEL_APPLY_BTN = "button:has-text('Apply')"
 # The Oracle JET transaction table
 _SEL_TXN_TABLE = "oj-table#ViewStatement1"
 
-# A loaded cell inside the table (used to confirm AJAX has settled)
+# A loaded cell inside the table (used to confirm AJAX has settled).
+# Primary selector for pagination waits (light DOM — cells are NOT inside Shadow DOM).
 _SEL_TXN_TABLE_CELL = "oj-table#ViewStatement1 td"
+
+# Alternate selector that works when the oj-table custom element wraps the td:
+# Oracle JET stamps cell ids as ViewStatement1:{row}_{col}, which is queryable
+# even if the ancestor is a custom element.  Used as the JS-based cell-count check.
+_SEL_TXN_TABLE_CELL_ALT = "[id^='ViewStatement1:']"
+
+# networkidle timeout after Apply click — generous to allow Oregon→Egypt AJAX RTT.
+_APPLY_NETWORKIDLE_TIMEOUT_MS = 150_000
+
+# Extra selector wait tried if networkidle settles but JS cell-count is still 0.
+_APPLY_FALLBACK_WAIT_MS = 30_000
 
 # Pagination — Next Page button
 _SEL_NEXT_PAGE = "button[title='Next Page']"
@@ -700,15 +712,57 @@ class NBEScraper(BankScraper):
             logger.info("NBE: Apply button present — clicking to load transactions")
             await apply_btn.click()
             await self._random_delay(1.0, 1.8)
-            logger.info("NBE: waiting for transaction table cells after Apply click")
+
+            # Wait for network to settle first.  This gives the Oregon→Egypt AJAX call
+            # as much time as it needs rather than racing against a fixed element timeout.
+            logger.info(
+                "NBE: waiting for networkidle after Apply click (timeout=%dms)",
+                _APPLY_NETWORKIDLE_TIMEOUT_MS,
+            )
             try:
-                await page.wait_for_selector(_SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS)
-            except PlaywrightTimeoutError as exc:
+                await page.wait_for_load_state(
+                    "networkidle", timeout=_APPLY_NETWORKIDLE_TIMEOUT_MS
+                )
+            except PlaywrightTimeoutError:
+                # networkidle may never fire on Oracle JET SPAs that keep persistent
+                # XHR connections open — proceed to the cell-count check regardless.
+                logger.warning(
+                    "NBE: networkidle timed out after Apply — proceeding to cell count check"
+                )
+
+            # Use JS to count cells by their stable id prefix.  This pierces any custom-
+            # element wrapping without relying on the CSS descendant combinator, which can
+            # fail against non-standard elements like oj-table when slots are used.
+            cell_count: int = await page.evaluate(
+                "() => document.querySelectorAll('[id^=\"ViewStatement1:\"]').length"
+            )
+            logger.info("NBE: cell count after networkidle = %d", cell_count)
+
+            if cell_count == 0:
+                # Cells not yet present — one more explicit wait using the alt selector.
+                logger.info(
+                    "NBE: cells not yet visible — waiting up to %dms for %r",
+                    _APPLY_FALLBACK_WAIT_MS,
+                    _SEL_TXN_TABLE_CELL_ALT,
+                )
+                try:
+                    await page.wait_for_selector(
+                        _SEL_TXN_TABLE_CELL_ALT, timeout=_APPLY_FALLBACK_WAIT_MS
+                    )
+                    cell_count = await page.evaluate(
+                        "() => document.querySelectorAll('[id^=\"ViewStatement1:\"]').length"
+                    )
+                    logger.info("NBE: cell count after fallback wait = %d", cell_count)
+                except PlaywrightTimeoutError:
+                    pass  # cell_count remains 0 — error raised below
+
+            if cell_count == 0:
                 await self._safe_screenshot(page, "txn_table_cells_missing")
-                raise ScraperTimeoutError(
-                    "NBE: transaction table cells did not appear after Apply",
+                raise ScraperParseError(
+                    "NBE: transaction table cells did not appear after Apply "
+                    f"(networkidle + {_APPLY_FALLBACK_WAIT_MS}ms fallback exhausted)",
                     bank_code="NBE",
-                ) from exc
+                )
         else:
             logger.info("NBE: Apply button absent — table loaded automatically")
 
