@@ -20,8 +20,11 @@ _ALLOWED_CORS_HEADERS = [
     "Content-Type",
     "X-Requested-With",
     "Accept",
+    "Accept-Language",
+    "Content-Language",
     "Origin",
     "X-CSRF-Token",
+    "X-User-Id",
 ]
 
 if settings.app_env == "production" and ("*" in settings.cors_origins or not settings.cors_origins):
