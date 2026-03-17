@@ -43,7 +43,11 @@ async function apiFetch<T>(
     ...(rest.headers as Record<string, string> | undefined),
   };
 
-  const res = await fetch(`${API_BASE}${path}`, { ...rest, headers });
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...rest,
+    headers,
+    signal: AbortSignal.timeout(60000), // 60s — Render free tier can take 30s to wake
+  });
 
   if (!res.ok) {
     let detail = res.statusText;

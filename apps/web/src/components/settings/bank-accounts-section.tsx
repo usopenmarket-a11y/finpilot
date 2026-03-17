@@ -182,7 +182,7 @@ export function BankAccountsSection() {
         {/* Existing credentials list */}
         <div>
           {loadingList && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading accounts...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading accounts… (may take up to 30s if server is waking up)</p>
           )}
           {listError && (
             <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
