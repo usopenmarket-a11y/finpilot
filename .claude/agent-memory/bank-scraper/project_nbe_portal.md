@@ -48,11 +48,22 @@ After clicking `#username-button`, the SPA calls `getOAAMImageForMobile()` (OAAM
 - Pagination: `button[title='Next Page']`
 - Column order: 0=Date | 1=Value Date | 2=Ref No | 3=Description | 4=Debit | 5=Credit | 6=Balance
 
-## Account extraction
+## Account extraction — multi-account (4 accounts per user)
+
+The user has 4 accounts: Savings EGP, Current EGP, Savings USD, Payroll.
+All appear as separate `li.flip-account-list__items` rows in the widget.
 
 - Account number: `.account-no` inside `li.flip-account-list__items`
 - Account type: `.account-name`
 - Balance: `.account-value` (fallback: scan text for currency+amount pattern)
+
+**Multi-account scraping pattern:**
+1. Call `_extract_all_accounts()` once — reads ALL rows at once from the widget HTML.
+2. For each account at index N, use `page.locator(_SEL_ACCOUNT_ROWS).nth(N).locator(_SEL_MENU_ICON).click()` — NEVER store an ElementHandle across SPA re-renders.
+3. After scraping account N's transactions, call `page.go_back()` (wait_until="domcontentloaded") then re-call `_reveal_accounts_widget()` before the next account.
+4. `go_back()` can time out on Oracle JET SPAs (SPA keeps persistent XHR connections) — catch PlaywrightTimeoutError and treat as soft warning; `_reveal_accounts_widget` will confirm readiness.
+5. Each Transaction.raw_data carries `account_number_masked` for pipeline routing to the correct DB account_id after multi-account upsert.
+6. Per-account failures are caught, logged as WARNING, and skipped — one bad account must not abort the entire scrape.
 
 ## Data formats
 

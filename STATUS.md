@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-16 (all 8 milestones complete)
+**Last reviewed:** 2026-03-17
 
 ---
 
@@ -16,6 +16,7 @@
 | M6 | Recommendations Engine | COMPLETE | 100% |
 | M7 | Frontend Dashboard | COMPLETE | 100% |
 | M8 | Production Deploy & Monitoring | COMPLETE | 100% |
+| M9 | Real Data Integration (Live Sync) | IN PROGRESS | 85% |
 
 ---
 
@@ -76,7 +77,7 @@
 - [x] `apps/api/app/analytics/spending.py` — `compute_spending_breakdown`: debit/credit split, by-category grouping, percentages, period filtering
 - [x] `apps/api/app/analytics/trends.py` — `compute_trends`: monthly snapshots, MoM % change, rolling averages, lookback window
 - [x] `apps/api/app/analytics/credit.py` — `compute_credit_report`: utilization % with healthy/warning/critical thresholds, loan months_remaining
-- [x] `apps/api/app/routers/analytics.py` — 4 endpoints: `POST /api/v1/analytics/categorize`, `/spending`, `/trends`, `/credit`; all with `extra="forbid"`, no PII in logs
+- [x] `apps/api/app/routers/analytics.py` — 4 endpoints: `POST /api/v1/analytics/categorize`, `/spending`, `/trends`, `/credit`
 - [x] 46 analytics unit tests (all passing)
 - [x] `anthropic>=0.40.0` added to `pyproject.toml`
 
@@ -94,80 +95,92 @@
   - `POST /api/v1/debts/{id}/payments` — record payment; returns updated debt with new balance+status
 - [x] Settlement logic: `active` → `partial` → `settled` based on outstanding_balance
 - [x] 400 guard: payment amount cannot exceed outstanding balance
-- [x] `clear_storage()` export for test isolation
-- [x] `apps/api/app/main.py` — debts router registered at `/api/v1`
-- [x] 52 tests in `test_debts.py` — all passing; **419 total tests passing**
+- [x] 52 tests in `test_debts.py` — all passing
 
 ---
 
 ## M6 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
-- [x] `apps/api/app/recommendations/monthly_plan.py` — health-scored monthly action plan; items ranked high→medium→low; confidence=0.4 when sparse (<3 months)
-- [x] `apps/api/app/recommendations/forecaster.py` — 3-month cash flow forecast; per-month confidence decay (0.9→0.8→0.7); expense growth by trend direction
-- [x] `apps/api/app/recommendations/debt_optimizer.py` — snowball vs avalanche simulation (cap 120 months); avalanche recommended unless all APR==0
-- [x] `apps/api/app/recommendations/savings.py` — 4-pass detector: duplicate charges, recurring subscriptions (3+ months), high fees (keywords + EGP>50), irregular spikes (mean+2σ); top-10 ranked
-- [x] `apps/api/app/routers/recommendations.py` — 4 endpoints:
-  - `POST /api/v1/recommendations/monthly-plan`
-  - `POST /api/v1/recommendations/forecast`
-  - `POST /api/v1/recommendations/debt-optimizer`
-  - `POST /api/v1/recommendations/savings`
-- [x] Bug fix: `savings.py` `sum()` with empty generator raised `AttributeError` — fixed with `Decimal("0")` start value
-- [x] `apps/api/app/main.py` — recommendations router registered
-- [x] 59 tests (unit + HTTP) — all passing; **478 total tests passing**
+- [x] `apps/api/app/recommendations/monthly_plan.py` — health-scored monthly action plan
+- [x] `apps/api/app/recommendations/forecaster.py` — 3-month cash flow forecast
+- [x] `apps/api/app/recommendations/debt_optimizer.py` — snowball vs avalanche simulation
+- [x] `apps/api/app/recommendations/savings.py` — 4-pass savings opportunity detector
+- [x] `apps/api/app/routers/recommendations.py` — 4 POST endpoints
+- [x] 59 tests — all passing
 
 ---
 
 ## M7 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
-- [x] `src/lib/types.ts` — TypeScript interfaces for all domain models (Debt, Transaction, MonthlyPlan, etc.)
-- [x] `src/components/ui/` — 7 hand-rolled primitives: badge, card, button, input, modal, select, empty-state
-- [x] `src/components/layout/sidebar.tsx` — mobile drawer + desktop sticky, nav links, sign-out
-- [x] `src/components/layout/dashboard-layout.tsx` — responsive wrapper with sidebar
-- [x] `src/components/dashboard/` — account-card (KPI), spending-chart (CSS bars), recent-transactions (table), health-score (SVG gauge)
+- [x] `src/lib/types.ts` — TypeScript interfaces for all domain models
+- [x] `src/components/ui/` — 7 primitives: badge, card, button, input, modal, select, empty-state
+- [x] `src/components/layout/` — sidebar (mobile drawer + desktop sticky), dashboard-layout
+- [x] `src/components/dashboard/` — account-card, spending-chart, recent-transactions, health-score
 - [x] `src/components/transactions/transaction-table.tsx` — filter, sort, pagination
-- [x] `src/components/debts/` — debt-list, add-debt-form, payment-modal (calls `api.post('/debts/…')`)
-- [x] `src/components/recommendations/` — monthly-plan-card, savings-opportunities, forecast-chart (grouped CSS bars)
-- [x] `src/hooks/use-debts.ts` + `use-transactions.ts` — fetch + loading + error + refetch pattern
-- [x] Pages: `/dashboard`, `/dashboard/transactions`, `/dashboard/debts`, `/dashboard/recommendations`, `/dashboard/settings`
-- [x] `src/app/dashboard/layout.tsx` — server-side auth guard, redirects unauthenticated users
-- [x] Fixed pre-existing scaffold errors: Geist→Inter/JetBrains_Mono (Next.js 14), Supabase cookie type annotations
-- [x] `tsc --noEmit`: **zero errors**
+- [x] `src/components/debts/` — debt-list, add-debt-form, payment-modal
+- [x] `src/components/recommendations/` — monthly-plan-card, savings-opportunities, forecast-chart
+- [x] `src/hooks/use-debts.ts` + `use-transactions.ts`
+- [x] Pages: `/dashboard`, `/transactions`, `/debts`, `/recommendations`, `/settings`
+- [x] `tsc --noEmit`: zero errors
 
 ---
 
 ## M8 Detailed Breakdown (100% — COMPLETE)
 
 ### Done
-- [x] `apps/api/.env` — all 5 secrets filled: Supabase URL/anon/service_role, ENCRYPTION_KEY, CLAUDE_API_KEY
-- [x] `apps/web/.env.local` — Supabase public keys + API URL for local dev
-- [x] `apps/web/next.config.mjs` — replaced `next.config.ts` (Next.js 14 requires `.js`/`.mjs`); API proxy rewrite preserved
-- [x] `render.yaml` — fixed `healthCheckPath: /api/v1/health`
-- [x] `vercel.json` — removed broken template syntax and conflicting `rootDirectory`
-- [x] Frontend build: `pnpm build` → **11 routes compile, 0 errors**
-- [x] **Render service LIVE** — `finpilot-api` (srv-d6s0bg6a2pns73dfbdl0) — verified via MCP
+- [x] `render.yaml` — build command installs Playwright at build time with custom `PLAYWRIGHT_BROWSERS_PATH`
+- [x] `vercel.json` — clean config, rootDirectory set via Vercel project settings
+- [x] **Render service LIVE** — `finpilot-api` (srv-d6s0bg6a2pns73dfbdl0)
   - URL: `https://finpilot-api-lrfg.onrender.com`
-  - Region: Oregon, Python runtime, free plan
-  - Status: not_suspended, auto-deploy on push to `main`
-  - All 7 env vars set (Supabase, ENCRYPTION_KEY, CLAUDE_API_KEY, CORS_ORIGINS)
-- [x] **Vercel deployed LIVE** — `https://finpilot-api.vercel.app` (state: READY) — verified via MCP
-  - Latest deployment: `dpl_H4yZnjrzjoWUz8fh5MTFLb79HRHm` (commit `81a6357`)
-  - Framework: nextjs, `rootDirectory: apps/web` set via project settings
-  - All 4 env vars set (Supabase public keys, API URL, APP URL)
-- [x] **CORS_ORIGINS** updated on Render to include production Vercel URLs
+  - Region: Oregon, Python runtime, free plan, auto-deploy on push to `main`
+  - Latest deploy: `dep-d6sllekhg0os738io340` (commit `28fb9a8`) — **LIVE**
+- [x] **Vercel deployed LIVE** — `https://finpilot-api.vercel.app`
+- [x] GitHub Actions CI: ruff + mypy + pytest all passing
+- [x] CORS_ORIGINS configured for production Vercel URL
+
+---
+
+## M9 Detailed Breakdown (85% — IN PROGRESS)
+
+### What M9 covers
+Real-data integration: stored encrypted credentials → live bank sync → dashboard shows actual account data.
+
+### Done
+- [x] `apps/api/app/routers/credentials.py` — save/list/delete encrypted bank credentials in `bank_credentials` Supabase table
+- [x] `apps/api/app/routers/sync.py` — async job pattern: `POST /accounts/sync/{bank}` → 202 + job_id; `GET /accounts/sync/status/{job_id}` → status/result; background asyncio task runs scrape + pipeline
+- [x] `apps/api/app/routers/utils.py` — utility endpoints
+- [x] `apps/web/src/components/settings/bank-accounts-section.tsx` — UI to add credentials + trigger sync
+- [x] `apps/web/src/lib/api-client.ts` — `syncBank()` uses POST→poll pattern (polls every 5s, up to 5min)
+- [x] Dashboard page reads real Supabase data (accounts + transactions) when available
+- [x] `test_credentials.py` — credentials router tests
+- [x] Playwright install at build time (not runtime) — Chromium binary confirmed present
+- [x] CI passing: 511 tests, ruff + mypy clean
+
+### Remaining / In Progress
+- [ ] **NBE transaction table scraping** — `oj-table#ViewStatement1 td` cells not loading after Apply click from Oregon (timeout); latest fix (`28fb9a8`) uses `networkidle` + JS cell count + 30s fallback — **deployed, awaiting live test result**
+- [ ] End-to-end sync verification: full sync returning `transactions_scraped > 0`
+- [ ] Dashboard showing real NBE account balance + transactions after successful sync
 
 ---
 
 ## Current Focus
 
-**Project complete — all 8 milestones delivered.** FinPilot is fully deployed in production.
+**Verifying M9 end-to-end**: The NBE scraper's transaction table wait has been rewritten (commit `28fb9a8`, deployed as `dep-d6sllekhg0os738io340` at 13:49 UTC). Trigger a sync from the Settings page and confirm transactions load.
+
+**If sync still fails**, the next debugging step is to inspect the Render logs for the new `networkidle` log line — it will reveal whether:
+1. `networkidle` timed out (Oracle JET persistent XHR) → cells still 0 → fallback 30s triggered
+2. `networkidle` resolved but JS cell count is 0 → selector mismatch, need to inspect live HTML
+3. `networkidle` resolved and cell count > 0 → success
 
 ---
 
 ## Blockers
 
-None.
+| Blocker | Impact | Resolution |
+|---------|--------|------------|
+| NBE transaction table loading from Oregon (>90s AJAX) | M9 incomplete | Latest fix: `networkidle` + JS cell count deployed. Awaiting confirmation. |
 
 ---
 
@@ -175,14 +188,14 @@ None.
 
 | Commit | Description |
 |--------|-------------|
-| `81a6357` | fix(infra): remove rootDirectory from vercel.json — set via project settings |
-| `aad0e2c` | docs: update STATUS.md — M8 in progress |
-| `4f6c0c4` | fix(infra): M8 deploy prep — next.config.mjs, vercel.json, render.yaml health path |
-| `08a08e4` | feat(web): M7 — Frontend Dashboard with all pages and components |
-| `e4e2414` | feat(api): M6 — Recommendations Engine + POST /api/v1/recommendations/* endpoints |
-| `8c42469` | feat(api): M5 — Debt Tracker CRUD with payment tracking and settlement flow |
-| `b46fb81` | feat(analytics): M4 — analytics engine + POST /api/v1/analytics/* endpoints |
-| `0b3f26a` | feat(scraper,pipeline): M3 — BDC & UB scrapers + ETL pipeline |
+| `28fb9a8` | fix(scraper): networkidle + JS cell count for Apply wait — handles Oregon→Egypt AJAX |
+| `301e1b0` | fix(scraper): increase NBE timeouts (_WAIT_TIMEOUT_MS 60s→90s) |
+| `229ec69` | fix(scraper): wait for table OR Apply button, reduce delays |
+| `ee068d7` | fix(scraper): reveal accounts widget before extracting account data |
+| `da4641c` | feat(api,web): async job pattern for sync (POST→202+job_id, GET poll) |
+| `765ac15` | fix(infra,api,test): Playwright install at build time, fix CI test mock |
+| `5a6ed50` | feat(api,web): M9 — bank credential storage + live sync + real dashboard data |
+| `797dfd1` | fix(api): CI — ruff + mypy passing clean |
 
 ---
 
@@ -190,10 +203,10 @@ None.
 
 | Service | Status | URL | Notes |
 |---------|--------|-----|-------|
-| Supabase DB | LIVE | — | 6 tables, RLS enabled on all, verified via MCP |
-| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | srv-d6s0bg6a2pns73dfbdl0, auto-deploy on push to main |
-| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Latest deploy READY (dpl_H4yZnjrzjoWUz8fh5MTFLb79HRHm) |
-| GitHub Actions CI | ACTIVE | — | Runs lint + tests on every PR/push |
+| Supabase DB | LIVE | — | 6 tables + `bank_credentials`, RLS enabled |
+| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest deploy `28fb9a8`, live at 13:49 UTC |
+| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Auto-deploys on push to main |
+| GitHub Actions CI | PASSING | — | 511 tests, ruff + mypy clean |
 
 ---
 
@@ -204,10 +217,11 @@ None.
 | `test_health.py` | 8 | PASS |
 | `test_models.py` | 17 | PASS |
 | `test_crypto.py` | 19 | PASS |
-| `test_scrapers.py` | 96 | PASS (NBE + CIB) |
+| `test_scrapers.py` | ~111 | PASS (NBE + CIB, updated for networkidle mock) |
 | `test_scrapers_bdc_ub.py` | 143 | PASS (BDC + UB) |
 | `test_pipeline.py` | 21 | PASS |
 | `test_analytics.py` | 46 | PASS |
 | `test_debts.py` | 52 | PASS |
 | `test_recommendations.py` | 59 | PASS |
-| **Total** | **478** | **478/478 passing** |
+| `test_credentials.py` | ~35 | PASS |
+| **Total** | **511** | **511/511 passing** |

@@ -88,7 +88,7 @@ def make_scraper_result(bank_name: str = "NBE", n_transactions: int = 3) -> Scra
         )
         for i in range(n_transactions)
     ]
-    return ScraperResult(account=account, transactions=transactions)
+    return ScraperResult(accounts=[account], transactions=transactions)
 
 
 def mock_supabase_client() -> AsyncMock:
@@ -174,7 +174,7 @@ class TestNormalizer:
         # Manually override currency to lowercase to simulate raw scraper output.
         raw_account = raw_account.model_copy(update={"currency": "egp"})
         raw_txn = _make_transaction(currency="egp")
-        scraper_result = ScraperResult(account=raw_account, transactions=[raw_txn])
+        scraper_result = ScraperResult(accounts=[raw_account], transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
@@ -184,7 +184,7 @@ class TestNormalizer:
     def test_normalize_transaction_type_lowercased(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() converts transaction_type to lowercase."""
         raw_txn = _make_transaction(transaction_type="Debit")
-        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
+        scraper_result = ScraperResult(accounts=[_make_bank_account("NBE")], transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
@@ -193,7 +193,7 @@ class TestNormalizer:
     def test_normalize_strips_description_whitespace(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() strips leading/trailing whitespace from description."""
         raw_txn = _make_transaction(description="  ATM Withdrawal  ")
-        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
+        scraper_result = ScraperResult(accounts=[_make_bank_account("NBE")], transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
@@ -202,7 +202,7 @@ class TestNormalizer:
     def test_normalize_amount_is_positive_decimal(self, user_id: UUID, account_id: UUID) -> None:
         """normalize() ensures amount is always a positive Decimal (abs applied)."""
         raw_txn = _make_transaction(amount=Decimal("-350.75"))
-        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
+        scraper_result = ScraperResult(accounts=[_make_bank_account("NBE")], transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 
@@ -215,7 +215,7 @@ class TestNormalizer:
         # Construct a transaction that claims to be categorized already.
         raw_txn = _make_transaction()
         raw_txn = raw_txn.model_copy(update={"is_categorized": True, "category": "Food"})
-        scraper_result = ScraperResult(account=_make_bank_account("NBE"), transactions=[raw_txn])
+        scraper_result = ScraperResult(accounts=[_make_bank_account("NBE")], transactions=[raw_txn])
 
         result = normalize(scraper_result, user_id, account_id)
 

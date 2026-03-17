@@ -27,5 +27,21 @@ Every UI element: try CSS selector first (30 s), fall back to XPath (15 s). Docu
 - `_type_human`: character-by-character typing with 80–180 ms per keystroke
 - `_random_delay`: 2–5 s between major navigation events
 
+## ScraperResult — multi-account shape (updated 2026-03-17)
+
+`ScraperResult.accounts` is now `list[BankAccount]` (was a single `account`). The `.account` property on `ScraperResult` is a backward-compat shim that returns `accounts[0]`.
+
+All single-account scrapers (CIB, BDC, UB) construct `ScraperResult(accounts=[account], ...)`.
+
+NBE constructs `ScraperResult(accounts=accounts, ...)` where `accounts` may have 4 entries.
+
+## Transaction routing in multi-account results
+
+Each `Transaction.raw_data["account_number_masked"]` carries the masked number of the account it came from. The pipeline runner (`runner.py`) uses this to route each transaction to the correct DB `account_id` after per-account upsert. If no routing key is present AND there is only one account in the result, all transactions fall through to that single account (backward-compat fallback).
+
+## Pipeline runner — multi-account loop
+
+`run_pipeline()` loops over `result.accounts`, upserts each account independently, filters its transactions by `raw_data["account_number_masked"]`, deduplicates, and inserts. `PipelineRunResult` reports the primary (first) account and aggregated transaction counts.
+
 **Why:** Documented to ensure new bank scrapers (BDC, UB) follow the same patterns without re-deriving them.
-**How to apply:** When implementing `bdc.py` and `ub.py`, copy the same base structure and import from `app.scrapers.base`.
+**How to apply:** When implementing `bdc.py` and `ub.py`, copy the same base structure and import from `app.scrapers.base`. Single-account scrapers: wrap account in a list. Multi-account scrapers: pass the full list and tag each Transaction.raw_data with account_number_masked.
