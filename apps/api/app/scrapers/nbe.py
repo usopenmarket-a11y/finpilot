@@ -615,7 +615,7 @@ class NBEScraper(BankScraper):
 
         logger.info("NBE: clicking accounts widget to reveal account list")
         await accounts_widget.click()
-        await self._random_delay(1.5, 3.0)
+        await self._random_delay(0.8, 1.5)
 
         logger.info("NBE: waiting for account rows %r", _SEL_ACCOUNT_ROWS)
         try:
@@ -642,7 +642,7 @@ class NBEScraper(BankScraper):
         4. Click Apply and wait for the transaction table rows to load.
         """
         logger.info("NBE: navigating to Account Activity")
-        await self._random_delay(1.5, 3.0)
+        await self._random_delay(0.8, 1.5)
 
         # 1. Click the 3-dots context menu icon on the first account row
         first_row = await page.query_selector(_SEL_ACCOUNT_ROWS)
@@ -675,36 +675,41 @@ class NBEScraper(BankScraper):
 
         logger.info("NBE: clicking 'Account Activity' — navigating to transactions page")
         await activity_item.click()
-        await self._random_delay(2.0, 4.0)
+        await self._random_delay(1.0, 2.0)
 
-        # 5. Wait for the Apply button (confirms Account Activity page has loaded)
-        logger.info("NBE: waiting for transaction filter Apply button %r", _SEL_APPLY_BTN)
+        # 5. Wait for the transaction table OR the Apply button — whichever arrives first.
+        # On some NBE portal versions the table loads automatically without needing
+        # to click Apply; on others the Apply button must be clicked first.
+        logger.info("NBE: waiting for transaction table or Apply button (whichever comes first)")
         try:
-            await page.wait_for_selector(_SEL_APPLY_BTN, timeout=_WAIT_TIMEOUT_MS)
+            await page.wait_for_selector(
+                f"{_SEL_TXN_TABLE_CELL}, {_SEL_APPLY_BTN}",
+                timeout=_WAIT_TIMEOUT_MS,
+            )
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "apply_btn_missing")
             raise ScraperTimeoutError(
-                "NBE: transaction filter 'Apply' button not found after navigation",
+                "NBE: neither transaction table nor Apply button appeared after Account Activity navigation",
                 bank_code="NBE",
             ) from exc
 
-        # 6. Click Apply and wait for table cells to load (AJAX)
-        logger.info("NBE: clicking Apply to load transaction table")
+        # If the Apply button is present, click it to trigger the default date-range query.
         apply_btn = await page.query_selector(_SEL_APPLY_BTN)
-        if apply_btn is None:
-            raise ScraperParseError("NBE: Apply button disappeared before click", bank_code="NBE")
-        await apply_btn.click()
-        await self._random_delay(2.0, 3.5)
-
-        logger.info("NBE: waiting for transaction table cells %r", _SEL_TXN_TABLE_CELL)
-        try:
-            await page.wait_for_selector(_SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS)
-        except PlaywrightTimeoutError as exc:
-            await self._safe_screenshot(page, "txn_table_cells_missing")
-            raise ScraperTimeoutError(
-                "NBE: transaction table cells did not appear after Apply",
-                bank_code="NBE",
-            ) from exc
+        if apply_btn is not None:
+            logger.info("NBE: Apply button present — clicking to load transactions")
+            await apply_btn.click()
+            await self._random_delay(1.0, 1.8)
+            logger.info("NBE: waiting for transaction table cells after Apply click")
+            try:
+                await page.wait_for_selector(_SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS)
+            except PlaywrightTimeoutError as exc:
+                await self._safe_screenshot(page, "txn_table_cells_missing")
+                raise ScraperTimeoutError(
+                    "NBE: transaction table cells did not appear after Apply",
+                    bank_code="NBE",
+                ) from exc
+        else:
+            logger.info("NBE: Apply button absent — table loaded automatically")
 
         logger.info("NBE: transaction table loaded successfully")
 
@@ -746,7 +751,7 @@ class NBEScraper(BankScraper):
             logger.info("NBE: clicking username submit button — waiting for OAAM API call")
             await username_btn.click()
             # The OAAM API call can take several seconds — wait generously.
-            await self._random_delay(2.5, 4.0)
+            await self._random_delay(1.2, 2.0)
 
             # Step 2 — wait for password field to render inside loginContainer popup.
             # The field uses id="login_password" with CSS text-security masking.
@@ -786,7 +791,7 @@ class NBEScraper(BankScraper):
                 )
             logger.info("NBE: clicking password submit button")
             await password_btn.click()
-            await self._random_delay(2.0, 4.0)
+            await self._random_delay(1.0, 2.0)
 
         finally:
             del username
@@ -990,7 +995,7 @@ class NBEScraper(BankScraper):
 
             # Navigate to the next page
             await next_btn.click()
-            await self._random_delay(1.5, 3.0)
+            await self._random_delay(0.8, 1.5)
             try:
                 await page.wait_for_selector(_SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS)
             except PlaywrightTimeoutError as exc:
