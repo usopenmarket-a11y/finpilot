@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -38,83 +37,11 @@ if settings.app_env == "production" and ("*" in settings.cors_origins or not set
     )
 
 
-async def _ensure_playwright_browsers() -> None:
-    """Install Playwright Chromium browser binary and diagnose system library status."""
-    import glob as _glob
-    import os as _os
-
-    # Install browser binary (--with-deps fails on Render due to no sudo)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "playwright", "install", "chromium",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        rc = proc.returncode
-        print(f"[playwright-install] exit={rc} stderr={stderr.decode()[:300]}", flush=True)
-    except Exception as exc:
-        print(f"[playwright-install] exception: {exc}", flush=True)
-
-    # Find the installed binary
-    patterns = [
-        "/opt/render/.cache/ms-playwright/chromium*/chrome-headless-shell-linux64/chrome-headless-shell",
-        "/opt/render/.cache/ms-playwright/chromium*/chrome-linux64/chrome",
-    ]
-    binary = None
-    for pat in patterns:
-        matches = _glob.glob(pat)
-        if matches:
-            binary = matches[0]
-            break
-
-    if not binary or not _os.path.isfile(binary):
-        print("[playwright-diag] Chromium binary NOT FOUND", flush=True)
-        return
-
-    print(f"[playwright-diag] binary={binary}", flush=True)
-
-    # ldd to find missing shared libraries
-    try:
-        ldd_proc = await asyncio.create_subprocess_exec(
-            "ldd", binary,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        ldd_out, _ = await ldd_proc.communicate()
-        missing = [l for l in ldd_out.decode().splitlines() if "not found" in l]
-        if missing:
-            print(f"[playwright-diag] MISSING LIBS: {missing}", flush=True)
-        else:
-            print("[playwright-diag] All libraries present", flush=True)
-    except Exception as exc:
-        print(f"[playwright-diag] ldd failed: {exc}", flush=True)
-
-    # Try actually launching the binary and capture exit code / stderr
-    try:
-        run_proc = await asyncio.create_subprocess_exec(
-            binary, "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        run_out, run_err = await asyncio.wait_for(run_proc.communicate(), timeout=10)
-        print(
-            f"[playwright-diag] binary --version exit={run_proc.returncode} "
-            f"stdout={run_out.decode()[:200]} stderr={run_err.decode()[:200]}",
-            flush=True,
-        )
-    except asyncio.TimeoutError:
-        print("[playwright-diag] binary --version timed out (likely missing lib)", flush=True)
-    except Exception as exc:
-        print(f"[playwright-diag] binary --version failed: {exc}", flush=True)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Run browser install in the background so the server starts immediately.
-    # Render free-tier has a port-binding timeout; blocking on the ~80s download
-    # causes a failed deploy even though the install would have succeeded.
-    asyncio.create_task(_ensure_playwright_browsers())
+    # Playwright Chromium is installed at build time via:
+    #   PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/src/.playwright-browsers playwright install chromium
+    # No runtime installation needed.
     yield
 
 

@@ -867,12 +867,13 @@ class TestNbeScraperScrape:
         mock_page.query_selector = _qs_no_otp  # type: ignore[assignment]
 
         # wait_for_selector succeeds for username field and password field,
-        # then times out on the Logout link wait inside _wait_for_dashboard.
+        # then times out on both dashboard confirmation selectors inside _wait_for_dashboard.
         mock_page.wait_for_selector = AsyncMock(
             side_effect=[
                 mock_element,  # #login_username (navigate_to_login)
                 mock_element,  # #login_password (login step 2)
-                _PwTimeout("timeout"),  # a:has-text('Logout') — login rejected
+                _PwTimeout("timeout"),  # li.loggedInUser — primary dashboard selector
+                _PwTimeout("timeout"),  # a.no-navigation-logout — fallback selector
             ]
         )
 
