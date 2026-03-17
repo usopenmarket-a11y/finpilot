@@ -151,6 +151,7 @@ export function BankAccountsSection() {
     }));
 
     try {
+      // syncBank now handles polling internally and can take 2-4 minutes
       const result = await syncBank(userId, bank);
       setSyncStates((prev) => ({
         ...prev,

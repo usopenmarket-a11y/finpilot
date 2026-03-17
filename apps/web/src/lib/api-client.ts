@@ -28,6 +28,18 @@ export interface SyncResult {
   synced_at: string;
 }
 
+export interface SyncJobStartResponse {
+  job_id: string;
+  status: string;
+}
+
+export interface SyncJobStatusResponse {
+  job_id: string;
+  status: 'pending' | 'running' | 'complete' | 'failed';
+  result: SyncResult | null;
+  error: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -121,15 +133,60 @@ export async function deleteCredential(
 }
 
 // ---------------------------------------------------------------------------
-// Sync
+// Sync — async job pattern
 // ---------------------------------------------------------------------------
 
+/**
+ * Start a bank sync job and poll until completion.
+ *
+ * The backend sync can take 2-4 minutes due to Cloudflare's 100-second HTTP timeout,
+ * so this uses a background job pattern:
+ * 1. POST /accounts/sync/{bank} returns immediately with a job_id (HTTP 202)
+ * 2. Poll GET /accounts/sync/status/{job_id} every 5 seconds
+ * 3. Return result when status is 'complete' or 'failed' (max 5 minutes)
+ */
 export async function syncBank(
   userId: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
 ): Promise<SyncResult> {
-  return apiFetch<SyncResult>(`/api/v1/accounts/sync/${bank}`, {
-    method: 'POST',
-    userId,
-  });
+  // Step 1: Start the job
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}`,
+    {
+      method: 'POST',
+      userId,
+    }
+  );
+
+  const jobId = jobStart.job_id;
+  const maxWaitMs = 5 * 60 * 1000; // 5 minutes
+  const pollIntervalMs = 5 * 1000; // 5 seconds
+  const startTime = Date.now();
+
+  // Step 2: Poll for completion
+  while (Date.now() - startTime < maxWaitMs) {
+    const status = await apiFetch<SyncJobStatusResponse>(
+      `/api/v1/accounts/sync/status/${jobId}`,
+      {
+        method: 'GET',
+        userId,
+      }
+    );
+
+    if (status.status === 'complete') {
+      if (!status.result) {
+        throw new Error('Job completed but no result returned');
+      }
+      return status.result;
+    }
+
+    if (status.status === 'failed') {
+      throw new Error(status.error || 'Sync job failed');
+    }
+
+    // Status is 'pending' or 'running' — wait before polling again
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error('Sync job timed out after 5 minutes');
 }
