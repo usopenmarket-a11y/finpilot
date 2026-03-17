@@ -74,7 +74,10 @@ _JOBS: dict[str, dict[str, Any]] = {}
 # the instance stays alive for the full scraper duration (~3-4 minutes).
 
 _KEEPALIVE_INTERVAL_S = 30
-_HEALTH_URL = "http://localhost:10000/api/v1/health"
+# Use the public external URL so Render counts this as inbound traffic and
+# does not suspend the free-tier instance while the scraper is running.
+# Localhost pings do NOT count as external traffic for Render's suspension logic.
+_HEALTH_URL = "https://finpilot-api-lrfg.onrender.com/api/v1/health"
 
 
 async def _keepalive_while_running(job_id: str) -> None:

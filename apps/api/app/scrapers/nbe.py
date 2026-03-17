@@ -807,6 +807,26 @@ class NBEScraper(BankScraper):
         if not clicked:
             # Fallback: click by index 0 (should not happen after wait_for_selector above)
             await page.locator(_SEL_ACCOUNT_ACTIVITY).first.click(timeout=_SHORT_TIMEOUT_MS)
+
+        # Confirm the SPA actually navigated to the transaction page URL.
+        # Oracle JET SPAs change the ?page= query param on navigation; waiting
+        # for the URL fragment ensures the click triggered real navigation and
+        # we are not still on the dashboard / previous account's page.
+        logger.info(
+            "NBE: waiting for URL to contain %r (confirms navigation)", _TXN_PAGE_URL_FRAGMENT
+        )
+        try:
+            await page.wait_for_url(
+                f"**{_TXN_PAGE_URL_FRAGMENT}**", timeout=_WAIT_TIMEOUT_MS
+            )
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "txn_page_url_missing")
+            raise ScraperParseError(
+                f"NBE: URL did not contain '{_TXN_PAGE_URL_FRAGMENT}' after Account Activity click "
+                f"— SPA navigation may have failed (account_index={account_index})",
+                bank_code="NBE",
+            ) from exc
+        logger.info("NBE: confirmed on transaction page URL")
         await self._random_delay(1.0, 2.0)
 
         # 5. Wait for the transaction table OR the Apply button — whichever arrives first.
