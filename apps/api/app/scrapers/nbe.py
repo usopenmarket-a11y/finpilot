@@ -774,20 +774,39 @@ class NBEScraper(BankScraper):
         # popup is actually visible.  page.click() always picks the first DOM
         # match regardless of visibility, so for accounts 1-3 it always clicks
         # account 0's item instead of the open one.
-        # Playwright's :visible pseudo-class restricts the match to elements
-        # that are currently displayed — exactly what we need.
-        _SEL_ACCOUNT_ACTIVITY_VISIBLE = f"{_SEL_ACCOUNT_ACTIVITY}:visible"
+        # We use locator().filter(has_text=...) with wait_for(state="visible")
+        # which is Playwright's idiomatic way to target the visible instance.
+        # After clicking the 3-dots menu icon, only ONE of the (up to 4) matching
+        # "Account Activity" spans is visible — the one inside the popup that just
+        # opened.  page.click() always picks the first DOM match regardless of
+        # visibility; for accounts 1-3 this clicks account 0's hidden item and
+        # no navigation occurs, causing a 30s timeout.
+        #
+        # Fix: wait for at least one match to become visible, then iterate all
+        # matches and click the first visible one.  This is the idiomatic
+        # Playwright approach when multiple elements share the same selector.
         logger.info("NBE: waiting for visible 'Account Activity' menu item")
         try:
-            await page.wait_for_selector(_SEL_ACCOUNT_ACTIVITY_VISIBLE, timeout=_SHORT_TIMEOUT_MS)
+            await page.wait_for_selector(
+                _SEL_ACCOUNT_ACTIVITY, state="visible", timeout=_SHORT_TIMEOUT_MS
+            )
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "account_activity_missing")
             raise ScraperTimeoutError(
                 "NBE: 'Account Activity' menu item not found (visible)", bank_code="NBE"
             ) from exc
 
+        # Iterate all matching spans and click the first visible one.
         logger.info("NBE: clicking visible 'Account Activity' — navigating to transactions page")
-        await page.click(_SEL_ACCOUNT_ACTIVITY_VISIBLE)
+        clicked = False
+        for loc in await page.locator(_SEL_ACCOUNT_ACTIVITY).all():
+            if await loc.is_visible():
+                await loc.click(timeout=_SHORT_TIMEOUT_MS)
+                clicked = True
+                break
+        if not clicked:
+            # Fallback: click by index 0 (should not happen after wait_for_selector above)
+            await page.locator(_SEL_ACCOUNT_ACTIVITY).first.click(timeout=_SHORT_TIMEOUT_MS)
         await self._random_delay(1.0, 2.0)
 
         # 5. Wait for the transaction table OR the Apply button — whichever arrives first.
