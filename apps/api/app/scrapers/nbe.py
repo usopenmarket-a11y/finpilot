@@ -107,11 +107,15 @@ logger = logging.getLogger(__name__)
 
 _LOGIN_URL = "https://www.alahlynet.com.eg/?page=home"
 
+# Playwright timeout for page.goto() calls — longer to handle slow international
+# connections from Render (Oregon, US West) to the NBE portal (Egypt).
+_PAGE_LOAD_TIMEOUT_MS = 90_000
+
 # Default Playwright wait timeout in milliseconds.
-_WAIT_TIMEOUT_MS = 30_000
+_WAIT_TIMEOUT_MS = 60_000
 
 # Shorter timeout for optional / conditional element checks.
-_SHORT_TIMEOUT_MS = 8_000
+_SHORT_TIMEOUT_MS = 15_000
 
 # Maximum number of transactions to return per scrape run.
 _MAX_TRANSACTIONS = 50
@@ -556,25 +560,36 @@ class NBEScraper(BankScraper):
     # ------------------------------------------------------------------
 
     async def _navigate_to_login(self, page: Page) -> None:
-        """Navigate to the NBE login page and wait for the username field."""
-        logger.debug("NBE: navigating to login page %s", _LOGIN_URL)
+        """Navigate to the NBE login page and wait for the username field.
+
+        Uses ``domcontentloaded`` rather than ``networkidle`` for the initial
+        goto because the NBE portal (Oracle JET SPA) keeps persistent XHR
+        connections open that prevent ``networkidle`` from ever resolving when
+        accessed from a geographically distant server.  A separate
+        ``wait_for_selector`` on the username field confirms the SPA has
+        rendered the login form before proceeding.
+        """
+        logger.info("NBE: navigating to login page %s", _LOGIN_URL)
         try:
             await page.goto(
                 _LOGIN_URL,
-                wait_until="networkidle",
-                timeout=_WAIT_TIMEOUT_MS,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError as exc:
             raise ScraperTimeoutError(
                 "NBE login page did not load within timeout", bank_code="NBE"
             ) from exc
 
+        logger.info("NBE: DOM content loaded — waiting for username field %r", _SEL_USERNAME)
         try:
             await page.wait_for_selector(_SEL_USERNAME, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise ScraperTimeoutError(
                 f"NBE: username field ({_SEL_USERNAME!r}) not found", bank_code="NBE"
             ) from exc
+
+        logger.info("NBE: login page ready — username field visible")
 
     async def _navigate_to_transactions(self, page: Page) -> None:
         """Navigate from the account list to the Account Activity page.
@@ -587,10 +602,11 @@ class NBEScraper(BankScraper):
         5. Wait for the transaction filter panel and Apply button.
         6. Click Apply and wait for the transaction table rows to load.
         """
-        logger.debug("NBE: navigating to Account Activity")
+        logger.info("NBE: navigating to Account Activity")
         await self._random_delay(1.5, 3.0)
 
         # 1. Flip the accounts card
+        logger.info("NBE: waiting for accounts widget %r", _SEL_ACCOUNTS_WIDGET)
         try:
             accounts_widget = await page.wait_for_selector(
                 _SEL_ACCOUNTS_WIDGET, timeout=_WAIT_TIMEOUT_MS
@@ -602,10 +618,12 @@ class NBEScraper(BankScraper):
                 bank_code="NBE",
             ) from exc
 
+        logger.info("NBE: clicking accounts widget to reveal account list")
         await accounts_widget.click()
         await self._random_delay(1.5, 3.0)
 
         # 2. Wait for at least one account row
+        logger.info("NBE: waiting for account rows %r", _SEL_ACCOUNT_ROWS)
         try:
             await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
@@ -614,6 +632,8 @@ class NBEScraper(BankScraper):
                 f"NBE: account rows ({_SEL_ACCOUNT_ROWS!r}) did not appear",
                 bank_code="NBE",
             ) from exc
+
+        logger.info("NBE: account rows visible — locating first row context menu")
 
         # 3. Click the 3-dots context menu icon on the first account row
         first_row = await page.query_selector(_SEL_ACCOUNT_ROWS)
@@ -628,10 +648,12 @@ class NBEScraper(BankScraper):
                 "NBE: could not locate account context menu icon", bank_code="NBE"
             )
 
+        logger.info("NBE: clicking account context menu icon")
         await menu_icon.click()
         await self._random_delay(0.8, 1.5)
 
         # 4. Click "Account Activity"
+        logger.info("NBE: waiting for 'Account Activity' menu item")
         try:
             activity_item = await page.wait_for_selector(
                 _SEL_ACCOUNT_ACTIVITY, timeout=_SHORT_TIMEOUT_MS
@@ -642,10 +664,12 @@ class NBEScraper(BankScraper):
                 "NBE: 'Account Activity' menu item not found", bank_code="NBE"
             ) from exc
 
+        logger.info("NBE: clicking 'Account Activity' — navigating to transactions page")
         await activity_item.click()
         await self._random_delay(2.0, 4.0)
 
         # 5. Wait for the Apply button (confirms Account Activity page has loaded)
+        logger.info("NBE: waiting for transaction filter Apply button %r", _SEL_APPLY_BTN)
         try:
             await page.wait_for_selector(_SEL_APPLY_BTN, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
@@ -656,12 +680,14 @@ class NBEScraper(BankScraper):
             ) from exc
 
         # 6. Click Apply and wait for table cells to load (AJAX)
+        logger.info("NBE: clicking Apply to load transaction table")
         apply_btn = await page.query_selector(_SEL_APPLY_BTN)
         if apply_btn is None:
             raise ScraperParseError("NBE: Apply button disappeared before click", bank_code="NBE")
         await apply_btn.click()
         await self._random_delay(2.0, 3.5)
 
+        logger.info("NBE: waiting for transaction table cells %r", _SEL_TXN_TABLE_CELL)
         try:
             await page.wait_for_selector(_SEL_TXN_TABLE_CELL, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
@@ -670,6 +696,8 @@ class NBEScraper(BankScraper):
                 "NBE: transaction table cells did not appear after Apply",
                 bank_code="NBE",
             ) from exc
+
+        logger.info("NBE: transaction table loaded successfully")
 
     # ------------------------------------------------------------------
     # Authentication
@@ -694,7 +722,7 @@ class NBEScraper(BankScraper):
         username = self._username  # plaintext — already decrypted by router
         password = self._password  # plaintext — already decrypted by router
         try:
-            logger.debug("NBE: filling login form — step 1 (username)")
+            logger.info("NBE: login step 1 — typing username")
 
             # Step 1 — username
             await self._type_human(page, _SEL_USERNAME, username)
@@ -706,12 +734,14 @@ class NBEScraper(BankScraper):
                     f"NBE: username submit button ({_SEL_USERNAME_BTN!r}) not found",
                     bank_code="NBE",
                 )
+            logger.info("NBE: clicking username submit button — waiting for OAAM API call")
             await username_btn.click()
             # The OAAM API call can take several seconds — wait generously.
             await self._random_delay(2.5, 4.0)
 
             # Step 2 — wait for password field to render inside loginContainer popup.
             # The field uses id="login_password" with CSS text-security masking.
+            logger.info("NBE: waiting for password field %r to appear", _SEL_PASSWORD)
             try:
                 await page.wait_for_selector(_SEL_PASSWORD, timeout=_WAIT_TIMEOUT_MS)
             except PlaywrightTimeoutError as exc:
@@ -721,7 +751,7 @@ class NBEScraper(BankScraper):
                     bank_code="NBE",
                 ) from exc
 
-            logger.debug("NBE: filling login form — step 2 (password)")
+            logger.info("NBE: login step 2 — typing password")
             await self._type_human(page, _SEL_PASSWORD, password)
             await self._random_delay(0.8, 1.5)
 
@@ -745,6 +775,7 @@ class NBEScraper(BankScraper):
                     f"(tried {_SEL_PASSWORD_BTN!r} and {_SEL_PASSWORD_BTN_FALLBACKS!r})",
                     bank_code="NBE",
                 )
+            logger.info("NBE: clicking password submit button")
             await password_btn.click()
             await self._random_delay(2.0, 4.0)
 
@@ -766,6 +797,7 @@ class NBEScraper(BankScraper):
         partially visible while the SPA transitions.
         """
         # Check for OTP prompt before waiting for the dashboard
+        logger.info("NBE: checking for OTP prompt")
         otp_el = await page.query_selector(_SEL_OTP_SECTION)
         if otp_el is None:
             otp_el = await page.query_selector(_SEL_OTP_INPUT)
@@ -780,8 +812,11 @@ class NBEScraper(BankScraper):
         # Wait for the loggedInUser nav badge which confirms an authenticated session.
         # li.loggedInUser is more reliable than looking for Logout link text because
         # the logout anchor on alahlynet.com.eg may be icon-only (no visible text).
+        logger.info("NBE: waiting for dashboard (loggedInUser selector)")
+        _logged_in_found = False
         try:
             await page.wait_for_selector(_SEL_LOGGED_IN, timeout=_WAIT_TIMEOUT_MS)
+            _logged_in_found = True
         except PlaywrightTimeoutError:
             # li.loggedInUser not found — try the logout link fallback before giving up
             logout_found = False
@@ -792,7 +827,7 @@ class NBEScraper(BankScraper):
                 pass
 
             if logout_found:
-                logger.debug("NBE: login confirmed via logout fallback selector")
+                logger.info("NBE: login confirmed via logout fallback selector")
                 return
 
             # Neither selector found — check if bad-credentials state is showing.
@@ -814,6 +849,9 @@ class NBEScraper(BankScraper):
                 "NBE: dashboard (loggedInUser / logout selectors) not found within timeout",
                 bank_code="NBE",
             )
+
+        if _logged_in_found:
+            logger.info("NBE: login confirmed — loggedInUser element visible in nav bar")
 
     # ------------------------------------------------------------------
     # Data extraction — account
