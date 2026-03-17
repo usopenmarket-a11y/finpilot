@@ -7,6 +7,7 @@ Supabase batch operations with appropriate conflict resolution.
 from __future__ import annotations
 
 import logging
+import uuid
 from uuid import UUID
 
 from supabase import AsyncClient
@@ -38,8 +39,16 @@ async def upsert_account(
     Raises:
         Exception: If the upsert fails
     """
+    # Generate a deterministic UUID so that re-syncing the same account always
+    # produces the same primary key, allowing PK-based upsert without needing
+    # a separate composite unique constraint in the database.
+    deterministic_id = uuid.uuid5(
+        uuid.NAMESPACE_OID,
+        f"{user_id}:{account.bank_name}:{account.account_number_masked}",
+    )
+
     account_data = {
-        "id": str(account.id),
+        "id": str(deterministic_id),
         "user_id": str(user_id),
         "bank_name": account.bank_name,
         "account_number_masked": account.account_number_masked,
@@ -52,10 +61,7 @@ async def upsert_account(
 
     response = (
         await supabase_client.table("bank_accounts")
-        .upsert(
-            account_data,
-            on_conflict="user_id,bank_name,account_number_masked",
-        )
+        .upsert(account_data)
         .execute()
     )
 
@@ -108,13 +114,15 @@ async def insert_transactions(
     # Convert transactions to dicts for Supabase
     transaction_dicts = [_transaction_to_dict(txn) for txn in transactions]
 
-    # Batch insert with conflict handling
-    # NOTE: Supabase insert() with ignore_duplicates=True handles ON CONFLICT DO NOTHING
+    # Batch insert with conflict handling.
+    # ignore_duplicates=True maps to ON CONFLICT (id) DO NOTHING — safe because
+    # each transaction dict has a deterministic id derived from (account_id, external_id).
     response = (
         await supabase_client.table("transactions")
         .insert(
             transaction_dicts,
-            count="exact",  # Request exact count of inserted rows
+            count="exact",
+            ignore_duplicates=True,
         )
         .execute()
     )
@@ -140,8 +148,13 @@ def _transaction_to_dict(txn: Transaction) -> dict:
     Returns:
         Dictionary with string-serialized values for Supabase
     """
+    # Deterministic UUID so ON CONFLICT (id) DO NOTHING is idempotent across re-syncs.
+    deterministic_id = uuid.uuid5(
+        uuid.NAMESPACE_OID,
+        f"{txn.account_id}:{txn.external_id}",
+    )
     return {
-        "id": str(txn.id),
+        "id": str(deterministic_id),
         "user_id": str(txn.user_id),
         "account_id": str(txn.account_id),
         "external_id": txn.external_id,
