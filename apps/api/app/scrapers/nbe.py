@@ -109,13 +109,14 @@ _LOGIN_URL = "https://www.alahlynet.com.eg/?page=home"
 
 # Playwright timeout for page.goto() calls — longer to handle slow international
 # connections from Render (Oregon, US West) to the NBE portal (Egypt).
-_PAGE_LOAD_TIMEOUT_MS = 90_000
+_PAGE_LOAD_TIMEOUT_MS = 120_000
 
 # Default Playwright wait timeout in milliseconds.
-_WAIT_TIMEOUT_MS = 60_000
+# Set high to handle Oregon→Egypt latency (~120-150ms RTT) for AJAX calls.
+_WAIT_TIMEOUT_MS = 90_000
 
 # Shorter timeout for optional / conditional element checks.
-_SHORT_TIMEOUT_MS = 15_000
+_SHORT_TIMEOUT_MS = 20_000
 
 # Maximum number of transactions to return per scrape run.
 _MAX_TRANSACTIONS = 50
