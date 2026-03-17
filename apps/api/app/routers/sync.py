@@ -235,9 +235,9 @@ async def _background_sync_task(
         # ------------------------------------------------------------------
         transactions_saved = 0
         try:
-            from supabase.async_client import AsyncClient
+            from supabase import acreate_client
 
-            pipeline_client = AsyncClient(
+            pipeline_client = await acreate_client(
                 settings.supabase_url,
                 settings.supabase_service_role_key.get_secret_value(),
             )
