@@ -1055,9 +1055,7 @@ class TestNbeScraperScrape:
         assert result.accounts[0].account_type == "current"
         assert result.accounts[1].account_type == "savings"
 
-    async def test_transactions_tagged_with_account_number(
-        self, nbe_scraper: NBEScraper
-    ) -> None:
+    async def test_transactions_tagged_with_account_number(self, nbe_scraper: NBEScraper) -> None:
         """Each transaction carries account_number_masked in raw_data."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
