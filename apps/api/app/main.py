@@ -39,34 +39,59 @@ if settings.app_env == "production" and ("*" in settings.cors_origins or not set
 
 
 async def _ensure_playwright_browsers() -> None:
-    """Install Playwright Chromium browser and its system dependencies.
+    """Install Playwright Chromium browser binary.
 
-    First tries `playwright install chromium --with-deps` (installs system libs
-    via apt-get, needed so the headless shell binary can actually run).
-    Falls back to `playwright install chromium` if --with-deps fails (e.g. no
-    root access during build — system libs should already be present).
+    Render free-tier does not allow sudo/su so --with-deps fails.
+    We install only the browser binary and rely on the system libraries
+    already present in the Render image.  A quick ldd check diagnoses
+    any missing libraries so we can investigate further.
     """
-    for args in (
-        ["playwright", "install", "chromium", "--with-deps"],
-        ["playwright", "install", "chromium"],
-    ):
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "playwright", "install", "chromium",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            logger.info("Playwright Chromium installed")
+        else:
+            logger.warning("playwright install chromium returned %d: %s", proc.returncode, stderr.decode()[:500])
+    except Exception as exc:
+        logger.warning("Could not run playwright install: %s", exc)
+
+    # Diagnose: run ldd on the Chromium binary to find missing .so files
+    import glob as _glob
+    import os as _os
+    patterns = [
+        "/opt/render/.cache/ms-playwright/chromium*/chrome-headless-shell-linux64/chrome-headless-shell",
+        "/opt/render/.cache/ms-playwright/chromium*/chrome-linux64/chrome",
+    ]
+    binary = None
+    for pat in patterns:
+        matches = _glob.glob(pat)
+        if matches:
+            binary = matches[0]
+            break
+
+    if binary and _os.path.isfile(binary):
+        logger.info("Chromium binary found: %s", binary)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *args,
+            ldd_proc = await asyncio.create_subprocess_exec(
+                "ldd", binary,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                logger.info("Playwright Chromium ready (cmd: %s)", " ".join(args))
-                return
-            logger.warning(
-                "playwright install returned %d (cmd: %s): %s",
-                proc.returncode, " ".join(args), stderr.decode()[:500],
-            )
+            ldd_out, _ = await ldd_proc.communicate()
+            missing = [line for line in ldd_out.decode().splitlines() if "not found" in line]
+            if missing:
+                logger.warning("Missing libraries for Chromium: %s", missing)
+            else:
+                logger.info("All Chromium libraries present")
         except Exception as exc:
-            logger.warning("Could not run %s: %s", " ".join(args), exc)
-    logger.error("Playwright Chromium install failed — scraping will not work")
+            logger.warning("ldd check failed: %s", exc)
+    else:
+        logger.warning("Chromium binary not found after install")
 
 
 @asynccontextmanager
