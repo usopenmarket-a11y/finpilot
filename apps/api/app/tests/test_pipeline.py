@@ -385,7 +385,7 @@ class TestUpserter:
         execute_result.data = [{}]
         execute_result.count = 1
         builder.execute = AsyncMock(return_value=execute_result)
-        builder.insert = MagicMock(return_value=builder)
+        builder.upsert = MagicMock(return_value=builder)
         supabase.table = MagicMock(return_value=builder)
 
         await insert_transactions(transactions, supabase)
@@ -402,7 +402,7 @@ class TestUpserter:
         execute_result.data = [{} for _ in range(5)]
         execute_result.count = 5
         builder.execute = AsyncMock(return_value=execute_result)
-        builder.insert = MagicMock(return_value=builder)
+        builder.upsert = MagicMock(return_value=builder)
         supabase.table = MagicMock(return_value=builder)
 
         inserted = await insert_transactions(transactions, supabase)
@@ -478,13 +478,13 @@ class TestRunner:
                     builder.select = MagicMock(return_value=builder)
                     builder.eq = MagicMock(return_value=builder)
                 else:
-                    # INSERT response
+                    # UPSERT response (insert_transactions uses upsert)
                     n_inserted = insert_count if insert_count is not None else 0
                     execute_result = MagicMock()
                     execute_result.data = [{}] * n_inserted
                     execute_result.count = n_inserted
                     builder.execute = AsyncMock(return_value=execute_result)
-                    builder.insert = MagicMock(return_value=builder)
+                    builder.upsert = MagicMock(return_value=builder)
             else:
                 execute_result = MagicMock()
                 execute_result.data = []

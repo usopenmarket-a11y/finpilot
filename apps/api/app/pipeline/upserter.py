@@ -110,21 +110,13 @@ async def insert_transactions(
     # Convert transactions to dicts for Supabase
     transaction_dicts = [_transaction_to_dict(txn) for txn in transactions]
 
-    # Batch insert with conflict handling.
-    # ignore_duplicates=True maps to ON CONFLICT (id) DO NOTHING — safe because
-    # each transaction dict has a deterministic id derived from (account_id, external_id).
-    response = (
-        await supabase_client.table("transactions")
-        .insert(
-            transaction_dicts,
-            count="exact",
-            ignore_duplicates=True,
-        )
-        .execute()
-    )
+    # Upsert with deterministic IDs — ON CONFLICT (id) DO UPDATE is idempotent
+    # because each transaction dict has a deterministic id derived from
+    # (account_id, external_id). AsyncRequestBuilder does not support
+    # ignore_duplicates on insert(), so we use upsert() instead.
+    response = await supabase_client.table("transactions").upsert(transaction_dicts).execute()
 
-    # The response.count contains the number of successfully inserted rows
-    inserted_count = response.count if response.count is not None else len(transactions)
+    inserted_count = len(response.data) if response.data else 0
 
     logger.info(
         "Inserted %d transactions (attempted %d)",
