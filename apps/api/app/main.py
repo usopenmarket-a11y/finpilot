@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import analytics, credentials, debts, health, recommendations, scrape, sync, utils
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # CORS origin safety guard
@@ -34,11 +38,33 @@ if settings.app_env == "production" and ("*" in settings.cors_origins or not set
     )
 
 
+async def _ensure_playwright_browsers() -> None:
+    """Install Playwright Chromium browser if not already present.
+
+    Render free-tier native Python builds cannot run `playwright install --with-deps`
+    because the container doesn't allow sudo/su.  The system libraries are already
+    present on Render's build image, so installing only the browser binary (without
+    --with-deps) succeeds and is sufficient.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "playwright", "install", "chromium",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            logger.info("Playwright Chromium ready")
+        else:
+            logger.warning("playwright install chromium returned %d: %s", proc.returncode, stderr.decode())
+    except Exception as exc:
+        logger.warning("Could not run playwright install: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Startup: initialise connections, load models, etc.
+    await _ensure_playwright_browsers()
     yield
-    # Shutdown: close connections, flush buffers, etc.
 
 
 def create_app() -> FastAPI:
