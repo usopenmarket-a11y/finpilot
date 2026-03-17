@@ -489,6 +489,10 @@ class NBEScraper(BankScraper):
             # Capture dashboard HTML for audit trail (post-auth — safe to screenshot)
             raw_html["dashboard"] = await page.content()
 
+            # Reveal the accounts card first (required before _extract_account can
+            # find li.flip-account-list__items in the DOM).
+            await self._reveal_accounts_widget(page)
+
             account = await self._extract_account(page)
             logger.info(
                 "NBE: account extracted — masked=%s balance=%s %s",
@@ -591,21 +595,12 @@ class NBEScraper(BankScraper):
 
         logger.info("NBE: login page ready — username field visible")
 
-    async def _navigate_to_transactions(self, page: Page) -> None:
-        """Navigate from the account list to the Account Activity page.
+    async def _reveal_accounts_widget(self, page: Page) -> None:
+        """Click the Accounts Summary widget and wait for account rows to appear.
 
-        Flow:
-        1. Click the Accounts Summary widget to reveal the account list.
-        2. Wait for account rows to appear.
-        3. Click the 3-dots menu icon on the first account row.
-        4. Click "Account Activity" from the context menu.
-        5. Wait for the transaction filter panel and Apply button.
-        6. Click Apply and wait for the transaction table rows to load.
+        Must be called before ``_extract_account`` so that
+        ``li.flip-account-list__items`` elements are present in the DOM.
         """
-        logger.info("NBE: navigating to Account Activity")
-        await self._random_delay(1.5, 3.0)
-
-        # 1. Flip the accounts card
         logger.info("NBE: waiting for accounts widget %r", _SEL_ACCOUNTS_WIDGET)
         try:
             accounts_widget = await page.wait_for_selector(
@@ -622,7 +617,6 @@ class NBEScraper(BankScraper):
         await accounts_widget.click()
         await self._random_delay(1.5, 3.0)
 
-        # 2. Wait for at least one account row
         logger.info("NBE: waiting for account rows %r", _SEL_ACCOUNT_ROWS)
         try:
             await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
@@ -633,9 +627,24 @@ class NBEScraper(BankScraper):
                 bank_code="NBE",
             ) from exc
 
-        logger.info("NBE: account rows visible — locating first row context menu")
+        logger.info("NBE: account rows revealed")
 
-        # 3. Click the 3-dots context menu icon on the first account row
+    async def _navigate_to_transactions(self, page: Page) -> None:
+        """Navigate from the already-revealed account list to the Account Activity page.
+
+        Assumes ``_reveal_accounts_widget`` has already been called so that
+        ``li.flip-account-list__items`` rows are present in the DOM.
+
+        Flow:
+        1. Click the 3-dots menu icon on the first account row.
+        2. Click "Account Activity" from the context menu.
+        3. Wait for the transaction filter panel and Apply button.
+        4. Click Apply and wait for the transaction table rows to load.
+        """
+        logger.info("NBE: navigating to Account Activity")
+        await self._random_delay(1.5, 3.0)
+
+        # 1. Click the 3-dots context menu icon on the first account row
         first_row = await page.query_selector(_SEL_ACCOUNT_ROWS)
         if first_row is None:
             await self._safe_screenshot(page, "first_account_row_missing")
