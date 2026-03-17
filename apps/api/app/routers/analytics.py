@@ -50,12 +50,7 @@ router = APIRouter(tags=["analytics"])
 
 
 class TransactionInput(BaseModel):
-    """Minimal transaction representation accepted by all analytics endpoints.
-
-    Intentionally omits fields that analytics logic does not need (e.g.
-    ``account_id``, ``external_id``, ``raw_data``) to reduce the attack surface
-    and avoid inadvertently accepting plaintext credential-adjacent data.
-    """
+    """Minimal transaction representation accepted by all analytics endpoints."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -63,6 +58,10 @@ class TransactionInput(BaseModel):
     description: str = Field(min_length=1, max_length=512)
     amount: Decimal = Field(gt=Decimal("0"))
     transaction_type: str = Field(pattern=r"^(debit|credit)$")
+    account_id: UUID | None = None
+    transaction_date: date | None = None
+    category: str | None = None
+    currency: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +124,14 @@ async def categorize_transactions(
         Transaction(
             id=t.id,
             user_id=_sentinel_user_id,
-            account_id=_sentinel_account_id,
+            account_id=t.account_id if t.account_id is not None else _sentinel_account_id,
             external_id=str(t.id),
             amount=t.amount,
-            currency="EGP",
+            currency=t.currency if t.currency is not None else "EGP",
             transaction_type=t.transaction_type,
             description=t.description,
-            transaction_date=_today,
+            category=t.category,
+            transaction_date=t.transaction_date if t.transaction_date is not None else _today,
             is_categorized=False,
             raw_data={},
             created_at=_now,
@@ -186,6 +186,7 @@ class SpendingRequest(BaseModel):
     period_start: date
     period_end: date
     currency: str = Field(default="EGP", pattern=r"^[A-Z]{3}$")
+    payroll_account_ids: list[UUID] | None = None
 
 
 class CategoryBreakdownResponse(BaseModel):
@@ -231,11 +232,48 @@ async def spending_breakdown(body: SpendingRequest) -> SpendingBreakdownResponse
         extra={"transaction_count": len(body.transactions)},
     )
 
+    from datetime import datetime
+    from uuid import uuid4
+
+    from app.models.db import Transaction
+
+    _sentinel_user_id = uuid4()
+    _now = datetime.now()
+
+    transactions_for_spending: list[Transaction] = [
+        Transaction(
+            id=t.id,
+            user_id=_sentinel_user_id,
+            account_id=t.account_id if t.account_id is not None else uuid4(),
+            external_id=str(t.id),
+            amount=t.amount,
+            currency=t.currency if t.currency is not None else body.currency,
+            transaction_type=t.transaction_type,
+            description=t.description,
+            category=t.category,
+            transaction_date=t.transaction_date
+            if t.transaction_date is not None
+            else body.period_start,
+            is_categorized=t.category is not None,
+            raw_data={},
+            created_at=_now,
+            updated_at=_now,
+        )
+        for t in body.transactions
+    ]
+
+    payroll_set: set[str] | None = (
+        {str(aid) for aid in body.payroll_account_ids}
+        if body.payroll_account_ids is not None
+        else None
+    )
+
     try:
-        result = await compute_spending_breakdown(
-            body.transactions,
+        result = compute_spending_breakdown(
+            transactions_for_spending,
             body.period_start,
             body.period_end,
+            payroll_account_ids=payroll_set,
         )
     except Exception as exc:
         logger.error(
@@ -276,6 +314,7 @@ class TrendsRequest(BaseModel):
 
     transactions: list[TransactionInput] = Field(min_length=1, max_length=5000)
     lookback_months: int = Field(default=6, ge=1, le=24)
+    payroll_account_ids: list[UUID] | None = None
 
 
 class MonthlyTrendPointResponse(BaseModel):
@@ -317,10 +356,46 @@ async def trend_report(body: TrendsRequest) -> TrendReportResponse:
         },
     )
 
+    from datetime import datetime
+    from uuid import uuid4
+
+    from app.models.db import Transaction
+
+    _sentinel_user_id = uuid4()
+    _now = datetime.now()
+    _today = date.today()
+
+    transactions_for_trends: list[Transaction] = [
+        Transaction(
+            id=t.id,
+            user_id=_sentinel_user_id,
+            account_id=t.account_id if t.account_id is not None else uuid4(),
+            external_id=str(t.id),
+            amount=t.amount,
+            currency=t.currency if t.currency is not None else "EGP",
+            transaction_type=t.transaction_type,
+            description=t.description,
+            category=t.category,
+            transaction_date=t.transaction_date if t.transaction_date is not None else _today,
+            is_categorized=t.category is not None,
+            raw_data={},
+            created_at=_now,
+            updated_at=_now,
+        )
+        for t in body.transactions
+    ]
+
+    payroll_set: set[str] | None = (
+        {str(aid) for aid in body.payroll_account_ids}
+        if body.payroll_account_ids is not None
+        else None
+    )
+
     try:
         result = compute_trends(
-            body.transactions,
+            transactions_for_trends,
             body.lookback_months,
+            payroll_account_ids=payroll_set,
         )
     except Exception as exc:
         logger.error(
@@ -405,7 +480,7 @@ class CreditReportResponse(BaseModel):
     total_monthly_obligations: Decimal
     debt_to_balance_ratio: float
     loan_summaries: list[LoanSummaryResponse]
-    credit_health_score: float  # 0.0 – 1.0
+    credit_health_score: float  # 0.0 – 1.0 (normalised from 0–100 int for API compat)
     credit_health_label: str  # "excellent" | "good" | "fair" | "poor"
 
 
@@ -431,8 +506,48 @@ async def credit_report(body: CreditRequest) -> CreditReportResponse:
         },
     )
 
+    from datetime import datetime
+    from uuid import uuid4
+
+    from app.models.db import BankAccount, Loan
+
+    _sentinel_user_id = uuid4()
+    _now = datetime.now()
+
+    accounts_for_credit: list[BankAccount] = [
+        BankAccount(
+            id=a.id,
+            user_id=_sentinel_user_id,
+            bank_name=a.bank_name,
+            account_number_masked=a.account_number_masked,
+            account_type=a.account_type,
+            balance=a.balance,
+            currency=a.currency,
+            created_at=_now,
+            updated_at=_now,
+        )
+        for a in body.accounts
+    ]
+
+    loans_for_credit: list[Loan] = [
+        Loan(
+            id=ln.id,
+            user_id=_sentinel_user_id,
+            account_id=uuid4(),
+            loan_type=ln.loan_type,
+            principal_amount=ln.outstanding_balance,
+            outstanding_balance=ln.outstanding_balance,
+            interest_rate=ln.interest_rate,
+            monthly_installment=ln.monthly_installment,
+            next_payment_date=ln.next_payment_date,
+            created_at=_now,
+            updated_at=_now,
+        )
+        for ln in body.loans
+    ]
+
     try:
-        result = await compute_credit_report(body.accounts, body.loans)
+        result = compute_credit_report(accounts_for_credit, loans_for_credit)
     except Exception as exc:
         logger.error(
             "Credit report failed: unexpected error",
@@ -447,7 +562,7 @@ async def credit_report(body: CreditRequest) -> CreditReportResponse:
         total_balance=result.total_balance,
         total_outstanding_debt=result.total_outstanding_debt,
         total_monthly_obligations=result.total_monthly_obligations,
-        debt_to_balance_ratio=result.debt_to_balance_ratio,
+        debt_to_balance_ratio=float(result.debt_to_balance_ratio),
         loan_summaries=[
             LoanSummaryResponse(
                 loan_id=loan.loan_id,
@@ -459,6 +574,7 @@ async def credit_report(body: CreditRequest) -> CreditReportResponse:
             )
             for loan in result.loan_summaries
         ],
-        credit_health_score=result.credit_health_score,
+        # Normalise 0–100 int score to 0.0–1.0 float for API consumers
+        credit_health_score=result.credit_health_score / 100.0,
         credit_health_label=result.credit_health_label,
     )

@@ -20,6 +20,12 @@ from app.models.db import BankAccount, Loan
 _CAUTION_THRESHOLD = 30.0  # utilization % — below is "healthy"
 _DANGER_THRESHOLD = 75.0  # utilization % — above is "critical"
 
+# Credit health score deduction constants
+_PENALTY_UTILIZATION_HIGH = 20  # any card > 80 % utilization
+_PENALTY_UTILIZATION_MID = 10  # any card > 50 % utilization
+_PENALTY_DTB_HIGH = 15  # debt-to-balance ratio > 0.5
+_PENALTY_DTB_MID = 10  # debt-to-balance ratio > 0.3
+
 # ---------------------------------------------------------------------------
 # Result dataclasses
 # ---------------------------------------------------------------------------
@@ -57,8 +63,14 @@ class CreditReport:
 
     credit_cards: list[CreditUtilization]
     loans: list[LoanSummary]
+    loan_summaries: list[LoanSummary]  # router-facing alias for loans
     total_debt: Decimal
+    total_outstanding_debt: Decimal  # alias for total_debt
+    total_balance: Decimal  # sum of non-credit account balances
     total_monthly_obligations: Decimal
+    debt_to_balance_ratio: Decimal  # total_outstanding_debt / total_balance
+    credit_health_score: int  # 0–100
+    credit_health_label: str  # "excellent" | "good" | "fair" | "poor"
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +103,47 @@ def _estimate_months_remaining(
     return max(months, 0)
 
 
+def _compute_credit_health_score(
+    credit_cards: list[CreditUtilization],
+    debt_to_balance_ratio: Decimal,
+) -> int:
+    """Compute a 0–100 credit health score.
+
+    Deductions applied:
+    - 20 points if any credit card utilization > 80 %
+    - 10 points if any credit card utilization > 50 %
+    - 15 points if debt-to-balance ratio > 0.5
+    - 10 points if debt-to-balance ratio > 0.3
+    """
+    score = 100
+    for card in credit_cards:
+        if card.utilization_pct > 80.0:
+            score -= _PENALTY_UTILIZATION_HIGH
+            break  # apply once even if multiple cards are over threshold
+    for card in credit_cards:
+        if card.utilization_pct > 50.0:
+            score -= _PENALTY_UTILIZATION_MID
+            break
+
+    if debt_to_balance_ratio > Decimal("0.5"):
+        score -= _PENALTY_DTB_HIGH
+    elif debt_to_balance_ratio > Decimal("0.3"):
+        score -= _PENALTY_DTB_MID
+
+    return max(0, min(100, score))
+
+
+def _credit_health_label(score: int) -> str:
+    """Map a 0–100 score to a human-readable label."""
+    if score >= 80:
+        return "excellent"
+    if score >= 60:
+        return "good"
+    if score >= 40:
+        return "fair"
+    return "poor"
+
+
 # ---------------------------------------------------------------------------
 # Pure computation
 # ---------------------------------------------------------------------------
@@ -102,32 +155,23 @@ def compute_credit_report(
 ) -> CreditReport:
     """Build a consolidated credit report from account and loan data.
 
-    Credit cards are identified by `account_type == "credit"`.  The account's
-    `balance` field is interpreted as the **current balance owed** (i.e. what
-    the cardholder has drawn) and the `balance` is also used as a proxy for
-    the credit limit when no explicit limit field exists on the model —
-    following the convention that the scraper stores the credit limit in
-    `balance` for credit accounts at rest.
+    Credit cards are identified by ``account_type == "credit"``.  The account's
+    ``balance`` field is interpreted as the **credit limit** (following the
+    convention that the scraper stores the credit limit in ``balance`` for
+    credit accounts at rest).  The current drawn balance is assumed to be zero
+    until the pipeline populates richer data.
 
-    NOTE: Because `BankAccount.balance` is a single field that can represent
-    either "balance owed" or "credit limit" depending on context, this
-    function relies on the following contract agreed with the scraper layer:
-    - For credit accounts the scraper stores the **credit limit** in `balance`.
-    - The current outstanding balance is assumed to be zero until the pipeline
-      populates `balance_after` on related transactions — at which point a
-      dedicated view/query should be used.  Until then, utilization is reported
-      as 0 % with status "healthy" to avoid misleading users.
-
-    This is intentionally conservative and matches common Egyptian bank
-    statement formats where the limit is more reliably available than the
-    real-time balance.
+    ``total_balance`` is the sum of balances from all **non-credit** accounts
+    (savings, current, etc.) passed in.  This is used to compute the
+    ``debt_to_balance_ratio``.
 
     Args:
         accounts: All BankAccount records for the user.
         loans: All Loan records for the user.
 
     Returns:
-        CreditReport with per-card utilization and per-loan summaries.
+        CreditReport with per-card utilization, per-loan summaries, and
+        aggregate health metrics.
     """
     # ------------------------------------------------------------------ #
     # Credit card utilization
@@ -192,9 +236,31 @@ def compute_credit_report(
         (ln.monthly_installment for ln in loan_summaries), Decimal("0")
     )
 
+    # total_balance: sum of balances from non-credit accounts
+    total_balance: Decimal = sum(
+        (a.balance for a in accounts if a.account_type != "credit"),
+        Decimal("0"),
+    )
+
+    # debt-to-balance ratio (guard against zero balance)
+    if total_balance > Decimal("0"):
+        debt_to_balance_ratio: Decimal = total_debt / total_balance
+    else:
+        debt_to_balance_ratio = Decimal("0")
+
+    # Health score and label
+    health_score: int = _compute_credit_health_score(credit_cards, debt_to_balance_ratio)
+    health_label: str = _credit_health_label(health_score)
+
     return CreditReport(
         credit_cards=credit_cards,
         loans=loan_summaries,
+        loan_summaries=loan_summaries,
         total_debt=total_debt,
+        total_outstanding_debt=total_debt,
+        total_balance=total_balance,
         total_monthly_obligations=total_monthly_obligations,
+        debt_to_balance_ratio=debt_to_balance_ratio,
+        credit_health_score=health_score,
+        credit_health_label=health_label,
     )

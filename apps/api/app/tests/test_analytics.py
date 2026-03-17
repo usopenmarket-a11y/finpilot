@@ -176,7 +176,7 @@ class TestCategorizerRules:
 
     @pytest.mark.asyncio
     async def test_salary_transfer_matches_rule(self, mock_anthropic_client: MagicMock) -> None:
-        """Test 2 — 'salary transfer' → category='Transfers', sub_category='Salary'."""
+        """Test 2 — 'salary transfer' → category='Income', sub_category='Salary'."""
         from app.analytics.categorizer import categorize_transaction
 
         result = await categorize_transaction(
@@ -186,7 +186,7 @@ class TestCategorizerRules:
             client=mock_anthropic_client,
         )
 
-        assert result.category == "Transfers"
+        assert result.category == "Income"
         assert result.sub_category == "Salary"
         assert result.method == "rule"
         mock_anthropic_client.messages.create.assert_not_called()
@@ -208,10 +208,31 @@ class TestCategorizerRules:
         mock_anthropic_client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_large_credit_matches_rule(self, mock_anthropic_client: MagicMock) -> None:
-        """Test 4 — large credit (amount>5000, type='credit') → 'Transfers'."""
+    async def test_large_credit_with_transfer_keyword_matches_rule(
+        self, mock_anthropic_client: MagicMock
+    ) -> None:
+        """Test 4 — large credit (amount>5000, type='credit') with 'transfer' in description → 'Transfers'."""
         from app.analytics.categorizer import categorize_transaction
 
+        result = await categorize_transaction(
+            description="Incoming transfer from account",
+            amount=Decimal("10000.00"),
+            transaction_type="credit",
+            client=mock_anthropic_client,
+        )
+
+        assert result.category == "Transfers"
+        assert result.method == "rule"
+        mock_anthropic_client.messages.create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_large_credit_no_transfer_keyword_not_caught_by_large_credit_rule(
+        self, mock_anthropic_client: MagicMock
+    ) -> None:
+        """Large credit without a transfer keyword does NOT trigger the large-credit catch-all."""
+        from app.analytics.categorizer import categorize_transaction
+
+        # With no API key the fallback is 'Other' via rule path
         result = await categorize_transaction(
             description="Incoming wire",
             amount=Decimal("10000.00"),
@@ -219,27 +240,7 @@ class TestCategorizerRules:
             client=mock_anthropic_client,
         )
 
-        assert result.category == "Transfers"
-        assert result.sub_category == "Incoming Transfer"
-        assert result.method == "rule"
-        mock_anthropic_client.messages.create.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_large_credit_boundary_not_over_threshold(
-        self, mock_anthropic_client: MagicMock
-    ) -> None:
-        """Credit exactly at the 5000 threshold should NOT trigger the rule (>5000)."""
-        from app.analytics.categorizer import categorize_transaction
-
-        # With no API key the fallback is 'Other' via rule path
-        result = await categorize_transaction(
-            description="Incoming wire",
-            amount=Decimal("5000.00"),
-            transaction_type="credit",
-            client=mock_anthropic_client,
-        )
-
-        # 5000 is NOT > 5000, so the rule doesn't fire; no key → Other
+        # No transfer keyword and no API key → Other
         assert result.category == "Other"
         assert result.method == "rule"
 
@@ -456,8 +457,8 @@ class TestComputeSpendingBreakdown:
             period_end=date(2026, 1, 31),
         )
 
-        assert breakdown.total_spending == Decimal("0")
-        assert breakdown.total_income == Decimal("0")
+        assert breakdown.total_debits == Decimal("0")
+        assert breakdown.total_credits == Decimal("0")
         assert breakdown.net == Decimal("0")
         assert breakdown.by_category == []
         assert breakdown.currency == "EGP"
@@ -477,8 +478,8 @@ class TestComputeSpendingBreakdown:
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
 
-        assert breakdown.total_income == Decimal("0")
-        assert breakdown.total_spending == Decimal("800.00")
+        assert breakdown.total_credits == Decimal("0")
+        assert breakdown.total_debits == Decimal("800.00")
 
     def test_all_credits_spending_is_zero(self) -> None:
         """Test 13 — all credit transactions → total_spending=0, income>0."""
@@ -495,8 +496,8 @@ class TestComputeSpendingBreakdown:
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
 
-        assert breakdown.total_spending == Decimal("0")
-        assert breakdown.total_income == Decimal("15000.00")
+        assert breakdown.total_debits == Decimal("0")
+        assert breakdown.total_credits == Decimal("15000.00")
         assert breakdown.by_category == []
 
     def test_by_category_sorted_by_total_amount_desc(self) -> None:
@@ -526,7 +527,7 @@ class TestComputeSpendingBreakdown:
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
 
-        amounts = [c.total_amount for c in breakdown.by_category]
+        amounts = [c.total for c in breakdown.by_category]
         assert amounts == sorted(amounts, reverse=True)
         assert breakdown.by_category[0].category == "Rent & Housing"
 
@@ -550,7 +551,7 @@ class TestComputeSpendingBreakdown:
             period_end=date(2026, 2, 28),
         )
 
-        assert breakdown.total_spending == Decimal("200.00")
+        assert breakdown.total_debits == Decimal("200.00")
 
     def test_none_category_goes_to_uncategorized(self) -> None:
         """Test 16 — transaction with category=None is grouped as 'Uncategorized'."""
@@ -618,7 +619,7 @@ class TestComputeSpendingBreakdown:
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
 
-        expected_net = breakdown.total_income - breakdown.total_spending
+        expected_net = breakdown.total_credits - breakdown.total_debits
         assert breakdown.net == expected_net
         assert breakdown.net == Decimal("7000.00")
 
@@ -636,7 +637,7 @@ class TestComputeSpendingBreakdown:
         ]
 
         breakdown = compute_spending_breakdown(txns, date(2026, 1, 1), date(2026, 1, 31))
-        assert breakdown.total_spending == Decimal("300.00")
+        assert breakdown.total_debits == Decimal("300.00")
 
     def test_currency_inferred_from_first_transaction(self) -> None:
         """Currency is taken from the first transaction in the filtered set."""
@@ -672,7 +673,7 @@ class TestComputeTrends:
         assert report.months == []
         assert report.spending_change_pct is None
         assert report.income_change_pct is None
-        assert report.avg_monthly_spending == Decimal("0")
+        assert report.avg_monthly_spend == Decimal("0")
         assert report.avg_monthly_income == Decimal("0")
 
     def test_single_month_no_change_pct(self) -> None:
@@ -767,8 +768,8 @@ class TestComputeTrends:
         assert isinstance(snap, MonthlySnapshot)
         assert snap.year == 2026
         assert snap.month == 3
-        assert snap.total_spending == Decimal("1000.00")
-        assert snap.total_income == Decimal("5000.00")
+        assert snap.total_debits == Decimal("1000.00")
+        assert snap.total_credits == Decimal("5000.00")
         assert snap.net == Decimal("4000.00")
         assert snap.transaction_count == 3
         # Rent & Housing (700) > Food & Dining (300)
@@ -793,7 +794,7 @@ class TestComputeTrends:
         report = compute_trends(txns, lookback_months=6)
 
         expected_avg = Decimal("6000.00") / Decimal("3")
-        assert report.avg_monthly_spending == expected_avg
+        assert report.avg_monthly_spend == expected_avg
 
     def test_months_in_chronological_order(self) -> None:
         """Months list is oldest-first (chronological order)."""

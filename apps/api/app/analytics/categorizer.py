@@ -39,6 +39,7 @@ CATEGORIES: list[str] = [
     "Government & Fees",
     "Insurance",
     "Investment",
+    "Income",
     "Other",
 ]
 
@@ -65,8 +66,11 @@ class CategorizationResult:
 # ---------------------------------------------------------------------------
 
 _RE_ATM_CASH: re.Pattern[str] = re.compile(r"\b(atm|cash)\b", re.IGNORECASE)
-_RE_SALARY: re.Pattern[str] = re.compile(r"(salary|payroll|راتب)", re.IGNORECASE)
-_RE_TRANSFER: re.Pattern[str] = re.compile(r"(transfer|تحويل)", re.IGNORECASE)
+_RE_SALARY: re.Pattern[str] = re.compile(
+    r"(salary|payroll|راتب|مرتب|أجر|نقد من|monthly pay|remittance|compensation)",
+    re.IGNORECASE,
+)
+_RE_TRANSFER: re.Pattern[str] = re.compile(r"(transfer|تحويل|from acct)", re.IGNORECASE)
 
 _LARGE_CREDIT_THRESHOLD = Decimal("5000")
 
@@ -84,12 +88,18 @@ def _apply_rules(
         return ("ATM & Cash", "Withdrawal")
 
     if _RE_SALARY.search(description):
-        return ("Transfers", "Salary")
+        return ("Income", "Salary")
 
     if _RE_TRANSFER.search(description):
         return ("Transfers", "Transfer")
 
-    if transaction_type == "credit" and amount > _LARGE_CREDIT_THRESHOLD:
+    # Only apply large-credit catch-all when the description explicitly suggests
+    # an incoming transfer — avoids misclassifying payroll credits.
+    if (
+        transaction_type == "credit"
+        and amount > _LARGE_CREDIT_THRESHOLD
+        and _RE_TRANSFER.search(description)
+    ):
         return ("Transfers", "Incoming Transfer")
 
     return None
