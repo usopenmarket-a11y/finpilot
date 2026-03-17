@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from supabase import create_client
@@ -63,6 +64,31 @@ _VALID_BANKS = frozenset(_SCRAPER_MAP.keys())
 
 # In-memory job state storage. Keyed by job_id (UUID string).
 _JOBS: dict[str, dict[str, Any]] = {}
+
+# ---------------------------------------------------------------------------
+# Render free-tier keepalive
+# ---------------------------------------------------------------------------
+# Render free-tier suspends the instance after ~1 minute of no inbound HTTP
+# traffic, killing any running asyncio background tasks.  This keepalive task
+# self-pings the health endpoint every 30 seconds while a job is active so
+# the instance stays alive for the full scraper duration (~3-4 minutes).
+
+_KEEPALIVE_INTERVAL_S = 30
+_HEALTH_URL = "http://localhost:10000/api/v1/health"
+
+
+async def _keepalive_while_running(job_id: str) -> None:
+    """Ping the local health endpoint every 30s until the job is no longer running."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        while True:
+            await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
+            job = _JOBS.get(job_id)
+            if job is None or job["status"] not in ("pending", "running"):
+                break
+            try:
+                await client.get(_HEALTH_URL)
+            except Exception:
+                pass  # non-fatal — just keep going
 
 
 # ---------------------------------------------------------------------------
@@ -360,8 +386,9 @@ async def start_sync_job(
         "bank": bank,
     }
 
-    # Schedule the background task without awaiting it.
+    # Schedule the background task and a keepalive without awaiting them.
     asyncio.create_task(_background_sync_task(job_id, user_id, bank))
+    asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")
 
