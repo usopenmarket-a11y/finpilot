@@ -59,11 +59,7 @@ async def upsert_account(
         "last_synced_at": account.last_synced_at.isoformat() if account.last_synced_at else None,
     }
 
-    response = (
-        await supabase_client.table("bank_accounts")
-        .upsert(account_data)
-        .execute()
-    )
+    response = await supabase_client.table("bank_accounts").upsert(account_data).execute()
 
     if not response.data:
         raise ValueError(

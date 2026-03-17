@@ -722,9 +722,7 @@ class NBEScraper(BankScraper):
                 _APPLY_NETWORKIDLE_TIMEOUT_MS,
             )
             try:
-                await page.wait_for_load_state(
-                    "networkidle", timeout=_APPLY_NETWORKIDLE_TIMEOUT_MS
-                )
+                await page.wait_for_load_state("networkidle", timeout=_APPLY_NETWORKIDLE_TIMEOUT_MS)
             except PlaywrightTimeoutError:
                 # networkidle may never fire on Oracle JET SPAs that keep persistent
                 # XHR connections open — proceed to the cell-count check regardless.
@@ -913,9 +911,7 @@ class NBEScraper(BankScraper):
                 if isinstance(current_url, str) and (
                     "page=home" not in current_url or "?page=" not in current_url
                 ):
-                    logger.info(
-                        "NBE: login confirmed via URL change — URL=%r", current_url
-                    )
+                    logger.info("NBE: login confirmed via URL change — URL=%r", current_url)
                     return
             except Exception:
                 pass
