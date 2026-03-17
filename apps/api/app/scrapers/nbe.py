@@ -847,6 +847,20 @@ class NBEScraper(BankScraper):
                     pass  # cell_count remains 0 — error raised below
 
             if cell_count == 0:
+                # Check whether the oj-table element itself exists — if it does,
+                # the table loaded but has no rows (account has no transactions in
+                # the default date range).  This is a valid result, not an error.
+                table_exists: bool = await page.evaluate(
+                    "() => document.querySelector('oj-table#ViewStatement1') !== null"
+                )
+                if table_exists:
+                    logger.info(
+                        "NBE: oj-table#ViewStatement1 present but empty "
+                        "— account has no transactions in default date range"
+                    )
+                    # Return early — _extract_transactions will receive empty HTML
+                    # and produce an empty list, which is correct.
+                    return
                 await self._safe_screenshot(page, "txn_table_cells_missing")
                 raise ScraperParseError(
                     "NBE: transaction table cells did not appear after Apply "

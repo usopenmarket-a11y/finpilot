@@ -110,6 +110,26 @@ async def insert_transactions(
     # Convert transactions to dicts for Supabase
     transaction_dicts = [_transaction_to_dict(txn) for txn in transactions]
 
+    # Deduplicate by deterministic id before upsert.
+    # PostgreSQL raises 21000 ("ON CONFLICT DO UPDATE command cannot affect row a
+    # second time") if the same id appears twice in a single upsert batch.  This
+    # can happen when two accounts yield the same (external_id, account_id) hash
+    # (e.g. an account with no transactions produces placeholder rows with identical
+    # hashes).  Dedup here is safe because all rows with the same id are identical.
+    seen_ids: set[str] = set()
+    unique_dicts: list[dict] = []
+    for d in transaction_dicts:
+        if d["id"] not in seen_ids:
+            seen_ids.add(d["id"])
+            unique_dicts.append(d)
+    if len(unique_dicts) < len(transaction_dicts):
+        logger.info(
+            "Deduplicated %d → %d transactions before upsert",
+            len(transaction_dicts),
+            len(unique_dicts),
+        )
+    transaction_dicts = unique_dicts
+
     # Upsert with deterministic IDs — ON CONFLICT (id) DO UPDATE is idempotent
     # because each transaction dict has a deterministic id derived from
     # (account_id, external_id). AsyncRequestBuilder does not support
