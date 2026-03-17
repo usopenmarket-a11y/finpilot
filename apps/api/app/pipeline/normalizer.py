@@ -56,18 +56,60 @@ def normalize(
     Raises:
         ValueError: If required fields are missing or invalid
     """
-    # Normalize the account
-    normalized_account = _normalize_account(result.account, user_id, account_id)
+    # Normalize the primary account (first in list for backward compat)
+    normalized_account = normalize_account(result.account, user_id, account_id)
 
     # Normalize transactions
     normalized_transactions = [
-        _normalize_transaction(txn, user_id, account_id) for txn in result.transactions
+        normalize_transaction(txn, user_id, account_id) for txn in result.transactions
     ]
 
     return NormalizedResult(
         account=normalized_account,
         transactions=normalized_transactions,
     )
+
+
+def normalize_account(
+    account: BankAccount,
+    user_id: UUID,
+    account_id: UUID,
+) -> BankAccount:
+    """Normalize a single BankAccount record.
+
+    Public alias for ``_normalize_account`` — consumed directly by the
+    multi-account pipeline runner.
+
+    Args:
+        account: Raw account from scraper
+        user_id: User ID to assign
+        account_id: Account ID to assign
+
+    Returns:
+        Normalized BankAccount
+    """
+    return _normalize_account(account, user_id, account_id)
+
+
+def normalize_transaction(
+    txn: Transaction,
+    user_id: UUID,
+    account_id: UUID,
+) -> Transaction:
+    """Normalize a single Transaction record.
+
+    Public alias for ``_normalize_transaction`` — consumed directly by the
+    multi-account pipeline runner.
+
+    Args:
+        txn: Raw transaction from scraper
+        user_id: User ID to assign
+        account_id: Account ID to assign
+
+    Returns:
+        Normalized Transaction
+    """
+    return _normalize_transaction(txn, user_id, account_id)
 
 
 def _normalize_account(

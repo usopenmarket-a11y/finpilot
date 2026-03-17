@@ -292,11 +292,16 @@ async def _background_sync_task(
             pass  # non-fatal
 
         transactions_scraped = len(result.transactions)
+        # Summarise across all accounts — use the primary (first) account for the
+        # masked number reported to the caller.  All accounts share the same bank_name.
+        primary_account = result.accounts[0]
+        accounts_scraped = len(result.accounts)
         logger.info(
             "Sync completed",
             extra={
                 "bank": bank,
-                "account_number_masked": result.account.account_number_masked,
+                "accounts_scraped": accounts_scraped,
+                "account_number_masked": primary_account.account_number_masked,
                 "transactions_scraped": transactions_scraped,
                 "transactions_saved": transactions_saved,
             },
@@ -304,8 +309,8 @@ async def _background_sync_task(
 
         # Store the result in the job state.
         sync_response = SyncResponse(
-            bank=result.account.bank_name,
-            account_number_masked=result.account.account_number_masked,
+            bank=primary_account.bank_name,
+            account_number_masked=primary_account.account_number_masked,
             transactions_scraped=transactions_scraped,
             transactions_saved=transactions_saved,
             synced_at=now_iso,

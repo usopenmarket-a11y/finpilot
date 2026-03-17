@@ -499,7 +499,7 @@ class UBScraper(BankScraper):
             logger.info("UB: extracted %d transactions", len(transactions))
 
             return ScraperResult(
-                account=account,
+                accounts=[account],
                 transactions=transactions,
                 raw_html=raw_html,
             )

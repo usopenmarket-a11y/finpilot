@@ -30,19 +30,22 @@ Scrape flow
    the logout anchor may be icon-only.
 6. Click the Accounts Summary widget ``li.CSA a`` to flip the account card
    and reveal the account list.
-7. Locate the first ``li.flip-account-list__items`` row; extract account
-   number and balance.
-8. Click ``a.menu-icon`` (the 3-dots context menu on that account row).
-9. Click ``span:has-text('Account Activity')`` from the context menu.
-10. Wait for ``?page=demand-deposit-transactions`` to be reflected and for
-    the filter panel to appear.
-11. Click ``button:has-text('Apply')`` and wait for ``oj-table#ViewStatement1``
-    rows to load via AJAX.
-12. Parse transaction rows from ``td[id^="ViewStatement1:"]`` cells, grouping
-    by row index.
-13. Follow pagination (``button[title="Next Page"]``) until no more pages or
-    ``_MAX_TRANSACTIONS`` is reached.
-14. Return a ``ScraperResult``.
+7. Read ALL ``li.flip-account-list__items`` rows and extract a ``BankAccount``
+   for each one (savings EGP, current EGP, savings USD, payroll, etc.).
+8. For each account at index N:
+   a. Re-reveal the accounts widget (navigate back if needed) so that
+      ``li.flip-account-list__items`` rows are present.
+   b. Click ``a.menu-icon`` on the Nth account row (by index, using
+      ``page.locator(…).nth(N)`` to avoid stale handles across SPA re-renders).
+   c. Click ``span:has-text('Account Activity')`` from the context menu.
+   d. Wait for the filter panel / transaction table.
+   e. Click ``button:has-text('Apply')`` and wait for ``oj-table#ViewStatement1``
+      rows to load via AJAX.
+   f. Parse transaction rows from ``td[id^="ViewStatement1:"]`` cells.
+   g. Follow pagination until no more pages or ``_MAX_TRANSACTIONS`` reached.
+   h. Navigate back to the dashboard (``page.go_back()`` then re-reveal widget)
+      before processing the next account.
+9. Return a ``ScraperResult`` with all accounts and all transactions combined.
 
 OTP handling
 ------------
@@ -458,6 +461,9 @@ def _parse_transaction_row(
             "cells": cells,
             "reference": reference_val,
             "source": "nbe",
+            # Account routing key — used by the pipeline layer to map each
+            # transaction to the correct DB account_id after multi-account upsert.
+            "account_number_masked": account.account_number_masked,
         },
         is_categorized=False,
         created_at=now,
@@ -481,11 +487,17 @@ class NBEScraper(BankScraper):
     bank_name: str = "NBE"
 
     async def scrape(self) -> ScraperResult:
-        """Execute the full NBE scrape cycle.
+        """Execute the full NBE scrape cycle across ALL accounts.
+
+        Discovers all accounts in the Accounts Summary widget and scrapes
+        transaction history for each one in turn.  Accounts are processed
+        in the order they appear in the ``li.flip-account-list__items`` list
+        (typically: savings EGP, current EGP, savings USD, payroll).
 
         Returns:
-            ``ScraperResult`` containing account details and up to
-            ``_MAX_TRANSACTIONS`` transaction rows.
+            ``ScraperResult`` with a ``BankAccount`` per discovered account
+            and up to ``_MAX_TRANSACTIONS`` transactions per account,
+            combined in ``transactions``.
 
         Raises:
             ScraperLoginError: If the portal rejects the credentials.
@@ -504,27 +516,94 @@ class NBEScraper(BankScraper):
             # Capture dashboard HTML for audit trail (post-auth — safe to screenshot)
             raw_html["dashboard"] = await page.content()
 
-            # Reveal the accounts card first (required before _extract_account can
-            # find li.flip-account-list__items in the DOM).
+            # Reveal the accounts card to enumerate all accounts.
             await self._reveal_accounts_widget(page)
 
-            account = await self._extract_account(page)
+            accounts = await self._extract_all_accounts(page)
+            total = len(accounts)
+            logger.info("NBE: found %d account(s) in widget", total)
+
+            all_transactions: list = []
+
+            for idx, account in enumerate(accounts):
+                logger.info(
+                    "NBE: scraping account %d/%d — masked=%s type=%s currency=%s",
+                    idx + 1,
+                    total,
+                    account.account_number_masked,
+                    account.account_type,
+                    account.currency,
+                )
+                try:
+                    # For accounts after the first we need to be back at the
+                    # accounts list — re-reveal the widget (it is safe to call
+                    # multiple times; it waits for the rows to be present).
+                    if idx > 0:
+                        await self._reveal_accounts_widget(page)
+
+                    await self._navigate_to_transactions_for_account(page, idx)
+                    raw_html[f"transactions_{idx}"] = await page.content()
+
+                    txns = await self._extract_transactions(page, account)
+                    logger.info(
+                        "NBE: account %d/%d — extracted %d transactions",
+                        idx + 1,
+                        total,
+                        len(txns),
+                    )
+                    all_transactions.extend(txns)
+
+                    # Navigate back to the accounts list for the next iteration.
+                    # page.go_back() returns to the dashboard; then re-reveal
+                    # is handled at the top of the next loop iteration.
+                    if idx < total - 1:
+                        logger.info("NBE: navigating back to dashboard for next account")
+                        try:
+                            await page.go_back(
+                                wait_until="domcontentloaded",
+                                timeout=_PAGE_LOAD_TIMEOUT_MS,
+                            )
+                        except PlaywrightTimeoutError:
+                            # go_back can time out on Oracle JET SPAs — the DOM
+                            # content still loads; treat this as a soft warning
+                            # and let _reveal_accounts_widget confirm readiness.
+                            logger.warning(
+                                "NBE: go_back() timed out for account %d — proceeding",
+                                idx + 1,
+                            )
+                        await self._random_delay(0.8, 1.5)
+
+                except (ScraperLoginError, ScraperOTPRequired):
+                    raise  # fatal — abort the entire scrape
+                except Exception as account_exc:
+                    logger.warning(
+                        "NBE: failed to scrape account %d/%d (masked=%s) — skipping. Error: %s: %s",
+                        idx + 1,
+                        total,
+                        account.account_number_masked,
+                        type(account_exc).__name__,
+                        account_exc,
+                    )
+                    # Attempt to get back to a usable state for subsequent accounts.
+                    try:
+                        await page.go_back(
+                            wait_until="domcontentloaded",
+                            timeout=_PAGE_LOAD_TIMEOUT_MS,
+                        )
+                        await self._random_delay(0.8, 1.5)
+                    except Exception:
+                        pass  # best-effort; next reveal_accounts_widget will confirm
+                    continue
+
             logger.info(
-                "NBE: account extracted — masked=%s balance=%s %s",
-                account.account_number_masked,
-                account.balance,
-                account.currency,
+                "NBE: scrape complete — %d account(s), %d transaction(s) total",
+                total,
+                len(all_transactions),
             )
 
-            await self._navigate_to_transactions(page)
-            raw_html["transactions"] = await page.content()
-
-            transactions = await self._extract_transactions(page, account)
-            logger.info("NBE: extracted %d transactions", len(transactions))
-
             return ScraperResult(
-                account=account,
-                transactions=transactions,
+                accounts=accounts,
+                transactions=all_transactions,
                 raw_html=raw_html,
             )
 
@@ -644,34 +723,49 @@ class NBEScraper(BankScraper):
 
         logger.info("NBE: account rows revealed")
 
-    async def _navigate_to_transactions(self, page: Page) -> None:
+    async def _navigate_to_transactions_for_account(self, page: Page, account_index: int) -> None:
         """Navigate from the already-revealed account list to the Account Activity page.
 
         Assumes ``_reveal_accounts_widget`` has already been called so that
         ``li.flip-account-list__items`` rows are present in the DOM.
 
+        Uses ``page.locator(…).nth(account_index)`` to target the correct row
+        without storing an ``ElementHandle`` across SPA re-renders.  The Oracle
+        JET SPA detaches element handles on every DOM mutation, so all clicks
+        must go through fresh locator queries.
+
+        Args:
+            page: The active Playwright page.
+            account_index: Zero-based index of the account row to navigate into.
+
         Flow:
-        1. Click the 3-dots menu icon on the first account row.
+        1. Click the 3-dots menu icon on the Nth account row.
         2. Click "Account Activity" from the context menu.
         3. Wait for the transaction filter panel and Apply button.
         4. Click Apply and wait for the transaction table rows to load.
         """
-        logger.info("NBE: navigating to Account Activity")
+        logger.info("NBE: navigating to Account Activity for account index %d", account_index)
         await self._random_delay(0.8, 1.5)
 
-        # 1. Click the 3-dots context menu icon on the first account row.
-        # Use page.click() with a composed CSS selector to avoid stale ElementHandle
-        # errors — the Oracle JET SPA re-renders after every interaction.
-        menu_icon_sel = f"{_SEL_ACCOUNT_ROWS} {_SEL_MENU_ICON}"
-        menu_icon = await page.query_selector(menu_icon_sel)
-        if menu_icon is None:
-            await self._safe_screenshot(page, "menu_icon_missing")
-            raise ScraperParseError(
-                "NBE: could not locate account context menu icon", bank_code="NBE"
+        # 1. Click the 3-dots context menu icon on the target account row.
+        # page.locator().nth() is lazily evaluated — it re-queries the DOM at
+        # click time, which is correct for Oracle JET SPAs that re-render after
+        # every interaction.  We never store the ElementHandle.
+        try:
+            await (
+                page.locator(_SEL_ACCOUNT_ROWS)
+                .nth(account_index)
+                .locator(_SEL_MENU_ICON)
+                .click(timeout=_SHORT_TIMEOUT_MS)
             )
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, f"menu_icon_missing_idx{account_index}")
+            raise ScraperParseError(
+                f"NBE: could not locate/click account context menu icon at index {account_index}",
+                bank_code="NBE",
+            ) from exc
 
-        logger.info("NBE: clicking account context menu icon")
-        await page.click(menu_icon_sel)
+        logger.info("NBE: clicked account context menu icon (index=%d)", account_index)
         await self._random_delay(0.8, 1.5)
 
         # 4. Click "Account Activity"
@@ -936,19 +1030,23 @@ class NBEScraper(BankScraper):
             logger.info("NBE: login confirmed — loggedInUser element visible in nav bar")
 
     # ------------------------------------------------------------------
-    # Data extraction — account
+    # Data extraction — accounts
     # ------------------------------------------------------------------
 
-    async def _extract_account(self, page: Page) -> BankAccount:
-        """Extract account metadata from the accounts list widget.
+    async def _extract_all_accounts(self, page: Page) -> list[BankAccount]:
+        """Extract account metadata for ALL accounts in the accounts list widget.
 
-        Targets the first ``li.flip-account-list__items`` row which contains:
+        Reads every ``li.flip-account-list__items`` row, extracting:
         - ``.account-no`` → raw account number
         - ``.account-name`` → account name / type (may be in Arabic)
         - ``.account-value`` or adjacent text → balance with currency prefix
 
-        Returns a ``BankAccount`` with sentinel ``id`` / ``user_id`` /
-        ``created_at`` / ``updated_at`` values that the pipeline layer replaces.
+        Returns a list of ``BankAccount`` objects (one per row) with sentinel
+        ``id`` / ``user_id`` / ``created_at`` / ``updated_at`` values that the
+        pipeline layer replaces.
+
+        Raises:
+            ScraperParseError: If no account rows are found in the DOM.
         """
         html = await page.content()
         soup = BeautifulSoup(html, "lxml")
@@ -958,55 +1056,69 @@ class NBEScraper(BankScraper):
             await self._safe_screenshot(page, "account_rows_parse_missing")
             raise ScraperParseError("NBE: could not locate account rows in DOM", bank_code="NBE")
 
-        first_row = rows[0]
-
-        # Account number
-        acc_no_el = first_row.select_one(".account-no")
-        raw_account_number = acc_no_el.get_text(strip=True) if acc_no_el else ""
-        logger.debug("NBE: raw account number %r", raw_account_number)
-
-        # Account name / type
-        acc_name_el = first_row.select_one(".account-name")
-        account_type_raw = acc_name_el.get_text(strip=True) if acc_name_el else "current"
-        account_type = _normalise_account_type(account_type_raw)
-
-        # Balance — look for .account-value first, then fall back to any text
-        # matching a currency+amount pattern inside the row
-        balance_text = ""
-        balance_el = first_row.select_one(".account-value")
-        if balance_el:
-            balance_text = balance_el.get_text(strip=True)
-        else:
-            # Scan all text nodes for a pattern like "EGP 12,345.00" or "-EGP 79,000.00"
-            row_text = first_row.get_text(separator=" ")
-            m = re.search(r"-?\s*(?:EGP|USD|EUR|GBP|SAR|AED)\s*[\d,.\-]+", row_text, re.I)
-            if m:
-                balance_text = m.group(0).replace(" ", "")
-
-        currency = _extract_currency_from_balance(balance_text)
-        # Strip currency code and leading minus for Decimal parsing
-        balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
-        # Re-apply negative sign if balance was negative
-        if balance_text.strip().startswith("-"):
-            balance_str = "-" + balance_str
-        balance = _parse_amount(balance_str) or Decimal("0.00")
-
-        masked = self._mask_account_number(raw_account_number)
+        logger.info("NBE: found %d account row(s) in widget HTML", len(rows))
+        accounts: list[BankAccount] = []
         now = datetime.now(UTC)
 
-        return BankAccount(
-            id=_ZERO_UUID,
-            user_id=_ZERO_UUID,
-            bank_name=self.bank_name,
-            account_number_masked=masked,
-            account_type=account_type,
-            currency=currency,
-            balance=balance,
-            is_active=True,
-            last_synced_at=now,
-            created_at=now,
-            updated_at=now,
-        )
+        for row_idx, row in enumerate(rows):
+            # Account number
+            acc_no_el = row.select_one(".account-no")
+            raw_account_number = acc_no_el.get_text(strip=True) if acc_no_el else ""
+            logger.debug("NBE: row %d raw account number %r", row_idx, raw_account_number)
+
+            # Account name / type
+            acc_name_el = row.select_one(".account-name")
+            account_type_raw = acc_name_el.get_text(strip=True) if acc_name_el else "current"
+            account_type = _normalise_account_type(account_type_raw)
+
+            # Balance — look for .account-value first, then fall back to any text
+            # matching a currency+amount pattern inside the row
+            balance_text = ""
+            balance_el = row.select_one(".account-value")
+            if balance_el:
+                balance_text = balance_el.get_text(strip=True)
+            else:
+                # Scan all text nodes for a pattern like "EGP 12,345.00" or "-EGP 79,000.00"
+                row_text = row.get_text(separator=" ")
+                m = re.search(r"-?\s*(?:EGP|USD|EUR|GBP|SAR|AED)\s*[\d,.\-]+", row_text, re.I)
+                if m:
+                    balance_text = m.group(0).replace(" ", "")
+
+            currency = _extract_currency_from_balance(balance_text)
+            # Strip currency code and leading minus for Decimal parsing
+            balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
+            # Re-apply negative sign if balance was negative
+            if balance_text.strip().startswith("-"):
+                balance_str = "-" + balance_str
+            balance = _parse_amount(balance_str) or Decimal("0.00")
+
+            masked = self._mask_account_number(raw_account_number)
+            logger.debug(
+                "NBE: row %d → masked=%s type=%s currency=%s balance=%s",
+                row_idx,
+                masked,
+                account_type,
+                currency,
+                balance,
+            )
+
+            accounts.append(
+                BankAccount(
+                    id=_ZERO_UUID,
+                    user_id=_ZERO_UUID,
+                    bank_name=self.bank_name,
+                    account_number_masked=masked,
+                    account_type=account_type,
+                    currency=currency,
+                    balance=balance,
+                    is_active=True,
+                    last_synced_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        return accounts
 
     # ------------------------------------------------------------------
     # Data extraction — transactions
@@ -1017,6 +1129,10 @@ class NBEScraper(BankScraper):
 
         Handles pagination by clicking "Next Page" until no more pages exist or
         ``_MAX_TRANSACTIONS`` is reached.
+
+        Each returned ``Transaction`` has ``raw_data["account_number_masked"]``
+        set to ``account.account_number_masked`` so the pipeline can route
+        transactions to the correct DB account after multi-account upsert.
 
         Returns up to ``_MAX_TRANSACTIONS`` Transaction objects.
         """

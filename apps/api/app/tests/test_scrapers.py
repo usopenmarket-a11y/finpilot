@@ -159,8 +159,33 @@ def _build_mock_playwright() -> tuple[MagicMock, MagicMock, AsyncMock, AsyncMock
 # ---------------------------------------------------------------------------
 
 # NBE dashboard HTML — Oracle JET SPA structure.
-# Includes a flip-account-list with one account row and a Logout link.
+# Includes a flip-account-list with TWO account rows (savings EGP + current EGP)
+# plus a Logout link.  Multi-row fixture exercises the multi-account scrape path.
 _NBE_DASHBOARD_HTML = """
+<html><body>
+<nav><a href="#">Logout</a></nav>
+<ul>
+  <li class="CSA"><a href="#">Accounts</a></li>
+</ul>
+<ul class="flip-account-list">
+  <li class="flip-account-list__items">
+    <span class="account-no">0765000645195400010</span>
+    <span class="account-name">Current Account</span>
+    <strong class="account-value">EGP 15,250.75</strong>
+    <a class="menu-icon" href="#">...</a>
+  </li>
+  <li class="flip-account-list__items">
+    <span class="account-no">0765000645195400011</span>
+    <span class="account-name">Savings Account</span>
+    <strong class="account-value">EGP 8,000.00</strong>
+    <a class="menu-icon" href="#">...</a>
+  </li>
+</ul>
+</body></html>
+"""
+
+# Single-account dashboard HTML used by tests that explicitly want only one account.
+_NBE_DASHBOARD_HTML_SINGLE = """
 <html><body>
 <nav><a href="#">Logout</a></nav>
 <ul>
@@ -750,28 +775,43 @@ _NBE_OTP_SELECTORS = {"#otpSection", "input[id*='otp' i]"}
 def _build_nbe_mock_page(
     dashboard_html: str = _NBE_DASHBOARD_HTML,
     txn_html: str = _NBE_TRANSACTIONS_HTML,
+    num_accounts: int = 2,
 ) -> tuple[Any, Any, Any, Any]:
     """Build a mock playwright stack pre-configured for the NBE Oracle JET flow.
 
     Returns (mock_pw_cm, mock_pw, mock_browser, mock_page).
 
     The mock_page is configured with:
-    - content() cycling through dashboard (x2) → transactions (x2)
+    - content() cycling through:
+        dashboard (raw_html["dashboard"])
+        dashboard (_extract_all_accounts)
+        then for each account N:
+          txn_html (raw_html["transactions_N"])
+          txn_html (_extract_transactions page 1)
     - wait_for_selector() returning a clickable mock element for all selectors
     - query_selector() returning a clickable mock element for all selectors
       except OTP-detection selectors and the Next Page button (both return None)
     - inner_text() returning non-error text so login-failure heuristic is silent
+    - go_back() returning None (navigation between accounts)
+    - locator() returning a mock locator chain so .nth().locator().click() works
+
+    Args:
+        dashboard_html: HTML to return for dashboard/account-list calls.
+        txn_html: HTML to return for transaction table calls.
+        num_accounts: Number of account rows in the fixture; controls how many
+            transaction-page content() calls are added to the side_effect list.
     """
     mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
-    mock_page.content = AsyncMock(
-        side_effect=[
-            dashboard_html,  # raw_html["dashboard"]
-            dashboard_html,  # _extract_account -> page.content()
-            txn_html,  # raw_html["transactions"]
-            txn_html,  # _extract_transactions page 1
-        ]
-    )
+    # Build content() side_effect:
+    #   1 dashboard call (raw_html["dashboard"])
+    #   1 dashboard call (_extract_all_accounts)
+    #   then num_accounts × 2 txn calls (raw_html + _extract_transactions)
+    content_calls = [dashboard_html, dashboard_html]
+    for _ in range(num_accounts):
+        content_calls += [txn_html, txn_html]
+
+    mock_page.content = AsyncMock(side_effect=content_calls)
 
     mock_element = AsyncMock()
     mock_element.click = AsyncMock(return_value=None)
@@ -791,6 +831,18 @@ def _build_nbe_mock_page(
     # evaluate — used for JS cell-count check after networkidle; return > 0 so
     # the scraper proceeds without the fallback wait_for_selector path.
     mock_page.evaluate = AsyncMock(return_value=7)
+
+    # go_back — called between accounts to return to the dashboard
+    mock_page.go_back = AsyncMock(return_value=None)
+
+    # locator() chain — supports .nth(i).locator(sel).click()
+    # The scraper uses page.locator(SEL).nth(i).locator(SEL_MENU).click()
+    # Build a chainable mock: locator() → nth() → locator() → click()
+    mock_locator = AsyncMock()
+    mock_locator.nth = MagicMock(return_value=mock_locator)
+    mock_locator.locator = MagicMock(return_value=mock_locator)
+    mock_locator.click = AsyncMock(return_value=None)
+    mock_page.locator = MagicMock(return_value=mock_locator)
 
     async def _query_selector(selector: str) -> Any:
         if selector in _NBE_OTP_SELECTORS:
@@ -816,27 +868,35 @@ class TestNbeScraperScrape:
         return NBEScraper(username="test_user", password="test_password_123")
 
     async def test_happy_path_returns_scraper_result(self, nbe_scraper: NBEScraper) -> None:
-        """scrape() returns ScraperResult with bank_name 'NBE' and 2 transactions."""
+        """scrape() returns ScraperResult with bank_name 'NBE' and transactions.
+
+        The fixture dashboard has 2 account rows; each produces 2 transactions
+        from the same transaction HTML fixture, for 4 total.
+        """
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
 
         assert isinstance(result, ScraperResult)
+        # Multi-account: 2 accounts in the fixture
+        assert len(result.accounts) == 2
+        assert result.accounts[0].bank_name == "NBE"
+        assert result.accounts[0].balance == Decimal("15250.75")
+        # Each account yields 2 transactions → 4 total
+        assert len(result.transactions) == 4
+        # Backward-compat .account property returns first account
         assert result.account.bank_name == "NBE"
-        assert result.account.balance == Decimal("15250.75")
-        assert len(result.transactions) == 2
-        assert result.transactions[0].transaction_type == "debit"
-        assert result.transactions[1].transaction_type == "credit"
 
     async def test_happy_path_account_currency_is_egp(self, nbe_scraper: NBEScraper) -> None:
-        """Account currency extracted from 'EGP 15,250.75' balance string."""
+        """Primary account currency extracted from 'EGP 15,250.75' balance string."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
 
-        assert result.account.currency == "EGP"
+        assert result.accounts[0].currency == "EGP"
+        assert result.accounts[1].currency == "EGP"
 
     async def test_happy_path_transaction_dates_parsed(self, nbe_scraper: NBEScraper) -> None:
         """Transaction dates are parsed from 'DD Mon YYYY' Oracle JET format."""
@@ -845,6 +905,7 @@ class TestNbeScraperScrape:
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
 
+        # First two transactions come from account 0
         assert result.transactions[0].transaction_date == date(2025, 1, 15)
         assert result.transactions[1].transaction_date == date(2025, 1, 10)
 
@@ -944,14 +1005,16 @@ class TestNbeScraperScrape:
         assert exc_info.value.bank_code == "NBE"
 
     async def test_scrape_result_contains_raw_html_keys(self, nbe_scraper: NBEScraper) -> None:
-        """ScraperResult.raw_html contains 'dashboard' and 'transactions' keys."""
+        """ScraperResult.raw_html contains 'dashboard' and per-account 'transactions_N' keys."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
 
         assert "dashboard" in result.raw_html
-        assert "transactions" in result.raw_html
+        # Multi-account: keys are transactions_0, transactions_1, …
+        assert "transactions_0" in result.raw_html
+        assert "transactions_1" in result.raw_html
 
     async def test_browser_is_always_closed(self, nbe_scraper: NBEScraper) -> None:
         """_close_browser is called even if scrape() raises an exception."""
@@ -968,15 +1031,42 @@ class TestNbeScraperScrape:
         mock_browser.close.assert_awaited_once()
 
     async def test_account_number_is_masked_in_result(self, nbe_scraper: NBEScraper) -> None:
-        """account_number_masked in result follows ****XXXX format."""
+        """account_number_masked in result follows ****XXXX format for all accounts."""
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
 
         with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
             result = await nbe_scraper.scrape()
 
-        assert result.account.account_number_masked.startswith("****")
-        # Account number from fixture is 0765000645195400010 → last 4 digits = 0010
-        assert result.account.account_number_masked == "****0010"
+        # Primary account: 0765000645195400010 → last 4 digits = 0010
+        assert result.accounts[0].account_number_masked.startswith("****")
+        assert result.accounts[0].account_number_masked == "****0010"
+        # Secondary account: 0765000645195400011 → last 4 digits = 0011
+        assert result.accounts[1].account_number_masked == "****0011"
+
+    async def test_multi_account_result_has_all_accounts(self, nbe_scraper: NBEScraper) -> None:
+        """scrape() collects metadata for every account row in the widget."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
+
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape()
+
+        assert len(result.accounts) == 2
+        # First account is current, second is savings
+        assert result.accounts[0].account_type == "current"
+        assert result.accounts[1].account_type == "savings"
+
+    async def test_transactions_tagged_with_account_number(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """Each transaction carries account_number_masked in raw_data."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_page()
+
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape()
+
+        for txn in result.transactions:
+            assert "account_number_masked" in txn.raw_data
+            assert txn.raw_data["account_number_masked"].startswith("****")
 
 
 # ===========================================================================
@@ -1128,19 +1218,33 @@ class TestScraperResult:
 
     def test_default_transactions_empty_list(self) -> None:
         account = _make_bank_account()
-        result = ScraperResult(account=account)
+        result = ScraperResult(accounts=[account])
         assert result.transactions == []
 
     def test_default_raw_html_empty_dict(self) -> None:
         account = _make_bank_account()
-        result = ScraperResult(account=account)
+        result = ScraperResult(accounts=[account])
         assert result.raw_html == {}
 
     def test_transactions_and_raw_html_stored(self) -> None:
         account = _make_bank_account()
         result = ScraperResult(
-            account=account,
+            accounts=[account],
             transactions=[],
             raw_html={"dashboard": "<html/>"},
         )
         assert result.raw_html["dashboard"] == "<html/>"
+
+    def test_account_property_returns_first_account(self) -> None:
+        """Backward-compat .account property returns accounts[0]."""
+        acct_a = _make_bank_account("NBE")
+        acct_b = _make_bank_account("NBE")
+        result = ScraperResult(accounts=[acct_a, acct_b])
+        assert result.account is acct_a
+
+    def test_accounts_list_preserves_order(self) -> None:
+        """accounts list preserves insertion order."""
+        acct_a = _make_bank_account("NBE")
+        result = ScraperResult(accounts=[acct_a])
+        assert len(result.accounts) == 1
+        assert result.accounts[0] is acct_a

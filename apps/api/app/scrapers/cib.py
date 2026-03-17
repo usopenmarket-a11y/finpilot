@@ -395,7 +395,7 @@ class CIBScraper(BankScraper):
             logger.info("CIB: extracted %d transactions", len(transactions))
 
             return ScraperResult(
-                account=account,
+                accounts=[account],
                 transactions=transactions,
                 raw_html=raw_html,
             )

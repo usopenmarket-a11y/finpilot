@@ -124,22 +124,43 @@ class BankPortalUnreachableError(ScraperException):
 class ScraperResult:
     """Container returned by every successful ``BankScraper.scrape()`` call.
 
-    ``account`` is populated with all fields that are available without a DB
-    primary key (``id``, ``user_id``, ``created_at``, ``updated_at`` are
-    intentionally absent — the pipeline layer fills those in before persisting).
+    ``accounts`` contains one ``BankAccount`` per bank account discovered
+    during the scrape (e.g. savings EGP, current EGP, savings USD, payroll).
+    All fields except ``id``, ``user_id``, ``created_at``, and ``updated_at``
+    are populated by the scraper; the pipeline layer fills in the remainder
+    before persisting.
 
-    ``transactions`` are raw-scraped objects.  Same note applies: ``id``,
-    ``user_id``, ``account_id``, ``created_at``, ``updated_at`` are set by
-    the pipeline layer.
+    ``transactions`` are raw-scraped objects from ALL accounts combined.
+    Each ``Transaction`` carries the ``account_number_masked`` of its source
+    account via ``raw_data["account_number_masked"]`` so the pipeline can
+    route each transaction to the correct ``account_id`` after upsert.
 
     ``raw_html`` maps a descriptive page label (e.g. ``"dashboard"``,
-    ``"transactions"``) to the full HTML string captured for that page.  Used
-    for debugging and re-processing without re-scraping.
+    ``"transactions_0"``) to the full HTML string captured for that page.
+    Used for debugging and re-processing without re-scraping.
     """
 
-    account: BankAccount
+    accounts: list[BankAccount]
     transactions: list[Transaction] = field(default_factory=list)
     raw_html: dict[str, str] = field(default_factory=dict)
+
+    # ------------------------------------------------------------------
+    # Backward-compatibility shim
+    # ------------------------------------------------------------------
+
+    @property
+    def account(self) -> BankAccount:
+        """Return the primary (first) account.
+
+        Retained for backward compatibility with callers that still access
+        ``result.account`` rather than ``result.accounts[0]``.  New code
+        should iterate ``result.accounts`` directly.
+
+        Raises:
+            IndexError: If ``accounts`` is empty (should not happen on a
+                successful scrape).
+        """
+        return self.accounts[0]
 
 
 # ---------------------------------------------------------------------------
