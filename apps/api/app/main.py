@@ -63,7 +63,10 @@ async def _ensure_playwright_browsers() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await _ensure_playwright_browsers()
+    # Run browser install in the background so the server starts immediately.
+    # Render free-tier has a port-binding timeout; blocking on the ~80s download
+    # causes a failed deploy even though the install would have succeeded.
+    asyncio.create_task(_ensure_playwright_browsers())
     yield
 
 
