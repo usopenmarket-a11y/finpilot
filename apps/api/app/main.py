@@ -39,26 +39,34 @@ if settings.app_env == "production" and ("*" in settings.cors_origins or not set
 
 
 async def _ensure_playwright_browsers() -> None:
-    """Install Playwright Chromium browser if not already present.
+    """Install Playwright Chromium browser and its system dependencies.
 
-    Render free-tier native Python builds cannot run `playwright install --with-deps`
-    because the container doesn't allow sudo/su.  The system libraries are already
-    present on Render's build image, so installing only the browser binary (without
-    --with-deps) succeeds and is sufficient.
+    First tries `playwright install chromium --with-deps` (installs system libs
+    via apt-get, needed so the headless shell binary can actually run).
+    Falls back to `playwright install chromium` if --with-deps fails (e.g. no
+    root access during build — system libs should already be present).
     """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "playwright", "install", "chromium",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode == 0:
-            logger.info("Playwright Chromium ready")
-        else:
-            logger.warning("playwright install chromium returned %d: %s", proc.returncode, stderr.decode())
-    except Exception as exc:
-        logger.warning("Could not run playwright install: %s", exc)
+    for args in (
+        ["playwright", "install", "chromium", "--with-deps"],
+        ["playwright", "install", "chromium"],
+    ):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("Playwright Chromium ready (cmd: %s)", " ".join(args))
+                return
+            logger.warning(
+                "playwright install returned %d (cmd: %s): %s",
+                proc.returncode, " ".join(args), stderr.decode()[:500],
+            )
+        except Exception as exc:
+            logger.warning("Could not run %s: %s", " ".join(args), exc)
+    logger.error("Playwright Chromium install failed — scraping will not work")
 
 
 @asynccontextmanager
