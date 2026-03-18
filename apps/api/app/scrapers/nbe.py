@@ -1674,7 +1674,9 @@ class NBEScraper(BankScraper):
         logger.info("NBE: on CC statement page — year/month selectors ready")
 
         # Set up response interception ONCE — we'll collect responses across all month selections
+        # Also intercepts unbilled/unsettled transaction API responses.
         captured_responses: dict[str, str] = {}  # url → body
+        captured_ubt_uns: dict[str, str] = {}  # url → body for unbilled/unsettled
 
         async def _capture_statement_response(resp: object) -> None:
             url = getattr(resp, "url", "")
@@ -1687,6 +1689,25 @@ class NBEScraper(BankScraper):
                     )
                 except Exception as e:
                     logger.debug("NBE: could not read listStatements response body: %s", e)
+            elif any(
+                kw in url
+                for kw in (
+                    "unbilledTransaction",
+                    "unsettledTransaction",
+                    "listUnbilled",
+                    "listUnsettled",
+                    "creditcard",
+                )
+            ):
+                try:
+                    body = await resp.text()  # type: ignore[union-attr]
+                    if body and len(body) > 50:
+                        captured_ubt_uns[url] = body
+                        logger.debug(
+                            "NBE: captured UBT/UNS response: %s (%d bytes)", url, len(body)
+                        )
+                except Exception as e:
+                    logger.debug("NBE: could not read UBT/UNS response body: %s", e)
 
         page.on("response", _capture_statement_response)
 
@@ -1758,6 +1779,90 @@ class NBEScraper(BankScraper):
                 except Exception as e:
                     logger.debug("NBE: error selecting CC statement %04d/%02d: %s", year, month, e)
                     continue
+
+            # --- Scrape Unbilled Transactions (UBT tab) and Unsettled (UNS tab) ---
+            # The same card-statement page has a "View" select (#oj-select-1) with options:
+            #   BT = Statement (monthly, already done above)
+            #   UBT = Unbilled Transactions (current cycle, no date selector needed)
+            #   UNS = Unsettled Transactions (pending auth, no date selector needed)
+            for tab_code, tab_label in (("UBT", "Unbilled"), ("UNS", "Unsettled")):
+                logger.info("NBE: selecting %s (%s Transactions) tab", tab_code, tab_label)
+                try:
+                    # Click the View dropdown (oj-select-1)
+                    await page.click("#oj-select-choice-oj-select-1", timeout=_SHORT_TIMEOUT_MS)
+                    await self._random_delay(0.5, 1.0)
+                    tab_opt = (
+                        page.locator("#oj-listbox-results-oj-select-1 li")
+                        .filter(has_text=tab_label)
+                        .first
+                    )
+                    if not await tab_opt.count():
+                        logger.debug("NBE: %s tab option not found in dropdown — skipping", tab_code)
+                        await page.keyboard.press("Escape")
+                        await self._random_delay(0.3, 0.6)
+                        continue
+                    await tab_opt.click()
+                    # Wait for the AJAX response
+                    await self._random_delay(5.0, 8.0)
+                    logger.info("NBE: %s tab selected — waiting for API response", tab_code)
+                except PlaywrightTimeoutError as e:
+                    logger.debug("NBE: timeout selecting %s tab: %s", tab_code, e)
+                except Exception as e:
+                    logger.debug("NBE: error selecting %s tab: %s", tab_code, e)
+
+            logger.info(
+                "NBE: captured %d UBT/UNS API response(s)",
+                len(captured_ubt_uns),
+            )
+
+            # Parse UBT/UNS responses
+            for url, body in captured_ubt_uns.items():
+                try:
+                    data = json.loads(body)
+                except json.JSONDecodeError:
+                    logger.debug("NBE: could not parse UBT/UNS response as JSON: %r", body[:200])
+                    continue
+
+                # Determine tab type from URL
+                is_ubt = "unbill" in url.lower() or "UBT" in url
+                tab_type = "unbilled" if is_ubt else "unsettled"
+
+                status = data.get("status", {}).get("result", "")
+                if status not in ("SUCCESSFUL", ""):
+                    logger.debug("NBE: %s response status=%r — skipping", tab_type, status)
+                    continue
+
+                # Try common response shapes for unbilled/unsettled
+                # Shape 1: data.unbilledTransactions[] or data.unsettledTransactions[]
+                txn_list = (
+                    data.get("unbilledTransactions")
+                    or data.get("unsettledTransactions")
+                    or data.get("items")
+                    or []
+                )
+                # Shape 2: items[].statmentItems[]
+                if txn_list and isinstance(txn_list[0], dict) and "statmentItems" in txn_list[0]:
+                    flat: list[dict] = []
+                    for item in txn_list:
+                        flat.extend(item.get("statmentItems", []))
+                    txn_list = flat
+
+                txn_time_inner = datetime.now(UTC)
+                count_before = len(all_txns)
+                for stmt in txn_list:
+                    if not isinstance(stmt, dict):
+                        continue
+                    txn = self._parse_cc_statement_item(stmt, cc_accounts[0], txn_time_inner)
+                    if txn is not None:
+                        # Tag source in raw_data
+                        if txn.raw_data is not None:
+                            txn.raw_data["source"] = f"nbe_cc_{tab_type}"
+                        all_txns.append(txn)
+                logger.info(
+                    "NBE: %s tab → %d transaction(s) added",
+                    tab_type,
+                    len(all_txns) - count_before,
+                )
 
             # Now parse all captured API responses
             logger.info("NBE: captured %d listStatements API response(s)", len(captured_responses))
