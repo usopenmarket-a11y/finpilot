@@ -1801,7 +1801,9 @@ class NBEScraper(BankScraper):
                         .first
                     )
                     if not await tab_opt.count():
-                        logger.debug("NBE: %s tab option not found in dropdown — skipping", tab_code)
+                        logger.debug(
+                            "NBE: %s tab option not found in dropdown — skipping", tab_code
+                        )
                         await page.keyboard.press("Escape")
                         await self._random_delay(0.3, 0.6)
                         continue
