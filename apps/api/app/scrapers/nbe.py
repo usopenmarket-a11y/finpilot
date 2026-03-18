@@ -205,7 +205,7 @@ _SEL_TXN_TABLE_CELL_ALT = "[id^='ViewStatement1:']"
 _APPLY_NETWORKIDLE_TIMEOUT_MS = 150_000
 
 # Extra selector wait tried if networkidle settles but JS cell-count is still 0.
-_APPLY_FALLBACK_WAIT_MS = 30_000
+_APPLY_FALLBACK_WAIT_MS = 60_000
 
 # Pagination — Next Page button
 _SEL_NEXT_PAGE = "button[title='Next Page']"
@@ -601,13 +601,16 @@ class NBEScraper(BankScraper):
                         type(account_exc).__name__,
                         account_exc,
                     )
-                    # Attempt to get back to a usable state for subsequent accounts.
+                    # Navigate back to the login page for reliable state recovery.
+                    # go_back() is unreliable on Oracle JET SPAs — a full page.goto()
+                    # guarantees a clean DOM state for the next account iteration.
                     try:
-                        await page.go_back(
+                        await page.goto(
+                            _LOGIN_URL,
                             wait_until="domcontentloaded",
                             timeout=_PAGE_LOAD_TIMEOUT_MS,
                         )
-                        await self._random_delay(0.8, 1.5)
+                        await self._random_delay(1.0, 2.0)
                     except Exception:
                         pass  # best-effort; next reveal_accounts_widget will confirm
                     continue

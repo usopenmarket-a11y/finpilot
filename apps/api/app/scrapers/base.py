@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 import time
 from abc import ABC, abstractmethod
@@ -39,6 +40,19 @@ logger = logging.getLogger(__name__)
 # Screenshot output directory — ephemeral, never commit to source control
 # ---------------------------------------------------------------------------
 _DEBUG_DIR = Path("/tmp/finpilot_debug")
+
+# ---------------------------------------------------------------------------
+# Playwright browser path — ensure PLAYWRIGHT_BROWSERS_PATH is set so
+# Playwright finds the browsers installed during the Render build step.
+# The Render build command installs to /opt/render/project/src/.playwright-browsers
+# but Playwright's default cache is /opt/render/.cache/ms-playwright (missing
+# at runtime on Render free tier).  Set the env var defensively here so any
+# process that imports this module has it configured before async_playwright().
+# ---------------------------------------------------------------------------
+_RENDER_BROWSERS_PATH = "/opt/render/project/src/.playwright-browsers"
+if os.path.isdir(_RENDER_BROWSERS_PATH) and not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _RENDER_BROWSERS_PATH
+    logger.debug("base: set PLAYWRIGHT_BROWSERS_PATH=%s (Render fallback)", _RENDER_BROWSERS_PATH)
 
 
 # ---------------------------------------------------------------------------
