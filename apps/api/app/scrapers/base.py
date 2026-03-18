@@ -257,6 +257,21 @@ class BankScraper(ABC):
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-extensions",
+                # Memory reduction for Render free tier (512 MB RAM limit)
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--disable-translate",
+                "--hide-scrollbars",
+                "--metrics-recording-only",
+                "--mute-audio",
+                "--no-first-run",
+                "--safebrowsing-disable-auto-update",
+                "--js-flags=--max-old-space-size=128",
+                "--renderer-process-limit=1",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
             ],
         )
 
