@@ -1376,10 +1376,13 @@ class NBEScraper(BankScraper):
             logger.warning("NBE: dashboard navigation timed out before credit card scrape — skipping")
             return []
 
-        await self._random_delay(1.0, 2.0)
-
-        cca_widget = await page.query_selector(_SEL_CREDIT_CARDS_WIDGET)
-        if not cca_widget:
+        # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
+        # domcontentloaded fires before the JS widgets are injected — we must
+        # wait for the widget selector explicitly rather than using a fixed delay.
+        _CC_WIDGET_WAIT_MS = 30_000
+        try:
+            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=_CC_WIDGET_WAIT_MS)
+        except PlaywrightTimeoutError:
             logger.info("NBE: no CCA (credit cards) widget found — user has no credit cards")
             return []
 
@@ -1855,11 +1858,13 @@ class NBEScraper(BankScraper):
             logger.warning("NBE: dashboard navigation timed out before certificate scrape — skipping")
             return []
 
-        await self._random_delay(1.0, 2.0)
-
-        # Check if the TRD widget is present
-        trd_widget = await page.query_selector(_SEL_CERTIFICATES_WIDGET)
-        if not trd_widget:
+        # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
+        # domcontentloaded fires before the JS widgets are injected — we must
+        # wait for the widget selector explicitly rather than using a fixed delay.
+        _TRD_WIDGET_WAIT_MS = 30_000
+        try:
+            await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=_TRD_WIDGET_WAIT_MS)
+        except PlaywrightTimeoutError:
             logger.info("NBE: no TRD (certificates) widget found — user has no certificates/deposits")
             return []
 
