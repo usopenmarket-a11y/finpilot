@@ -165,13 +165,23 @@ export async function syncBank(
 
   // Step 2: Poll for completion
   while (Date.now() - startTime < maxWaitMs) {
-    const status = await apiFetch<SyncJobStatusResponse>(
-      `/api/v1/accounts/sync/status/${jobId}`,
-      {
-        method: 'GET',
-        userId,
+    let status: SyncJobStatusResponse;
+    try {
+      status = await apiFetch<SyncJobStatusResponse>(
+        `/api/v1/accounts/sync/status/${jobId}`,
+        {
+          method: 'GET',
+          userId,
+        }
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // 404 means the backend restarted mid-scrape and lost the in-memory job.
+      if (msg.includes('Not Found') || msg.includes('not found')) {
+        throw new Error('Sync was interrupted — the server restarted mid-scrape. Please try again.');
       }
-    );
+      throw err;
+    }
 
     if (status.status === 'complete') {
       if (!status.result) {

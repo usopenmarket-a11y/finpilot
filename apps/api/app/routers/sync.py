@@ -81,10 +81,13 @@ _HEALTH_URL = "https://finpilot-api-lrfg.onrender.com/api/v1/health"
 
 
 async def _keepalive_while_running(job_id: str) -> None:
-    """Ping the local health endpoint every 30s until the job is no longer running."""
+    """Ping the external health endpoint every 30s until the job is no longer running.
+
+    The first ping fires immediately (before the sleep) so even jobs that
+    complete or are killed in the first 30s window still trigger a keepalive.
+    """
     async with httpx.AsyncClient(timeout=10) as client:
         while True:
-            await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
             job = _JOBS.get(job_id)
             if job is None or job["status"] not in ("pending", "running"):
                 break
@@ -92,6 +95,7 @@ async def _keepalive_while_running(job_id: str) -> None:
                 await client.get(_HEALTH_URL)
             except Exception:
                 pass  # non-fatal — just keep going
+            await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
 
 
 # ---------------------------------------------------------------------------
