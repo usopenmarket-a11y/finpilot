@@ -1382,28 +1382,22 @@ class NBEScraper(BankScraper):
         # After demand-deposit scraping the last account does NOT call go_back(),
         # leaving the page on demand-deposit-transactions.  We must navigate back
         # to see the CCA widget.  The OBDX dashboard URL contains "page=home".
+        # Always navigate back to dashboard to get a clean SPA state with all widgets visible.
+        # Skipping goto can leave the CCA flip-card open or the page on a transaction URL,
+        # causing li.CCA / li.TRD wait_for_selector to time out.
         current_url = page.url
-        already_on_dashboard = (
-            "alahlynet.com.eg" in current_url
-            and "page=home" in current_url
-            and "demand-deposit" not in current_url
-            and "card" not in current_url
-        )
-        if not already_on_dashboard:
-            logger.info("NBE: navigating to dashboard for CC scrape (current url: %s)", current_url)
-            try:
-                await page.goto(
-                    _LOGIN_URL,
-                    wait_until="domcontentloaded",
-                    timeout=_PAGE_LOAD_TIMEOUT_MS,
-                )
-            except PlaywrightTimeoutError:
-                logger.warning(
-                    "NBE: dashboard navigation timed out before credit card scrape — skipping"
-                )
-                return []
-        else:
-            logger.info("NBE: already on dashboard — skipping goto for CC scrape")
+        logger.info("NBE: navigating to dashboard for CC scrape (current url: %s)", current_url)
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "NBE: dashboard navigation timed out before credit card scrape — skipping"
+            )
+            return []
 
         # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
         # domcontentloaded fires before the JS widgets are injected — we must
@@ -1609,9 +1603,10 @@ class NBEScraper(BankScraper):
             return []
         await self._random_delay(1.5, 2.5)
 
-        # Check for CCA widget
-        cca_widget = await page.query_selector(_SEL_CREDIT_CARDS_WIDGET)
-        if not cca_widget:
+        # Wait for CCA widget to hydrate (Oracle JET SPA injects widgets after domcontentloaded)
+        try:
+            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=60_000)
+        except PlaywrightTimeoutError:
             logger.info("NBE: no CCA widget — skipping CC transaction scrape")
             return []
 
@@ -2036,33 +2031,23 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping certificates/deposits via %r widget", _SEL_CERTIFICATES_WIDGET)
 
-        # Same pattern as _scrape_credit_cards: navigate to dashboard if needed.
-        # After _scrape_credit_cards, the page may be on a card-statement page.
-        # The OBDX dashboard URL contains "page=home".
+        # Always navigate to dashboard for a clean SPA state — the CCA flip-card or CC
+        # statement page may be active after _scrape_credit_cards, hiding the TRD widget.
         current_url = page.url
-        already_on_dashboard = (
-            "alahlynet.com.eg" in current_url
-            and "page=home" in current_url
-            and "demand-deposit" not in current_url
-            and "card" not in current_url
+        logger.info(
+            "NBE: navigating to dashboard for certificate scrape (current url: %s)", current_url
         )
-        if not already_on_dashboard:
-            logger.info(
-                "NBE: navigating to dashboard for certificate scrape (current url: %s)", current_url
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
             )
-            try:
-                await page.goto(
-                    _LOGIN_URL,
-                    wait_until="domcontentloaded",
-                    timeout=_PAGE_LOAD_TIMEOUT_MS,
-                )
-            except PlaywrightTimeoutError:
-                logger.warning(
-                    "NBE: dashboard navigation timed out before certificate scrape — skipping"
-                )
-                return []
-        else:
-            logger.info("NBE: already on dashboard — skipping goto for certificate scrape")
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "NBE: dashboard navigation timed out before certificate scrape — skipping"
+            )
+            return []
 
         # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
         # Use 60s — on Render free tier (Oregon→Egypt) SPA hydration can take 35-50s.
