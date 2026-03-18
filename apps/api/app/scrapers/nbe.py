@@ -1325,8 +1325,13 @@ class NBEScraper(BankScraper):
         Clicking ``li.CCA a`` reveals ``li.flip-account-list__items`` rows inside
         ``div.flip-account.CCA`` with:
         - ``.account-name``   — cardholder name (e.g. "FADY HABIB")
-        - ``.balance-amount`` — outstanding balance (e.g. "EGP 37,240.82")
+        - ``.balance-amount`` — available cash limit (NOT the billed amount)
         - ``.account-no``     — masked card number + expiry (e.g. "544111******1204 | 07/28")
+
+        The click also triggers:
+          GET /digx/v1/cz/creditcardList/creditcarddetails
+        which returns the authoritative ``totalbilledamount`` (outstanding debt).
+        We intercept this to use as the account balance.
 
         Returns:
             List of ``BankAccount`` objects with ``account_type='credit_card'``.
@@ -1351,8 +1356,41 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no CCA (credit cards) widget found — user has no credit cards")
             return []
 
-        await page.click(_SEL_CREDIT_CARDS_WIDGET)
-        await self._random_delay(1.5, 2.5)
+        # Intercept the creditcarddetails API call to get authoritative billed amounts
+        # Maps maskedcardno → {totalbilledamount, totalunbilledamount, creditlimit, currency}
+        cc_api_data: dict[str, dict] = {}
+
+        async def _capture_cc_details(resp: object) -> None:
+            url = getattr(resp, "url", "")
+            if "creditcarddetails" in url or "creditcardList" in url:
+                try:
+                    body = await resp.text()  # type: ignore[union-attr]
+                    data = json.loads(body)
+                    for card in data.get("creditcards2", []):
+                        masked = str(card.get("maskedcardno", ""))
+                        if masked:
+                            cc_api_data[masked] = {
+                                "totalbilledamount": card.get("totalbilledamount", "0"),
+                                "totalunbilledamount": card.get("totalunbilledamount", "0"),
+                                "creditlimit": card.get("creditlimit", "0"),
+                                "currency": card.get("cardcurrency", "EGP"),
+                                "accountreferenceno": card.get("accountreferenceno", ""),
+                            }
+                            logger.debug(
+                                "NBE: CC details API → masked=%s billed=%s unbilled=%s",
+                                masked,
+                                card.get("totalbilledamount"),
+                                card.get("totalunbilledamount"),
+                            )
+                except Exception:
+                    pass
+
+        page.on("response", _capture_cc_details)
+        try:
+            await page.click(_SEL_CREDIT_CARDS_WIDGET)
+            await self._random_delay(1.5, 2.5)
+        finally:
+            page.remove_listener("response", _capture_cc_details)
 
         try:
             await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
@@ -1374,7 +1412,7 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no credit card rows found in CCA flip-card HTML")
             return []
 
-        logger.info("NBE: found %d credit card row(s)", len(rows))
+        logger.info("NBE: found %d credit card row(s) | cc_api_data keys=%s", len(rows), list(cc_api_data.keys()))
         accounts: list[BankAccount] = []
         now = datetime.now(UTC)
 
@@ -1385,22 +1423,42 @@ class NBEScraper(BankScraper):
             # Strip the expiry date portion: "544111******1204 | 07/28" → "544111******1204"
             raw_card_number = raw_card_info.split("|")[0].strip() if "|" in raw_card_info else raw_card_info
 
-            # Balance
-            balance_el = row.select_one(".balance-amount") or row.select_one(".account-value")
-            balance_text = balance_el.get_text(strip=True) if balance_el else ""
-
-            currency = _extract_currency_from_balance(balance_text)
-            balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
-            if balance_text.strip().startswith("-"):
-                balance_str = "-" + balance_str
-            balance = _parse_amount(balance_str) or Decimal("0.00")
+            # Try to get authoritative balance from the creditcarddetails API intercept.
+            # The API uses maskedcardno format like "544111******1204" which matches raw_card_number.
+            api_entry = cc_api_data.get(raw_card_number, {})
+            if api_entry:
+                # Use totalbilledamount (what the cardholder owes) as the balance
+                billed = api_entry.get("totalbilledamount", "0")
+                unbilled = api_entry.get("totalunbilledamount", "0")
+                currency = _normalise_currency(api_entry.get("currency", "EGP"))
+                try:
+                    balance = Decimal(str(billed).replace(",", ""))
+                    # Total outstanding = billed + unbilled
+                    try:
+                        balance += Decimal(str(unbilled).replace(",", ""))
+                    except InvalidOperation:
+                        pass
+                except InvalidOperation:
+                    balance = Decimal("0.00")
+                logger.debug(
+                    "NBE: CC row %d using API balance: billed=%s unbilled=%s total=%s",
+                    row_idx, billed, unbilled, balance,
+                )
+            else:
+                # Fallback: parse from DOM (this gives available cash limit, not debt — less accurate)
+                balance_el = row.select_one(".balance-amount") or row.select_one(".account-value")
+                balance_text = balance_el.get_text(strip=True) if balance_el else ""
+                currency = _extract_currency_from_balance(balance_text)
+                balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
+                if balance_text.strip().startswith("-"):
+                    balance_str = "-" + balance_str
+                balance = _parse_amount(balance_str) or Decimal("0.00")
+                logger.debug(
+                    "NBE: CC row %d using DOM balance (API not captured): %s %s",
+                    row_idx, currency, balance,
+                )
 
             masked = self._mask_account_number(raw_card_number)
-
-            logger.debug(
-                "NBE: credit card row %d → masked=%s currency=%s balance=%s",
-                row_idx, masked, currency, balance,
-            )
 
             accounts.append(
                 BankAccount(
