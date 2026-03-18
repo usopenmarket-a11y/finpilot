@@ -1399,14 +1399,19 @@ class NBEScraper(BankScraper):
             )
             return []
 
-        # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
-        # domcontentloaded fires before the JS widgets are injected — we must
-        # wait for the widget selector explicitly rather than using a fixed delay.
-        # Use 60s (up from 30s) — on Render free tier (Oregon→Egypt) SPA hydration
-        # after a full page reload can take 35-50s.
-        _CC_WIDGET_WAIT_MS = 60_000
+        # Wait for login session to be confirmed before waiting for widgets.
+        # After navigating to the dashboard mid-scrape, the SPA may re-authenticate
+        # before rendering widgets — wait for loggedInUser first (confirms session active).
         try:
-            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=_CC_WIDGET_WAIT_MS)
+            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: session lost after navigation — cannot scrape credit cards")
+            return []
+
+        # Wait for Oracle JET to hydrate the CCA widget. After a full 4-account scrape
+        # session the browser is resource-constrained — use 120s to give plenty of room.
+        try:
+            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=120_000)
         except PlaywrightTimeoutError:
             logger.info("NBE: no CCA (credit cards) widget found — user has no credit cards")
             return []
@@ -2049,11 +2054,15 @@ class NBEScraper(BankScraper):
             )
             return []
 
-        # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
-        # Use 60s — on Render free tier (Oregon→Egypt) SPA hydration can take 35-50s.
-        _TRD_WIDGET_WAIT_MS = 60_000
+        # Wait for session + widget hydration — same pattern as _scrape_credit_cards.
         try:
-            await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=_TRD_WIDGET_WAIT_MS)
+            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: session lost after navigation — cannot scrape certificates")
+            return []
+
+        try:
+            await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=120_000)
         except PlaywrightTimeoutError:
             logger.info(
                 "NBE: no TRD (certificates) widget found — user has no certificates/deposits"
