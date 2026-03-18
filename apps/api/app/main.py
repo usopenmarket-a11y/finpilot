@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import analytics, credentials, debts, health, recommendations, scrape, sync, utils
+
+# ---------------------------------------------------------------------------
+# Root logging configuration
+# ---------------------------------------------------------------------------
+# Uvicorn only configures its own access logger; without this, all application
+# logger calls (scraper, pipeline, analytics) are silently dropped.
+# We configure the root logger to write to stdout so Render captures everything.
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 
 logger = logging.getLogger(__name__)
 
