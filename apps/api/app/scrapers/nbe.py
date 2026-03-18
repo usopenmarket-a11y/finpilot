@@ -908,12 +908,20 @@ class NBEScraper(BankScraper):
                     # Return early — _extract_transactions will receive empty HTML
                     # and produce an empty list, which is correct.
                     return
-                await self._safe_screenshot(page, "txn_table_cells_missing")
-                raise ScraperParseError(
-                    "NBE: transaction table cells did not appear after Apply "
-                    f"(networkidle + {_APPLY_FALLBACK_WAIT_MS}ms fallback exhausted)",
-                    bank_code="NBE",
+                # Log the current page URL to help diagnose what went wrong.
+                current_url = page.url
+                logger.warning(
+                    "NBE: oj-table#ViewStatement1 not found after Apply "
+                    "(account_index=%d, url=%r) — treating as no transactions "
+                    "(SPA may have rendered an error/empty state instead of the table)",
+                    account_index,
+                    current_url,
                 )
+                await self._safe_screenshot(page, "txn_table_cells_missing")
+                # Treat as empty rather than fatal — the account may genuinely have
+                # no transactions visible, or the SPA rendered a non-table state.
+                # Raising here was causing all subsequent accounts to be skipped too.
+                return
         else:
             logger.info("NBE: Apply button absent — table loaded automatically")
 
