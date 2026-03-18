@@ -580,7 +580,22 @@ class NBEScraper(BankScraper):
 
             # ------------------------------------------------------------------
             # Reveal the accounts card to enumerate demand-deposit accounts.
+            # Navigate to a fresh dashboard first — _scrape_certificates leaves
+            # the TRD flip-card open, which prevents li.flip-account-list__items
+            # for the CSA card from appearing after _reveal_accounts_widget click.
             # ------------------------------------------------------------------
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="domcontentloaded",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+                await self._random_delay(1.0, 2.0)
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    "NBE: dashboard re-navigation timed out before demand-deposit scrape — proceeding anyway"
+                )
+
             await self._reveal_accounts_widget(page)
 
             accounts = await self._extract_all_accounts(page)
