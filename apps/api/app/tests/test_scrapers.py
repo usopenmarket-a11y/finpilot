@@ -170,13 +170,13 @@ _NBE_DASHBOARD_HTML = """
 <ul class="flip-account-list">
   <li class="flip-account-list__items">
     <span class="account-no">0765000645195400010</span>
-    <span class="account-name">Current Account</span>
+    <div class="account-name">Current Account</div>
     <strong class="account-value">EGP 15,250.75</strong>
     <a class="menu-icon" href="#">...</a>
   </li>
   <li class="flip-account-list__items">
     <span class="account-no">0765000645195400011</span>
-    <span class="account-name">Savings Account</span>
+    <div class="account-name">Savings Account</div>
     <strong class="account-value">EGP 8,000.00</strong>
     <a class="menu-icon" href="#">...</a>
   </li>
@@ -194,7 +194,7 @@ _NBE_DASHBOARD_HTML_SINGLE = """
 <ul class="flip-account-list">
   <li class="flip-account-list__items">
     <span class="account-no">0765000645195400010</span>
-    <span class="account-name">Current Account</span>
+    <div class="account-name">Current Account</div>
     <strong class="account-value">EGP 15,250.75</strong>
     <a class="menu-icon" href="#">...</a>
   </li>
@@ -521,7 +521,7 @@ class TestNbeNormaliseHelpers:
         assert nbe_normalise_account_type("توفير") == "savings"
 
     def test_credit_keyword(self) -> None:
-        assert nbe_normalise_account_type("credit card") == "credit"
+        assert nbe_normalise_account_type("credit card") == "credit_card"
 
     def test_loan_keyword(self) -> None:
         assert nbe_normalise_account_type("personal loan") == "loan"
