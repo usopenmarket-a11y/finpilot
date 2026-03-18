@@ -212,6 +212,12 @@ _SEL_NEXT_PAGE = "button[title='Next Page']"
 # URL fragment that appears once Account Activity is loaded
 _TXN_PAGE_URL_FRAGMENT = "demand-deposit-transactions"
 
+# Certificates / Deposits widget selector
+_SEL_CERTIFICATES_WIDGET = "li.TRD a"
+
+# Credit Cards widget selector
+_SEL_CREDIT_CARDS_WIDGET = "li.CCA a"
+
 # ---------------------------------------------------------------------------
 # Transaction table column indices (0-based, fixed by Oracle JET binding)
 # Col: 0=Txn Date | 1=Value Date | 2=Ref No | 3=Description | 4=Debit | 5=Credit | 6=Balance
@@ -327,9 +333,13 @@ def _normalise_account_type(raw: str) -> str:
     if "saving" in raw or "توفير" in raw:
         return "savings"
     if "credit" in raw or "ائتمان" in raw:
-        return "credit"
+        return "credit_card"
     if "loan" in raw or "قرض" in raw:
         return "loan"
+    if "payroll" in raw or "راتب" in raw or "مرتب" in raw:
+        return "payroll"
+    if any(k in raw for k in ("certificate", "شهادة", "cert", "deposit", "وديعة", "term", "platinum", "بلاتينية", "ذهبية", "gold")):
+        return "certificate"
     return "current"  # default — covers "Current & Savings", "جارى"
 
 
@@ -594,6 +604,31 @@ class NBEScraper(BankScraper):
                     except Exception:
                         pass  # best-effort; next reveal_accounts_widget will confirm
                     continue
+
+            # ------------------------------------------------------------------
+            # Scrape credit cards (balance only — no transactions yet)
+            # ------------------------------------------------------------------
+            try:
+                cc_accounts = await self._scrape_credit_cards(page)
+                if cc_accounts:
+                    logger.info("NBE: found %d credit card account(s)", len(cc_accounts))
+                    accounts = accounts + cc_accounts
+                    raw_html["credit_cards"] = await page.content()
+            except Exception as cc_exc:
+                logger.warning("NBE: credit card scraping failed (non-fatal): %s", cc_exc)
+
+            # ------------------------------------------------------------------
+            # Scrape certificates / deposits (no transactions — balance only)
+            # ------------------------------------------------------------------
+            try:
+                cert_accounts = await self._scrape_certificates(page)
+                if cert_accounts:
+                    logger.info("NBE: found %d certificate/deposit account(s)", len(cert_accounts))
+                    accounts = accounts + cert_accounts
+                    raw_html["certificates"] = await page.content()
+            except Exception as cert_exc:
+                # Non-fatal — log and continue with demand deposit data
+                logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
 
             logger.info(
                 "NBE: scrape complete — %d account(s), %d transaction(s) total",
@@ -1130,20 +1165,23 @@ class NBEScraper(BankScraper):
         now = datetime.now(UTC)
 
         for row_idx, row in enumerate(rows):
-            # Account number
-            acc_no_el = row.select_one(".account-no")
+            # Account number — prefer div.account-no (full account number),
+            # fall back to span.account-name which also contains the account number.
+            acc_no_el = row.find("div", class_="account-no") or row.select_one(".account-no")
             raw_account_number = acc_no_el.get_text(strip=True) if acc_no_el else ""
             logger.debug("NBE: row %d raw account number %r", row_idx, raw_account_number)
 
-            # Account name / type
-            acc_name_el = row.select_one(".account-name")
+            # Account product name / type — use div.account-name (Arabic product
+            # name like "توفير بعائد سنوي" or "مرتبات الموظفين").
+            # The span.account-name contains the account NUMBER and must be skipped.
+            acc_name_el = row.find("div", class_="account-name")
             account_type_raw = acc_name_el.get_text(strip=True) if acc_name_el else "current"
             account_type = _normalise_account_type(account_type_raw)
 
-            # Balance — look for .account-value first, then fall back to any text
-            # matching a currency+amount pattern inside the row
+            # Balance — prefer .balance-amount (confirmed present in recon),
+            # fall back to .account-value or regex scan of row text.
             balance_text = ""
-            balance_el = row.select_one(".account-value")
+            balance_el = row.select_one(".balance-amount") or row.select_one(".account-value")
             if balance_el:
                 balance_text = balance_el.get_text(strip=True)
             else:
@@ -1259,3 +1297,241 @@ class NBEScraper(BankScraper):
                 ) from exc
 
         return transactions
+
+    # ------------------------------------------------------------------
+    # Data extraction — credit cards
+    # ------------------------------------------------------------------
+
+    async def _scrape_credit_cards(self, page: Page) -> list[BankAccount]:
+        """Navigate to the Credit Cards widget and extract account data.
+
+        NBE shows credit cards in a ``li.CCA`` flip-card on the dashboard.
+        Clicking ``li.CCA a`` reveals ``li.flip-account-list__items`` rows inside
+        ``div.flip-account.CCA`` with:
+        - ``.account-name``   — cardholder name (e.g. "FADY HABIB")
+        - ``.balance-amount`` — outstanding balance (e.g. "EGP 37,240.82")
+        - ``.account-no``     — masked card number + expiry (e.g. "544111******1204 | 07/28")
+
+        Returns:
+            List of ``BankAccount`` objects with ``account_type='credit_card'``.
+            Returns empty list if the CCA widget is not present.
+        """
+        logger.info("NBE: scraping credit cards via %r widget", _SEL_CREDIT_CARDS_WIDGET)
+
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: dashboard navigation timed out before credit card scrape — skipping")
+            return []
+
+        await self._random_delay(1.0, 2.0)
+
+        cca_widget = await page.query_selector(_SEL_CREDIT_CARDS_WIDGET)
+        if not cca_widget:
+            logger.info("NBE: no CCA (credit cards) widget found — user has no credit cards")
+            return []
+
+        await page.click(_SEL_CREDIT_CARDS_WIDGET)
+        await self._random_delay(1.5, 2.5)
+
+        try:
+            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: credit card rows did not appear after clicking CCA widget")
+            return []
+
+        html = await page.content()
+        soup = BeautifulSoup(html, "lxml")
+
+        # Use the CCA-specific container to avoid mixing with demand-deposit rows
+        cca_container = soup.select_one("div.flip-account.CCA")
+        if cca_container:
+            rows = cca_container.select(_SEL_ACCOUNT_ROWS)
+        else:
+            rows = soup.select(_SEL_ACCOUNT_ROWS)
+
+        if not rows:
+            logger.info("NBE: no credit card rows found in CCA flip-card HTML")
+            return []
+
+        logger.info("NBE: found %d credit card row(s)", len(rows))
+        accounts: list[BankAccount] = []
+        now = datetime.now(UTC)
+
+        for row_idx, row in enumerate(rows):
+            # Card number is in .account-no (e.g. "544111******1204 | 07/28")
+            acc_no_el = row.find("div", class_="account-no") or row.select_one(".account-no")
+            raw_card_info = acc_no_el.get_text(strip=True) if acc_no_el else ""
+            # Strip the expiry date portion: "544111******1204 | 07/28" → "544111******1204"
+            raw_card_number = raw_card_info.split("|")[0].strip() if "|" in raw_card_info else raw_card_info
+
+            # Balance
+            balance_el = row.select_one(".balance-amount") or row.select_one(".account-value")
+            balance_text = balance_el.get_text(strip=True) if balance_el else ""
+
+            currency = _extract_currency_from_balance(balance_text)
+            balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
+            if balance_text.strip().startswith("-"):
+                balance_str = "-" + balance_str
+            balance = _parse_amount(balance_str) or Decimal("0.00")
+
+            masked = self._mask_account_number(raw_card_number)
+
+            logger.debug(
+                "NBE: credit card row %d → masked=%s currency=%s balance=%s",
+                row_idx, masked, currency, balance,
+            )
+
+            accounts.append(
+                BankAccount(
+                    id=_ZERO_UUID,
+                    user_id=_ZERO_UUID,
+                    bank_name=self.bank_name,
+                    account_number_masked=masked,
+                    account_type="credit_card",
+                    currency=currency,
+                    balance=balance,
+                    is_active=True,
+                    last_synced_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        return accounts
+
+    # ------------------------------------------------------------------
+    # Data extraction — certificates and deposits
+    # ------------------------------------------------------------------
+
+    async def _scrape_certificates(self, page: Page) -> list[BankAccount]:
+        """Navigate to the Certificates/Deposits widget and extract account data.
+
+        NBE shows certificates in a ``li.TRD`` flip-card on the dashboard.
+        Clicking ``li.TRD a`` reveals ``li.flip-account-list__items`` rows with:
+        - ``.account-name``   — certificate product name (may be Arabic)
+        - ``.balance-amount`` — balance with currency prefix (e.g. "EGP 100,000.00")
+        - ``.account-no``     — full account number
+
+        Each row may also contain a detail line with
+        ``Interest Rate X% | Maturing DD Mon YYYY | Opened Date DD Mon YYYY``.
+
+        This method is called after demand-deposit scraping is complete.
+        It navigates to the dashboard, clicks the TRD widget, parses the rows,
+        then navigates back.  Non-fatal: caller catches and logs any exception.
+
+        Returns:
+            List of ``BankAccount`` objects with ``account_type='certificate'``.
+            Returns an empty list if the TRD widget is not present (e.g. no certs).
+        """
+        logger.info("NBE: scraping certificates/deposits via %r widget", _SEL_CERTIFICATES_WIDGET)
+
+        # Navigate back to dashboard home
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: dashboard navigation timed out before certificate scrape — skipping")
+            return []
+
+        await self._random_delay(1.0, 2.0)
+
+        # Check if the TRD widget is present
+        trd_widget = await page.query_selector(_SEL_CERTIFICATES_WIDGET)
+        if not trd_widget:
+            logger.info("NBE: no TRD (certificates) widget found — user has no certificates/deposits")
+            return []
+
+        # Click the widget to flip the card and reveal the list
+        await page.click(_SEL_CERTIFICATES_WIDGET)
+        await self._random_delay(1.5, 2.5)
+
+        # Wait for the account rows to appear
+        try:
+            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: certificate rows did not appear after clicking TRD widget")
+            return []
+
+        # Parse the HTML
+        html = await page.content()
+        soup = BeautifulSoup(html, "lxml")
+
+        # The TRD flip-card contains its own set of li.flip-account-list__items.
+        # We need the rows that are inside the TRD card, not the demand-deposit card.
+        # Strategy: find the div.flip-account.TRD container first; fall back to all rows.
+        trd_container = soup.select_one("div.flip-account.TRD")
+        if trd_container:
+            rows = trd_container.select(_SEL_ACCOUNT_ROWS)
+        else:
+            rows = soup.select(_SEL_ACCOUNT_ROWS)
+
+        if not rows:
+            logger.info("NBE: no certificate rows found in TRD flip-card HTML")
+            return []
+
+        logger.info("NBE: found %d certificate row(s)", len(rows))
+        accounts: list[BankAccount] = []
+        now = datetime.now(UTC)
+
+        for row_idx, row in enumerate(rows):
+            # Account name (product name, may be Arabic)
+            name_el = row.select_one(".account-name")
+            raw_name = name_el.get_text(strip=True) if name_el else ""
+
+            # Balance
+            balance_el = row.select_one(".balance-amount")
+            balance_text = ""
+            if balance_el:
+                balance_text = balance_el.get_text(strip=True)
+            else:
+                row_text = row.get_text(separator=" ")
+                m = re.search(r"-?\s*(?:EGP|USD|EUR|GBP|SAR|AED)\s*[\d,.\-]+", row_text, re.I)
+                if m:
+                    balance_text = m.group(0).replace(" ", "")
+
+            # Account number
+            acc_no_el = row.select_one(".account-no")
+            raw_account_number = acc_no_el.get_text(strip=True) if acc_no_el else ""
+
+            currency = _extract_currency_from_balance(balance_text)
+            balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
+            if balance_text.strip().startswith("-"):
+                balance_str = "-" + balance_str
+            balance = _parse_amount(balance_str) or Decimal("0.00")
+
+            masked = self._mask_account_number(raw_account_number)
+
+            logger.debug(
+                "NBE: certificate row %d → masked=%s name=%r currency=%s balance=%s",
+                row_idx,
+                masked,
+                raw_name,
+                currency,
+                balance,
+            )
+
+            accounts.append(
+                BankAccount(
+                    id=_ZERO_UUID,
+                    user_id=_ZERO_UUID,
+                    bank_name=self.bank_name,
+                    account_number_masked=masked,
+                    account_type="certificate",
+                    currency=currency,
+                    balance=balance,
+                    is_active=True,
+                    last_synced_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        return accounts

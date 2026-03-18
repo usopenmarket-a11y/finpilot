@@ -84,7 +84,7 @@ class BankAccountCreate(BaseModel):
     account_number_masked: str = Field(
         description="Last 4 digits only — never send or store the full account number"
     )
-    account_type: str = Field(description="One of: savings, current, credit, loan")
+    account_type: str = Field(description="One of: savings, current, credit_card, loan, payroll, certificate, deposit")
     currency: str = Field(default="EGP", description="ISO 4217 currency code")
 
 
