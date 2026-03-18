@@ -1478,13 +1478,13 @@ class NBEScraper(BankScraper):
         html = await page.content()
         soup = BeautifulSoup(html, "lxml")
 
-        # Use the CCA-specific container to avoid mixing with demand-deposit rows
+        # Use the CCA-specific container to avoid mixing with demand-deposit rows.
+        # If div.flip-account.CCA is absent the click did not reveal it — return empty.
         cca_container = soup.select_one("div.flip-account.CCA")
-        if cca_container:
-            rows = cca_container.select(_SEL_ACCOUNT_ROWS)
-        else:
-            rows = soup.select(_SEL_ACCOUNT_ROWS)
-
+        if not cca_container:
+            logger.info("NBE: no credit card rows found in CCA flip-card HTML")
+            return []
+        rows = cca_container.select(_SEL_ACCOUNT_ROWS)
         if not rows:
             logger.info("NBE: no credit card rows found in CCA flip-card HTML")
             return []
@@ -2111,13 +2111,12 @@ class NBEScraper(BankScraper):
 
         # The TRD flip-card contains its own set of li.flip-account-list__items.
         # We need the rows that are inside the TRD card, not the demand-deposit card.
-        # Strategy: find the div.flip-account.TRD container first; fall back to all rows.
+        # If div.flip-account.TRD is absent the click did not reveal it — return empty.
         trd_container = soup.select_one("div.flip-account.TRD")
-        if trd_container:
-            rows = trd_container.select(_SEL_ACCOUNT_ROWS)
-        else:
-            rows = soup.select(_SEL_ACCOUNT_ROWS)
-
+        if not trd_container:
+            logger.info("NBE: no certificate rows found in TRD flip-card HTML")
+            return []
+        rows = trd_container.select(_SEL_ACCOUNT_ROWS)
         if not rows:
             logger.info("NBE: no certificate rows found in TRD flip-card HTML")
             return []

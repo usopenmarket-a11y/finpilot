@@ -160,45 +160,56 @@ def _build_mock_playwright() -> tuple[MagicMock, MagicMock, AsyncMock, AsyncMock
 
 # NBE dashboard HTML — Oracle JET SPA structure.
 # Includes a flip-account-list with TWO account rows (savings EGP + current EGP)
-# plus a Logout link.  Multi-row fixture exercises the multi-account scrape path.
+# inside a div.flip-account.CSA container (matching real portal structure) plus
+# a Logout link.  Multi-row fixture exercises the multi-account scrape path.
+# The CSA wrapper is important: _scrape_credit_cards looks for div.flip-account.CCA
+# and must NOT fall back to the demand-deposit rows in div.flip-account.CSA.
 _NBE_DASHBOARD_HTML = """
 <html><body>
-<nav><a href="#">Logout</a></nav>
+<nav><a href="#">Logout</a>
+  <li class="loggedInUser">TestUser</li>
+</nav>
 <ul>
   <li class="CSA"><a href="#">Accounts</a></li>
 </ul>
-<ul class="flip-account-list">
-  <li class="flip-account-list__items">
-    <span class="account-no">0765000645195400010</span>
-    <div class="account-name">Current Account</div>
-    <strong class="account-value">EGP 15,250.75</strong>
-    <a class="menu-icon" href="#">...</a>
-  </li>
-  <li class="flip-account-list__items">
-    <span class="account-no">0765000645195400011</span>
-    <div class="account-name">Savings Account</div>
-    <strong class="account-value">EGP 8,000.00</strong>
-    <a class="menu-icon" href="#">...</a>
-  </li>
-</ul>
+<div class="flip-account CSA">
+  <ul class="flip-account-list">
+    <li class="flip-account-list__items">
+      <span class="account-no">0765000645195400010</span>
+      <div class="account-name">Current Account</div>
+      <strong class="account-value">EGP 15,250.75</strong>
+      <a class="menu-icon" href="#">...</a>
+    </li>
+    <li class="flip-account-list__items">
+      <span class="account-no">0765000645195400011</span>
+      <div class="account-name">Savings Account</div>
+      <strong class="account-value">EGP 8,000.00</strong>
+      <a class="menu-icon" href="#">...</a>
+    </li>
+  </ul>
+</div>
 </body></html>
 """
 
 # Single-account dashboard HTML used by tests that explicitly want only one account.
 _NBE_DASHBOARD_HTML_SINGLE = """
 <html><body>
-<nav><a href="#">Logout</a></nav>
+<nav><a href="#">Logout</a>
+  <li class="loggedInUser">TestUser</li>
+</nav>
 <ul>
   <li class="CSA"><a href="#">Accounts</a></li>
 </ul>
-<ul class="flip-account-list">
-  <li class="flip-account-list__items">
-    <span class="account-no">0765000645195400010</span>
-    <div class="account-name">Current Account</div>
-    <strong class="account-value">EGP 15,250.75</strong>
-    <a class="menu-icon" href="#">...</a>
-  </li>
-</ul>
+<div class="flip-account CSA">
+  <ul class="flip-account-list">
+    <li class="flip-account-list__items">
+      <span class="account-no">0765000645195400010</span>
+      <div class="account-name">Current Account</div>
+      <strong class="account-value">EGP 15,250.75</strong>
+      <a class="menu-icon" href="#">...</a>
+    </li>
+  </ul>
+</div>
 </body></html>
 """
 
@@ -803,13 +814,27 @@ def _build_nbe_mock_page(
     """
     mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
-    # Build content() side_effect:
-    #   1 dashboard call (raw_html["dashboard"])
-    #   1 dashboard call (_extract_all_accounts)
-    #   then num_accounts × 2 txn calls (raw_html + _extract_transactions)
-    content_calls = [dashboard_html, dashboard_html]
+    # content() side_effect list for the post-M9 scrape() call order:
+    #
+    #  CC/cert phase (scraped FIRST while browser is fresh):
+    #   call  1: raw_html["dashboard"]              → dashboard_html
+    #   call  2: _scrape_credit_cards html          → dashboard_html (no li.CCA rows)
+    #   call  3: _scrape_cc_transactions html       → dashboard_html (0 CC accounts → skipped)
+    #   call  4: _scrape_certificates html          → dashboard_html (no li.TRD rows)
+    #
+    #  Demand-deposit phase:
+    #   call  5: _extract_all_accounts              → dashboard_html (has account rows)
+    #   calls 6..5+num_accounts*2: transaction extraction → txn_html
+    #
+    # With the fixed scraper (div.flip-account.CCA/TRD container check), the
+    # non-txn content() call count is exactly 4 (dashboard + CC html + cert html
+    # + _extract_all_accounts).  Use a small fixed prefix then txn_html for extraction.
+    # Pad the tail so StopIteration never fires from unexpected extra calls.
+    _NON_TXN_CALLS = 4
+    content_calls = [dashboard_html] * _NON_TXN_CALLS
     for _ in range(num_accounts):
         content_calls += [txn_html, txn_html]
+    content_calls += [dashboard_html] * 4  # safety padding
 
     mock_page.content = AsyncMock(side_effect=content_calls)
 
