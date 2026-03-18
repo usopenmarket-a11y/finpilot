@@ -1378,12 +1378,16 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping credit cards via %r widget", _SEL_CREDIT_CARDS_WIDGET)
 
-        # If we are not on the dashboard, navigate there.  After demand-deposit
-        # scraping the page is already on the dashboard (go_back() was called),
-        # so we skip the full reload to avoid an extra 30-60s SPA hydration cycle.
+        # If we are not on the dashboard home page, navigate there.
+        # After demand-deposit scraping the last account does NOT call go_back(),
+        # leaving the page on demand-deposit-transactions.  We must navigate back
+        # to see the CCA widget.  The OBDX dashboard URL contains "page=home".
         current_url = page.url
-        already_on_dashboard = "page=home" not in current_url and (
+        already_on_dashboard = (
             "alahlynet.com.eg" in current_url
+            and "page=home" in current_url
+            and "demand-deposit" not in current_url
+            and "card" not in current_url
         )
         if not already_on_dashboard:
             logger.info("NBE: navigating to dashboard for CC scrape (current url: %s)", current_url)
@@ -2030,11 +2034,15 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping certificates/deposits via %r widget", _SEL_CERTIFICATES_WIDGET)
 
-        # Same pattern as _scrape_credit_cards: skip the goto if already on dashboard.
-        # After _scrape_credit_cards, the page is still on the dashboard.
+        # Same pattern as _scrape_credit_cards: navigate to dashboard if needed.
+        # After _scrape_credit_cards, the page may be on a card-statement page.
+        # The OBDX dashboard URL contains "page=home".
         current_url = page.url
-        already_on_dashboard = "page=home" not in current_url and (
+        already_on_dashboard = (
             "alahlynet.com.eg" in current_url
+            and "page=home" in current_url
+            and "demand-deposit" not in current_url
+            and "card" not in current_url
         )
         if not already_on_dashboard:
             logger.info(
