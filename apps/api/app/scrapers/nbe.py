@@ -1378,22 +1378,35 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping credit cards via %r widget", _SEL_CREDIT_CARDS_WIDGET)
 
-        try:
-            await page.goto(
-                _LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=_PAGE_LOAD_TIMEOUT_MS,
-            )
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "NBE: dashboard navigation timed out before credit card scrape — skipping"
-            )
-            return []
+        # If we are not on the dashboard, navigate there.  After demand-deposit
+        # scraping the page is already on the dashboard (go_back() was called),
+        # so we skip the full reload to avoid an extra 30-60s SPA hydration cycle.
+        current_url = page.url
+        already_on_dashboard = "page=home" not in current_url and (
+            "alahlynet.com.eg" in current_url
+        )
+        if not already_on_dashboard:
+            logger.info("NBE: navigating to dashboard for CC scrape (current url: %s)", current_url)
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="domcontentloaded",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    "NBE: dashboard navigation timed out before credit card scrape — skipping"
+                )
+                return []
+        else:
+            logger.info("NBE: already on dashboard — skipping goto for CC scrape")
 
         # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
         # domcontentloaded fires before the JS widgets are injected — we must
         # wait for the widget selector explicitly rather than using a fixed delay.
-        _CC_WIDGET_WAIT_MS = 30_000
+        # Use 60s (up from 30s) — on Render free tier (Oregon→Egypt) SPA hydration
+        # after a full page reload can take 35-50s.
+        _CC_WIDGET_WAIT_MS = 60_000
         try:
             await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=_CC_WIDGET_WAIT_MS)
         except PlaywrightTimeoutError:
@@ -1912,23 +1925,33 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping certificates/deposits via %r widget", _SEL_CERTIFICATES_WIDGET)
 
-        # Navigate back to dashboard home
-        try:
-            await page.goto(
-                _LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=_PAGE_LOAD_TIMEOUT_MS,
+        # Same pattern as _scrape_credit_cards: skip the goto if already on dashboard.
+        # After _scrape_credit_cards, the page is still on the dashboard.
+        current_url = page.url
+        already_on_dashboard = "page=home" not in current_url and (
+            "alahlynet.com.eg" in current_url
+        )
+        if not already_on_dashboard:
+            logger.info(
+                "NBE: navigating to dashboard for certificate scrape (current url: %s)", current_url
             )
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "NBE: dashboard navigation timed out before certificate scrape — skipping"
-            )
-            return []
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="domcontentloaded",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    "NBE: dashboard navigation timed out before certificate scrape — skipping"
+                )
+                return []
+        else:
+            logger.info("NBE: already on dashboard — skipping goto for certificate scrape")
 
         # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
-        # domcontentloaded fires before the JS widgets are injected — we must
-        # wait for the widget selector explicitly rather than using a fixed delay.
-        _TRD_WIDGET_WAIT_MS = 30_000
+        # Use 60s — on Render free tier (Oregon→Egypt) SPA hydration can take 35-50s.
+        _TRD_WIDGET_WAIT_MS = 60_000
         try:
             await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=_TRD_WIDGET_WAIT_MS)
         except PlaywrightTimeoutError:
