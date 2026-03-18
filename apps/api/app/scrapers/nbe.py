@@ -82,6 +82,7 @@ in ``models.db.Transaction``.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 from datetime import UTC, date, datetime
@@ -217,6 +218,12 @@ _SEL_CERTIFICATES_WIDGET = "li.TRD a"
 
 # Credit Cards widget selector
 _SEL_CREDIT_CARDS_WIDGET = "li.CCA a"
+
+# CC statement page URL fragment (used in wait_for_url)
+_CC_STATEMENT_URL_FRAGMENT = "card-statement"
+
+# Number of months of CC statement history to scrape
+_CC_STATEMENT_MONTHS = 7  # last 6 completed months + current (unbilled)
 
 # ---------------------------------------------------------------------------
 # Transaction table column indices (0-based, fixed by Oracle JET binding)
@@ -606,8 +613,9 @@ class NBEScraper(BankScraper):
                     continue
 
             # ------------------------------------------------------------------
-            # Scrape credit cards (balance only — no transactions yet)
+            # Scrape credit cards (balance + last 6 months of statements)
             # ------------------------------------------------------------------
+            cc_accounts: list[BankAccount] = []
             try:
                 cc_accounts = await self._scrape_credit_cards(page)
                 if cc_accounts:
@@ -616,6 +624,14 @@ class NBEScraper(BankScraper):
                     raw_html["credit_cards"] = await page.content()
             except Exception as cc_exc:
                 logger.warning("NBE: credit card scraping failed (non-fatal): %s", cc_exc)
+
+            try:
+                cc_txns = await self._scrape_cc_transactions(page, cc_accounts)
+                if cc_txns:
+                    logger.info("NBE: scraped %d CC statement transaction(s)", len(cc_txns))
+                    all_transactions.extend(cc_txns)
+            except Exception as cc_txn_exc:
+                logger.warning("NBE: CC transaction scraping failed (non-fatal): %s", cc_txn_exc)
 
             # ------------------------------------------------------------------
             # Scrape certificates / deposits (no transactions — balance only)
@@ -632,7 +648,7 @@ class NBEScraper(BankScraper):
 
             logger.info(
                 "NBE: scrape complete — %d account(s), %d transaction(s) total",
-                total,
+                len(accounts),
                 len(all_transactions),
             )
 
@@ -1403,6 +1419,319 @@ class NBEScraper(BankScraper):
             )
 
         return accounts
+
+    # ------------------------------------------------------------------
+    # Data extraction — credit card transactions (statement history)
+    # ------------------------------------------------------------------
+
+    async def _scrape_cc_transactions(
+        self, page: Page, cc_accounts: list[BankAccount]
+    ) -> list[Transaction]:
+        """Scrape CC statement transactions for the last 6 months + current month.
+
+        Uses the discovered API endpoint:
+        GET /digx/v1/cz/creditcardList/listStatements/{accountreferenceno}/{month}/{year}
+
+        The account reference number is the ``id`` attribute of the
+        ``li.flip-account-list__items`` element for the CC card row.
+
+        Flow for each month:
+        1. Navigate to the CC statement page (CCA → hover → menu → Card Statement).
+        2. Intercept all responses whose URL contains ``listStatements``.
+        3. Select year + month using Oracle JET selects, click Submit.
+        4. Parse the JSON response ``items[].statmentItems[]``.
+
+        Args:
+            page: Active Playwright page (must be logged in).
+            cc_accounts: List of credit card BankAccount objects already scraped.
+
+        Returns:
+            List of Transaction objects for all CC statement items found.
+        """
+        if not cc_accounts:
+            return []
+
+        logger.info("NBE: scraping CC statement transactions for last %d months", _CC_STATEMENT_MONTHS)
+
+        # Months to try: last 6 completed + current, newest first
+        now = datetime.now(UTC)
+        months_to_try: list[tuple[int, int]] = []
+        for delta in range(_CC_STATEMENT_MONTHS):
+            # Walk back month by month
+            m = now.month - delta
+            y = now.year
+            while m <= 0:
+                m += 12
+                y -= 1
+            months_to_try.append((y, m))
+
+        all_txns: list[Transaction] = []
+
+        # Navigate to dashboard first
+        try:
+            await page.goto(_LOGIN_URL, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: timed out navigating to dashboard for CC statement scrape")
+            return []
+        await self._random_delay(1.5, 2.5)
+
+        # Check for CCA widget
+        cca_widget = await page.query_selector(_SEL_CREDIT_CARDS_WIDGET)
+        if not cca_widget:
+            logger.info("NBE: no CCA widget — skipping CC transaction scrape")
+            return []
+
+        # Click CCA widget to reveal card rows
+        await page.click(_SEL_CREDIT_CARDS_WIDGET)
+        await self._random_delay(1.5, 2.5)
+
+        try:
+            await page.wait_for_selector(
+                "div.flip-account.CCA li.flip-account-list__items, li.flip-account-list__items",
+                timeout=_WAIT_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: CC card rows did not appear — skipping CC transaction scrape")
+            return []
+
+        # Get the account reference number from the id attribute of the CC row
+        # The id attribute is used as the accountreferenceno in the API call
+        account_ref = await page.evaluate("""() => {
+            const ccRow = document.querySelector('div.flip-account.CCA li.flip-account-list__items')
+                       || document.querySelector('li.flip-account-list__items');
+            return ccRow ? ccRow.getAttribute('id') : null;
+        }""")
+        if not account_ref:
+            logger.warning("NBE: could not determine CC account reference number — skipping CC transactions")
+            return []
+        logger.info("NBE: CC account reference number = %r", account_ref)
+
+        # Hover over the first CC row to reveal the menu icon
+        try:
+            cc_row_loc = page.locator("div.flip-account.CCA li.flip-account-list__items").first
+            if not await cc_row_loc.count():
+                cc_row_loc = page.locator("li.flip-account-list__items").first
+            await cc_row_loc.hover()
+            await self._random_delay(0.8, 1.5)
+        except Exception as e:
+            logger.warning("NBE: could not hover CC row: %s", e)
+            return []
+
+        # Click the menu icon
+        try:
+            await page.locator("a.menu-icon").first.click(timeout=_SHORT_TIMEOUT_MS)
+            await self._random_delay(0.8, 1.5)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: menu icon not found on CC row — skipping CC transactions")
+            return []
+
+        # Click "Card Statement"
+        try:
+            await page.click("span:has-text('Card Statement')", timeout=_SHORT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: 'Card Statement' menu item not found — skipping CC transactions")
+            return []
+
+        # Wait for the CC statement page to load
+        await self._random_delay(3.0, 5.0)
+        try:
+            await page.wait_for_selector("#selectYear", timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: CC statement year selector not found — skipping CC transactions")
+            return []
+        logger.info("NBE: on CC statement page — year/month selectors ready")
+
+        # Set up response interception ONCE — we'll collect responses across all month selections
+        captured_responses: dict[str, str] = {}  # url → body
+
+        async def _capture_statement_response(resp: object) -> None:
+            url = getattr(resp, "url", "")
+            if "listStatements" in url:
+                try:
+                    body = await resp.text()  # type: ignore[union-attr]
+                    captured_responses[url] = body
+                    logger.debug("NBE: captured listStatements response: %s (%d bytes)", url, len(body))
+                except Exception as e:
+                    logger.debug("NBE: could not read listStatements response body: %s", e)
+
+        page.on("response", _capture_statement_response)
+
+        try:
+            for year, month in months_to_try:
+                logger.info("NBE: requesting CC statement for %04d/%02d", year, month)
+                year_str = str(year)
+
+                try:
+                    # Select year
+                    await page.click("#oj-select-choice-selectYear")
+                    await self._random_delay(0.5, 1.0)
+                    year_opt = page.locator("#oj-listbox-results-selectYear li").filter(
+                        has_text=year_str
+                    ).first
+                    if not await year_opt.count():
+                        logger.debug("NBE: CC statement year %s not available — skipping", year_str)
+                        await page.keyboard.press("Escape")
+                        await self._random_delay(0.3, 0.6)
+                        continue
+                    await year_opt.click()
+                    await self._random_delay(0.5, 1.0)
+
+                    # Select month (1=Jan, 2=Feb, etc.)
+                    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    month_name = month_names[month - 1]
+                    await page.click("#oj-select-choice-selectMonth")
+                    await self._random_delay(0.5, 1.0)
+                    month_opt = page.locator("#oj-listbox-results-selectMonth li").filter(
+                        has_text=month_name
+                    ).first
+                    if not await month_opt.count():
+                        logger.debug("NBE: CC statement month %s not available — skipping", month_name)
+                        await page.keyboard.press("Escape")
+                        await self._random_delay(0.3, 0.6)
+                        continue
+                    await month_opt.click()
+                    await self._random_delay(0.5, 1.0)
+
+                    # Click Submit
+                    await page.click("button:has-text('Submit')")
+                    # Wait for the AJAX response (generous timeout for Egypt RTT)
+                    await self._random_delay(5.0, 7.0)
+
+                except PlaywrightTimeoutError as e:
+                    logger.debug("NBE: timeout selecting CC statement %04d/%02d: %s", year, month, e)
+                    continue
+                except Exception as e:
+                    logger.debug("NBE: error selecting CC statement %04d/%02d: %s", year, month, e)
+                    continue
+
+            # Now parse all captured API responses
+            logger.info("NBE: captured %d listStatements API response(s)", len(captured_responses))
+            txn_time = datetime.now(UTC)
+
+            for url, body in captured_responses.items():
+                # Extract month/year from URL for logging
+                url_month, url_year = 0, 0
+                m = re.search(r"/listStatements/[^/]+/(\d+)/(\d+)", url)
+                if m:
+                    url_month, url_year = int(m.group(1)), int(m.group(2))
+
+                try:
+                    data = json.loads(body)
+                except json.JSONDecodeError:
+                    logger.debug("NBE: could not parse CC statement response as JSON: %r", body[:200])
+                    continue
+
+                status = data.get("status", {}).get("result", "")
+                if status != "SUCCESSFUL":
+                    logger.debug("NBE: CC statement %04d/%02d status=%r — skipping", url_year, url_month, status)
+                    continue
+
+                items = data.get("items", [])
+                if not items:
+                    logger.debug("NBE: CC statement %04d/%02d — no items in response", url_year, url_month)
+                    continue
+
+                for item in items:
+                    stmt_items = item.get("statmentItems", [])
+                    for stmt in stmt_items:
+                        txn = self._parse_cc_statement_item(stmt, cc_accounts[0], txn_time)
+                        if txn is not None:
+                            all_txns.append(txn)
+
+                logger.info(
+                    "NBE: CC statement %04d/%02d — parsed %d transaction(s) so far (total=%d)",
+                    url_year, url_month, len(all_txns), len(all_txns),
+                )
+
+        finally:
+            page.remove_listener("response", _capture_statement_response)
+
+        logger.info("NBE: CC statement scrape complete — %d total transaction(s)", len(all_txns))
+        return all_txns
+
+    def _parse_cc_statement_item(
+        self,
+        stmt: dict,
+        cc_account: BankAccount,
+        now: datetime,
+    ) -> Transaction | None:
+        """Parse a single CC statement item dict into a Transaction.
+
+        Expected fields from NBE listStatements API:
+        - ``description``: merchant/transaction description
+        - ``crdrflag``: "D" = debit (purchase), "C" = credit (payment/refund)
+        - ``originalamt``: amount as string (e.g. "60.80")
+        - ``originalcurrency``: ISO code (e.g. "EGP")
+        - ``txndate``: ISO datetime string (e.g. "2025-06-28T00:00:00")
+        - ``postdate``: posting date
+        - ``authcode``: authorisation code
+        - ``cardno``: masked card number (e.g. "5441*********204")
+        """
+        description = str(stmt.get("description", "")).strip() or "N/A"
+        crdrflag = str(stmt.get("crdrflag", "D")).upper()
+        amount_str = str(stmt.get("originalamt", "0"))
+        currency_raw = str(stmt.get("originalcurrency", "EGP"))
+        txndate_str = str(stmt.get("txndate", ""))
+        postdate_str = str(stmt.get("postdate", ""))
+        authcode = str(stmt.get("authcode", ""))
+
+        # Parse amount
+        try:
+            amount = Decimal(amount_str.replace(",", ""))
+        except InvalidOperation:
+            logger.debug("NBE: CC stmt — invalid amount %r — skipping", amount_str)
+            return None
+
+        if amount <= 0:
+            return None
+
+        # Parse dates — format from API: "2025-06-28T00:00:00"
+        txn_date: date | None = None
+        for ds in (txndate_str, postdate_str):
+            if ds:
+                try:
+                    txn_date = datetime.fromisoformat(ds).date()
+                    break
+                except ValueError:
+                    txn_date = _parse_nbe_date(ds)
+                    if txn_date:
+                        break
+
+        if txn_date is None:
+            logger.debug("NBE: CC stmt — unparseable date %r — skipping", txndate_str)
+            return None
+
+        # Map crdrflag to transaction_type
+        transaction_type = "debit" if crdrflag == "D" else "credit"
+
+        currency = _normalise_currency(currency_raw)
+        external_id = _make_external_id(txn_date, description, amount)
+
+        return Transaction(
+            id=_ZERO_UUID,
+            user_id=_ZERO_UUID,
+            account_id=_ZERO_UUID,
+            external_id=external_id,
+            amount=amount,
+            currency=currency,
+            transaction_type=transaction_type,
+            description=description,
+            category=None,
+            sub_category=None,
+            transaction_date=txn_date,
+            value_date=None,
+            balance_after=None,
+            raw_data={
+                "source": "nbe_cc_statement",
+                "authcode": authcode,
+                "crdrflag": crdrflag,
+                "account_number_masked": cc_account.account_number_masked,
+            },
+            is_categorized=False,
+            created_at=now,
+            updated_at=now,
+        )
 
     # ------------------------------------------------------------------
     # Data extraction — certificates and deposits
