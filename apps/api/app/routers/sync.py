@@ -65,6 +65,11 @@ _VALID_BANKS = frozenset(_SCRAPER_MAP.keys())
 # In-memory job state storage. Keyed by job_id (UUID string).
 _JOBS: dict[str, dict[str, Any]] = {}
 
+# Global scrape semaphore — only one Playwright browser at a time on the
+# Render free tier (512 MB RAM).  A second request while one is running
+# gets a 429 so the client can retry rather than crashing the instance.
+_SCRAPE_SEMAPHORE = asyncio.Semaphore(1)
+
 # ---------------------------------------------------------------------------
 # Render free-tier keepalive
 # ---------------------------------------------------------------------------
@@ -215,7 +220,9 @@ async def _background_sync_task(
             return
 
         # ------------------------------------------------------------------
-        # Step 3 — run the scraper.
+        # Step 3 — run the scraper (serialised via global semaphore so the
+        # Render free-tier 512 MB instance never runs two Playwright browsers
+        # concurrently).
         # ------------------------------------------------------------------
         result = None
         try:
@@ -224,7 +231,8 @@ async def _background_sync_task(
             scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
 
             logger.info("Sync initiated via stored credentials", extra={"bank": bank})
-            result = await scraper.scrape()
+            async with _SCRAPE_SEMAPHORE:
+                result = await scraper.scrape()
         except ScraperLoginError:
             logger.warning("Sync failed: bank rejected credentials", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
@@ -386,6 +394,15 @@ async def start_sync_job(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No active credentials found for bank {bank}",
+        )
+
+    # Reject if a scrape is already running — two concurrent Playwright
+    # browsers exceed the Render free-tier 512 MB RAM limit and crash
+    # the instance.
+    if _SCRAPE_SEMAPHORE.locked():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A sync is already in progress. Please wait and retry.",
         )
 
     # Create job and spawn background task.
