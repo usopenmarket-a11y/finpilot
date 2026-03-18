@@ -627,6 +627,240 @@ async def recon(username: str | None, password: str | None) -> None:
             if not dep_found:
                 print("[recon] ⚠ Deposits/Certificates widget not found — check dashboard_widgets.txt for clues")
 
+            # ── Step 13: Navigate into CC statement page ─────────────────────
+            # After clicking the CCA widget (step 11), the CC flip-card shows.
+            # We need to: click a.menu-icon on the CC account row → capture menu
+            # items → click "Card Statement" or similar → capture statement page.
+            if cc_found:
+                print("[recon] Navigating into CC statement page...")
+                try:
+                    # Ensure we're on the CC widget page
+                    cc_li = await page.query_selector("div.flip-account.CCA li.flip-account-list__items")
+                    if not cc_li:
+                        # Try clicking CCA widget again from current state
+                        await page.evaluate("document.querySelector('li.CCA a') && document.querySelector('li.CCA a').click()")
+                        await asyncio.sleep(4)
+
+                    # Look for menu icon on the CC account row
+                    cc_menu_selectors = [
+                        "div.flip-account.CCA a.menu-icon",
+                        "div.flip-account.CCA [class*='menu']",
+                        "li.flip-account-list__items a.menu-icon",
+                        "li.flip-account-list__items [class*='menu']",
+                        "a.menu-icon",
+                    ]
+                    cc_menu = None
+                    for sel in cc_menu_selectors:
+                        el = await page.query_selector(sel)
+                        if el and await el.is_visible():
+                            cc_menu = el
+                            print(f"[recon] ✓ Found CC menu icon: {sel}")
+                            break
+
+                    if cc_menu:
+                        await cc_menu.click()
+                        await asyncio.sleep(2)
+                        await page.screenshot(path=str(_OUT / "cc_menu_open.png"), full_page=False)
+                        # Dump all visible menu items
+                        menu_items = await page.evaluate("""() => {
+                            return Array.from(document.querySelectorAll(
+                                'a, li, [role="menuitem"], [class*="menu-item"], [class*="quick-link"]'
+                            )).filter(el => el.offsetParent !== null).map(el => ({
+                                tag: el.tagName, id: el.id||'',
+                                className: el.className.substring(0,80),
+                                text: el.innerText.trim().substring(0,80),
+                                href: el.href||'',
+                            })).filter(e => e.text.length > 1 && e.text.length < 80);
+                        }""")
+                        (_OUT / "cc_menu_items.txt").write_text(
+                            "\n".join(f"[{i}] tag={e['tag']} text={e['text']!r} class={e['className']!r} href={e['href']!r}"
+                                      for i, e in enumerate(menu_items)),
+                            encoding="utf-8"
+                        )
+                        print(f"[recon] ✓ {len(menu_items)} menu items → cc_menu_items.txt")
+                        print(f"[recon] Current URL: {page.url}")
+
+                        # Try to click "Card Statement" or "Account Activity"
+                        stmt_selectors = [
+                            "span:has-text('Card Statement')",
+                            "span:has-text('Statement')",
+                            "a:has-text('Card Statement')",
+                            "a:has-text('Statement')",
+                            "li:has-text('Card Statement')",
+                            "a:has-text('Account Activity')",
+                            "span:has-text('Account Activity')",
+                            "a:has-text('Transactions')",
+                        ]
+                        stmt_clicked = False
+                        for sel in stmt_selectors:
+                            try:
+                                el = await page.query_selector(sel)
+                                if el and await el.is_visible():
+                                    print(f"[recon] ✓ Clicking CC statement option: {sel}")
+                                    await el.click()
+                                    await asyncio.sleep(8)
+                                    stmt_clicked = True
+                                    break
+                            except Exception:
+                                continue
+
+                        if stmt_clicked:
+                            await page.screenshot(path=str(_OUT / "cc_statement.png"), full_page=False)
+                            cc_stmt_html = await page.content()
+                            (_OUT / "cc_statement.html").write_text(cc_stmt_html, encoding="utf-8")
+                            print(f"[recon] ✓ Saved cc_statement.html ({len(cc_stmt_html):,} bytes) + cc_statement.png")
+                            print(f"[recon] CC statement URL: {page.url}")
+
+                            # Capture all visible elements on statement page
+                            stmt_elements = await page.evaluate("""() => {
+                                return Array.from(document.querySelectorAll('li,tr,div[class*="row"],div[class*="item"]')).map(el => ({
+                                    tag: el.tagName, id: el.id||'',
+                                    className: el.className.substring(0,80),
+                                    text: el.innerText.trim().substring(0,150),
+                                    visible: el.offsetParent !== null,
+                                })).filter(e => e.text.length > 5 && e.visible).slice(0, 60);
+                            }""")
+                            (_OUT / "cc_statement_elements.txt").write_text(
+                                "\n\n".join(f"[{i}] {e}" for i, e in enumerate(stmt_elements)),
+                                encoding="utf-8"
+                            )
+                            print(f"[recon] ✓ {len(stmt_elements)} elements → cc_statement_elements.txt")
+
+                            # Wait for AJAX and capture final state
+                            await asyncio.sleep(5)
+                            cc_stmt_html2 = await page.content()
+                            (_OUT / "cc_statement_loaded.html").write_text(cc_stmt_html2, encoding="utf-8")
+                            await page.screenshot(path=str(_OUT / "cc_statement_loaded.png"), full_page=False)
+                            print(f"[recon] ✓ Saved cc_statement_loaded.html + cc_statement_loaded.png")
+
+                            # Capture page text
+                            cc_page_text = await page.inner_text("body")
+                            (_OUT / "cc_statement_text.txt").write_text(cc_page_text, encoding="utf-8")
+                            print(f"[recon] ✓ CC statement page text → cc_statement_text.txt")
+
+                            # Capture all oj-table cells
+                            cc_tables = await page.evaluate("""() => {
+                                return Array.from(document.querySelectorAll('oj-table, table, [class*="table"]')).map(el => ({
+                                    tag: el.tagName, id: el.id||'',
+                                    className: el.className.substring(0,80),
+                                    rows: el.querySelectorAll('tr,td,[role="row"],[role="cell"]').length,
+                                    text: el.innerText.trim().substring(0,300),
+                                })).filter(e => e.text.length > 0);
+                            }""")
+                            (_OUT / "cc_tables.txt").write_text(
+                                "\n\n".join(f"[{i}] tag={e['tag']} id={e['id']!r} class={e['className']!r} rows={e['rows']}\n  text={e['text']!r}"
+                                            for i, e in enumerate(cc_tables)),
+                                encoding="utf-8"
+                            )
+                            print(f"[recon] ✓ {len(cc_tables)} table elements → cc_tables.txt")
+                        else:
+                            print("[recon] ⚠ No CC statement menu item found — check cc_menu_items.txt")
+                    else:
+                        print("[recon] ⚠ CC menu icon not found on CC widget page")
+                        await page.screenshot(path=str(_OUT / "cc_no_menu.png"), full_page=False)
+                except Exception as e:
+                    print(f"[recon] ⚠ CC statement recon failed: {e}")
+                    await page.screenshot(path=str(_OUT / "cc_statement_error.png"), full_page=False)
+
+            # ── Step 14: Navigate to Certificates/Deposits section ───────────
+            print("[recon] Navigating to Certificates/Deposits section...")
+            try:
+                await page.goto("https://www.alahlynet.com.eg/?page=home", wait_until="networkidle", timeout=30_000)
+                await asyncio.sleep(5)
+
+                # Click the TRD widget (Certificates / Deposits)
+                trd_selectors = [
+                    "li.TRD a", "li[class*='TRD'] a",
+                    "a:has-text('Certificates')", "a:has-text('Certificate')",
+                    "a:has-text('Term Deposit')", "a:has-text('Deposits')",
+                ]
+                trd_found = False
+                for sel in trd_selectors:
+                    try:
+                        el = await page.query_selector(sel)
+                        if el and await el.is_visible():
+                            print(f"[recon] ✓ Clicking TRD widget: {sel}")
+                            await el.click()
+                            await asyncio.sleep(5)
+                            trd_html = await page.content()
+                            (_OUT / "certificates.html").write_text(trd_html, encoding="utf-8")
+                            await page.screenshot(path=str(_OUT / "certificates.png"), full_page=False)
+                            print(f"[recon] ✓ Saved certificates.html ({len(trd_html):,} bytes) + certificates.png")
+                            print(f"[recon] Certificates URL: {page.url}")
+
+                            # Dump all visible elements
+                            trd_elements = await page.evaluate("""() => {
+                                return Array.from(document.querySelectorAll('li,div,tr')).map(el => ({
+                                    tag: el.tagName, id: el.id||'',
+                                    className: el.className.substring(0,80),
+                                    text: el.innerText.trim().substring(0,150),
+                                    visible: el.offsetParent !== null,
+                                })).filter(e => e.text.length > 5 && e.visible).slice(0, 60);
+                            }""")
+                            (_OUT / "certificates_elements.txt").write_text(
+                                "\n\n".join(f"[{i}] {e}" for i, e in enumerate(trd_elements)),
+                                encoding="utf-8"
+                            )
+                            print(f"[recon] ✓ {len(trd_elements)} elements → certificates_elements.txt")
+
+                            # Get page text
+                            trd_text = await page.inner_text("body")
+                            (_OUT / "certificates_text.txt").write_text(trd_text, encoding="utf-8")
+                            print(f"[recon] ✓ Page text → certificates_text.txt")
+
+                            # Try to click first certificate row to see detail
+                            cert_rows = await page.query_selector_all("li.flip-account-list__items")
+                            if cert_rows:
+                                print(f"[recon] Found {len(cert_rows)} certificate rows — clicking first...")
+                                await cert_rows[0].click()
+                                await asyncio.sleep(5)
+                                cert_detail_html = await page.content()
+                                (_OUT / "cert_detail.html").write_text(cert_detail_html, encoding="utf-8")
+                                await page.screenshot(path=str(_OUT / "cert_detail.png"), full_page=False)
+                                print(f"[recon] ✓ Saved cert_detail.html + cert_detail.png")
+                                print(f"[recon] Certificate detail URL: {page.url}")
+
+                                # Capture cert detail elements
+                                cert_detail_els = await page.evaluate("""() => {
+                                    return Array.from(document.querySelectorAll('li,div[class*="detail"],div[class*="info"],span[class*="amount"],span[class*="date"]')).map(el => ({
+                                        tag: el.tagName, id: el.id||'',
+                                        className: el.className.substring(0,80),
+                                        text: el.innerText.trim().substring(0,150),
+                                        visible: el.offsetParent !== null,
+                                    })).filter(e => e.text.length > 3 && e.visible).slice(0, 50);
+                                }""")
+                                (_OUT / "cert_detail_elements.txt").write_text(
+                                    "\n\n".join(f"[{i}] {e}" for i, e in enumerate(cert_detail_els)),
+                                    encoding="utf-8"
+                                )
+                                print(f"[recon] ✓ {len(cert_detail_els)} cert detail elements → cert_detail_elements.txt")
+                            else:
+                                print("[recon] ⚠ No certificate rows found (li.flip-account-list__items)")
+
+                            trd_found = True
+                            break
+                    except Exception:
+                        continue
+
+                if not trd_found:
+                    print("[recon] ⚠ Certificates/TRD widget not found")
+                    # Try clicking the cardface TRD item directly
+                    try:
+                        trd_li = await page.query_selector("li.TRD")
+                        if trd_li:
+                            await trd_li.click()
+                            await asyncio.sleep(5)
+                            trd_html = await page.content()
+                            (_OUT / "certificates.html").write_text(trd_html, encoding="utf-8")
+                            await page.screenshot(path=str(_OUT / "certificates.png"), full_page=False)
+                            print(f"[recon] ✓ Clicked li.TRD directly → certificates.html + certificates.png")
+                    except Exception as e2:
+                        print(f"[recon] ⚠ TRD click also failed: {e2}")
+
+            except Exception as e:
+                print(f"[recon] ⚠ Certificates/Deposits recon failed: {e}")
+                await page.screenshot(path=str(_OUT / "cert_error.png"), full_page=False)
+
         print(f"\n[recon] Done. All files saved to: {_OUT}")
         print("[recon] Press Ctrl+C or close the browser window to exit.")
 
