@@ -470,6 +470,163 @@ async def recon(username: str | None, password: str | None) -> None:
             )
             print(f"[recon] ✓ Found {len(list_items)} visible list items → txn_list_items.txt")
 
+            # ── Step 10: Navigate back to dashboard and find credit cards ──────
+            # NBE OBDX has a Credit Cards widget (class "CC" or similar) and
+            # a Deposits / Certificates widget.  Navigate to each and capture HTML.
+            print("[recon] Navigating back to dashboard to find credit card widget...")
+            try:
+                await page.goto("https://www.alahlynet.com.eg/?page=home", wait_until="networkidle", timeout=30_000)
+                await asyncio.sleep(5)
+                dashboard_html = await page.content()
+                (_OUT / "dashboard.html").write_text(dashboard_html, encoding="utf-8")
+                await page.screenshot(path=str(_OUT / "dashboard.png"), full_page=False)
+                print(f"[recon] ✓ Saved dashboard.html ({len(dashboard_html):,} bytes) + dashboard.png")
+
+                # Dump all widget/tile class elements to find CC and deposit widgets
+                widgets = await page.evaluate("""() => {
+                    const selectors = [
+                        '[class*="widget"]', '[class*="tile"]', '[class*="card"]',
+                        '[class*="CC"]', '[class*="credit"]', '[class*="deposit"]',
+                        '[class*="certificate"]', '[class*="saving"]',
+                        'li.CSA', 'li.CC', 'li.TD', 'li.RD',
+                    ];
+                    const seen = new Set();
+                    const results = [];
+                    for (const sel of selectors) {
+                        for (const el of document.querySelectorAll(sel)) {
+                            const key = el.tagName + el.className;
+                            if (!seen.has(key)) {
+                                seen.add(key);
+                                results.push({
+                                    tag: el.tagName, id: el.id||'',
+                                    className: el.className.substring(0,100),
+                                    text: el.innerText.trim().substring(0,150),
+                                    visible: el.offsetParent !== null,
+                                });
+                            }
+                        }
+                    }
+                    return results.filter(e => e.text.length > 0);
+                }""")
+                (_OUT / "dashboard_widgets.txt").write_text(
+                    "\n\n".join(f"[{i}] tag={e['tag']} id={e['id']!r} class={e['className']!r}\n    text={e['text']!r}  visible={e['visible']}"
+                                for i, e in enumerate(widgets)),
+                    encoding="utf-8"
+                )
+                print(f"[recon] ✓ Found {len(widgets)} widget elements → dashboard_widgets.txt")
+
+                # Dump ALL li elements on dashboard for widget discovery
+                all_li = await page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('li')).map(el => ({
+                        id: el.id||'',
+                        className: el.className.substring(0,80),
+                        text: el.innerText.trim().substring(0,100),
+                        hasLink: el.querySelector('a') !== null,
+                    })).filter(e => e.text.length > 0).slice(0, 100);
+                }""")
+                (_OUT / "dashboard_li_elements.txt").write_text(
+                    "\n".join(f"[{i}] class={e['className']!r} id={e['id']!r} hasLink={e['hasLink']} text={e['text']!r}"
+                              for i, e in enumerate(all_li)),
+                    encoding="utf-8"
+                )
+                print(f"[recon] ✓ {len(all_li)} li elements → dashboard_li_elements.txt")
+
+            except Exception as e:
+                print(f"[recon] ⚠ Dashboard recon failed: {e}")
+
+            # ── Step 11: Try to navigate to Credit Cards section ─────────────
+            # Common OBDX credit card widget classes: CC, credit-card, CCA
+            print("[recon] Attempting to click Credit Cards widget...")
+            cc_selectors = [
+                "li.CC a", "li.CCA a", "li[class*='credit'] a",
+                "li[class*='CC'] a", "a:has-text('Credit Card')",
+                "a:has-text('Credit Cards')", "a:has-text('بطاقة ائتمانية')",
+            ]
+            cc_found = False
+            for sel in cc_selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        print(f"[recon] ✓ Clicking credit card widget: {sel}")
+                        await el.click()
+                        await asyncio.sleep(5)
+                        cc_html = await page.content()
+                        (_OUT / "credit_cards.html").write_text(cc_html, encoding="utf-8")
+                        await page.screenshot(path=str(_OUT / "credit_cards.png"), full_page=False)
+                        print(f"[recon] ✓ Saved credit_cards.html ({len(cc_html):,} bytes) + credit_cards.png")
+                        print(f"[recon] Credit Cards URL: {page.url}")
+
+                        # Dump all card account elements
+                        cc_elements = await page.evaluate("""() => {
+                            return Array.from(document.querySelectorAll('li,div,tr')).map(el => ({
+                                tag: el.tagName, id: el.id||'',
+                                className: el.className.substring(0,80),
+                                text: el.innerText.trim().substring(0,150),
+                                visible: el.offsetParent !== null,
+                            })).filter(e => e.text.length > 5 && e.visible).slice(0, 60);
+                        }""")
+                        (_OUT / "credit_card_elements.txt").write_text(
+                            "\n\n".join(f"[{i}] {e}" for i, e in enumerate(cc_elements)),
+                            encoding="utf-8"
+                        )
+                        print(f"[recon] ✓ {len(cc_elements)} elements → credit_card_elements.txt")
+                        cc_found = True
+                        break
+                except Exception:
+                    continue
+            if not cc_found:
+                print("[recon] ⚠ Credit Cards widget not found — check dashboard_widgets.txt for clues")
+
+            # ── Step 12: Try to navigate to Deposits / Certificates ──────────
+            # Common OBDX term deposit / certificate widget classes: TD, RD, deposit
+            print("[recon] Navigating back to dashboard for deposits/certificates...")
+            try:
+                await page.go_back()
+                await asyncio.sleep(3)
+            except Exception:
+                pass
+
+            deposit_selectors = [
+                "li.TD a", "li.RD a", "li.FD a",
+                "li[class*='deposit'] a", "li[class*='certificate'] a",
+                "a:has-text('Term Deposit')", "a:has-text('Certificate')",
+                "a:has-text('Deposits')", "a:has-text('وديعة')",
+                "a:has-text('شهادة')",
+            ]
+            dep_found = False
+            for sel in deposit_selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        print(f"[recon] ✓ Clicking deposits/certificates widget: {sel}")
+                        await el.click()
+                        await asyncio.sleep(5)
+                        dep_html = await page.content()
+                        (_OUT / "deposits.html").write_text(dep_html, encoding="utf-8")
+                        await page.screenshot(path=str(_OUT / "deposits.png"), full_page=False)
+                        print(f"[recon] ✓ Saved deposits.html ({len(dep_html):,} bytes) + deposits.png")
+                        print(f"[recon] Deposits URL: {page.url}")
+
+                        dep_elements = await page.evaluate("""() => {
+                            return Array.from(document.querySelectorAll('li,div,tr')).map(el => ({
+                                tag: el.tagName, id: el.id||'',
+                                className: el.className.substring(0,80),
+                                text: el.innerText.trim().substring(0,150),
+                                visible: el.offsetParent !== null,
+                            })).filter(e => e.text.length > 5 && e.visible).slice(0, 60);
+                        }""")
+                        (_OUT / "deposit_elements.txt").write_text(
+                            "\n\n".join(f"[{i}] {e}" for i, e in enumerate(dep_elements)),
+                            encoding="utf-8"
+                        )
+                        print(f"[recon] ✓ {len(dep_elements)} elements → deposit_elements.txt")
+                        dep_found = True
+                        break
+                except Exception:
+                    continue
+            if not dep_found:
+                print("[recon] ⚠ Deposits/Certificates widget not found — check dashboard_widgets.txt for clues")
+
         print(f"\n[recon] Done. All files saved to: {_OUT}")
         print("[recon] Press Ctrl+C or close the browser window to exit.")
 
