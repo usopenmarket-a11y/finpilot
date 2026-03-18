@@ -30,7 +30,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = ["recon_nbe.py"]
+exclude = ["recon_nbe.py", "recon_*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

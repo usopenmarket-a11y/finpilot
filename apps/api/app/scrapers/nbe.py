@@ -345,7 +345,21 @@ def _normalise_account_type(raw: str) -> str:
         return "loan"
     if "payroll" in raw or "راتب" in raw or "مرتب" in raw:
         return "payroll"
-    if any(k in raw for k in ("certificate", "شهادة", "cert", "deposit", "وديعة", "term", "platinum", "بلاتينية", "ذهبية", "gold")):
+    if any(
+        k in raw
+        for k in (
+            "certificate",
+            "شهادة",
+            "cert",
+            "deposit",
+            "وديعة",
+            "term",
+            "platinum",
+            "بلاتينية",
+            "ذهبية",
+            "gold",
+        )
+    ):
         return "certificate"
     return "current"  # default — covers "Current & Savings", "جارى"
 
@@ -887,9 +901,7 @@ class NBEScraper(BankScraper):
             "NBE: waiting for URL to contain %r (confirms navigation)", _TXN_PAGE_URL_FRAGMENT
         )
         try:
-            await page.wait_for_url(
-                f"**{_TXN_PAGE_URL_FRAGMENT}**", timeout=_WAIT_TIMEOUT_MS
-            )
+            await page.wait_for_url(f"**{_TXN_PAGE_URL_FRAGMENT}**", timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "txn_page_url_missing")
             raise ScraperParseError(
@@ -1373,7 +1385,9 @@ class NBEScraper(BankScraper):
                 timeout=_PAGE_LOAD_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError:
-            logger.warning("NBE: dashboard navigation timed out before credit card scrape — skipping")
+            logger.warning(
+                "NBE: dashboard navigation timed out before credit card scrape — skipping"
+            )
             return []
 
         # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
@@ -1442,7 +1456,11 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no credit card rows found in CCA flip-card HTML")
             return []
 
-        logger.info("NBE: found %d credit card row(s) | cc_api_data keys=%s", len(rows), list(cc_api_data.keys()))
+        logger.info(
+            "NBE: found %d credit card row(s) | cc_api_data keys=%s",
+            len(rows),
+            list(cc_api_data.keys()),
+        )
         accounts: list[BankAccount] = []
         now = datetime.now(UTC)
 
@@ -1451,7 +1469,9 @@ class NBEScraper(BankScraper):
             acc_no_el = row.find("div", class_="account-no") or row.select_one(".account-no")
             raw_card_info = acc_no_el.get_text(strip=True) if acc_no_el else ""
             # Strip the expiry date portion: "544111******1204 | 07/28" → "544111******1204"
-            raw_card_number = raw_card_info.split("|")[0].strip() if "|" in raw_card_info else raw_card_info
+            raw_card_number = (
+                raw_card_info.split("|")[0].strip() if "|" in raw_card_info else raw_card_info
+            )
 
             # Try to get authoritative balance from the creditcarddetails API intercept.
             # The API uses maskedcardno format like "544111******1204" which matches raw_card_number.
@@ -1472,7 +1492,10 @@ class NBEScraper(BankScraper):
                     balance = Decimal("0.00")
                 logger.debug(
                     "NBE: CC row %d using API balance: billed=%s unbilled=%s total=%s",
-                    row_idx, billed, unbilled, balance,
+                    row_idx,
+                    billed,
+                    unbilled,
+                    balance,
                 )
             else:
                 # Fallback: parse from DOM (this gives available cash limit, not debt — less accurate)
@@ -1485,7 +1508,9 @@ class NBEScraper(BankScraper):
                 balance = _parse_amount(balance_str) or Decimal("0.00")
                 logger.debug(
                     "NBE: CC row %d using DOM balance (API not captured): %s %s",
-                    row_idx, currency, balance,
+                    row_idx,
+                    currency,
+                    balance,
                 )
 
             masked = self._mask_account_number(raw_card_number)
@@ -1539,7 +1564,9 @@ class NBEScraper(BankScraper):
         if not cc_accounts:
             return []
 
-        logger.info("NBE: scraping CC statement transactions for last %d months", _CC_STATEMENT_MONTHS)
+        logger.info(
+            "NBE: scraping CC statement transactions for last %d months", _CC_STATEMENT_MONTHS
+        )
 
         # Months to try: last 6 completed + current, newest first
         now = datetime.now(UTC)
@@ -1557,7 +1584,9 @@ class NBEScraper(BankScraper):
 
         # Navigate to dashboard first
         try:
-            await page.goto(_LOGIN_URL, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT_MS)
+            await page.goto(
+                _LOGIN_URL, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT_MS
+            )
         except PlaywrightTimeoutError:
             logger.warning("NBE: timed out navigating to dashboard for CC statement scrape")
             return []
@@ -1590,7 +1619,9 @@ class NBEScraper(BankScraper):
             return ccRow ? ccRow.getAttribute('id') : null;
         }""")
         if not account_ref:
-            logger.warning("NBE: could not determine CC account reference number — skipping CC transactions")
+            logger.warning(
+                "NBE: could not determine CC account reference number — skipping CC transactions"
+            )
             return []
         logger.info("NBE: CC account reference number = %r", account_ref)
 
@@ -1638,7 +1669,9 @@ class NBEScraper(BankScraper):
                 try:
                     body = await resp.text()  # type: ignore[union-attr]
                     captured_responses[url] = body
-                    logger.debug("NBE: captured listStatements response: %s (%d bytes)", url, len(body))
+                    logger.debug(
+                        "NBE: captured listStatements response: %s (%d bytes)", url, len(body)
+                    )
                 except Exception as e:
                     logger.debug("NBE: could not read listStatements response body: %s", e)
 
@@ -1653,9 +1686,11 @@ class NBEScraper(BankScraper):
                     # Select year
                     await page.click("#oj-select-choice-selectYear")
                     await self._random_delay(0.5, 1.0)
-                    year_opt = page.locator("#oj-listbox-results-selectYear li").filter(
-                        has_text=year_str
-                    ).first
+                    year_opt = (
+                        page.locator("#oj-listbox-results-selectYear li")
+                        .filter(has_text=year_str)
+                        .first
+                    )
                     if not await year_opt.count():
                         logger.debug("NBE: CC statement year %s not available — skipping", year_str)
                         await page.keyboard.press("Escape")
@@ -1665,16 +1700,32 @@ class NBEScraper(BankScraper):
                     await self._random_delay(0.5, 1.0)
 
                     # Select month (1=Jan, 2=Feb, etc.)
-                    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    month_names = [
+                        "Jan",
+                        "Feb",
+                        "Mar",
+                        "Apr",
+                        "May",
+                        "Jun",
+                        "Jul",
+                        "Aug",
+                        "Sep",
+                        "Oct",
+                        "Nov",
+                        "Dec",
+                    ]
                     month_name = month_names[month - 1]
                     await page.click("#oj-select-choice-selectMonth")
                     await self._random_delay(0.5, 1.0)
-                    month_opt = page.locator("#oj-listbox-results-selectMonth li").filter(
-                        has_text=month_name
-                    ).first
+                    month_opt = (
+                        page.locator("#oj-listbox-results-selectMonth li")
+                        .filter(has_text=month_name)
+                        .first
+                    )
                     if not await month_opt.count():
-                        logger.debug("NBE: CC statement month %s not available — skipping", month_name)
+                        logger.debug(
+                            "NBE: CC statement month %s not available — skipping", month_name
+                        )
                         await page.keyboard.press("Escape")
                         await self._random_delay(0.3, 0.6)
                         continue
@@ -1687,7 +1738,9 @@ class NBEScraper(BankScraper):
                     await self._random_delay(5.0, 7.0)
 
                 except PlaywrightTimeoutError as e:
-                    logger.debug("NBE: timeout selecting CC statement %04d/%02d: %s", year, month, e)
+                    logger.debug(
+                        "NBE: timeout selecting CC statement %04d/%02d: %s", year, month, e
+                    )
                     continue
                 except Exception as e:
                     logger.debug("NBE: error selecting CC statement %04d/%02d: %s", year, month, e)
@@ -1707,17 +1760,26 @@ class NBEScraper(BankScraper):
                 try:
                     data = json.loads(body)
                 except json.JSONDecodeError:
-                    logger.debug("NBE: could not parse CC statement response as JSON: %r", body[:200])
+                    logger.debug(
+                        "NBE: could not parse CC statement response as JSON: %r", body[:200]
+                    )
                     continue
 
                 status = data.get("status", {}).get("result", "")
                 if status != "SUCCESSFUL":
-                    logger.debug("NBE: CC statement %04d/%02d status=%r — skipping", url_year, url_month, status)
+                    logger.debug(
+                        "NBE: CC statement %04d/%02d status=%r — skipping",
+                        url_year,
+                        url_month,
+                        status,
+                    )
                     continue
 
                 items = data.get("items", [])
                 if not items:
-                    logger.debug("NBE: CC statement %04d/%02d — no items in response", url_year, url_month)
+                    logger.debug(
+                        "NBE: CC statement %04d/%02d — no items in response", url_year, url_month
+                    )
                     continue
 
                 for item in items:
@@ -1729,7 +1791,10 @@ class NBEScraper(BankScraper):
 
                 logger.info(
                     "NBE: CC statement %04d/%02d — parsed %d transaction(s) so far (total=%d)",
-                    url_year, url_month, len(all_txns), len(all_txns),
+                    url_year,
+                    url_month,
+                    len(all_txns),
+                    len(all_txns),
                 )
 
         finally:
@@ -1855,7 +1920,9 @@ class NBEScraper(BankScraper):
                 timeout=_PAGE_LOAD_TIMEOUT_MS,
             )
         except PlaywrightTimeoutError:
-            logger.warning("NBE: dashboard navigation timed out before certificate scrape — skipping")
+            logger.warning(
+                "NBE: dashboard navigation timed out before certificate scrape — skipping"
+            )
             return []
 
         # Wait for the Oracle JET SPA to hydrate the dashboard widgets.
@@ -1865,7 +1932,9 @@ class NBEScraper(BankScraper):
         try:
             await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=_TRD_WIDGET_WAIT_MS)
         except PlaywrightTimeoutError:
-            logger.info("NBE: no TRD (certificates) widget found — user has no certificates/deposits")
+            logger.info(
+                "NBE: no TRD (certificates) widget found — user has no certificates/deposits"
+            )
             return []
 
         # Click the widget to flip the card and reveal the list
