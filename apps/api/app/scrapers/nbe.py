@@ -547,14 +547,47 @@ class NBEScraper(BankScraper):
             # Capture dashboard HTML for audit trail (post-auth — safe to screenshot)
             raw_html["dashboard"] = await page.content()
 
-            # Reveal the accounts card to enumerate all accounts.
+            # ------------------------------------------------------------------
+            # Scrape credit cards + certificates FIRST while the browser is fresh.
+            # After scraping 4 demand-deposit accounts the Oracle JET SPA is
+            # resource-constrained and li.CCA / li.TRD take >120s to hydrate.
+            # ------------------------------------------------------------------
+            cc_accounts: list[BankAccount] = []
+            try:
+                cc_accounts = await self._scrape_credit_cards(page)
+                if cc_accounts:
+                    logger.info("NBE: found %d credit card account(s)", len(cc_accounts))
+                    raw_html["credit_cards"] = await page.content()
+            except Exception as cc_exc:
+                logger.warning("NBE: credit card scraping failed (non-fatal): %s", cc_exc)
+
+            try:
+                cc_txns = await self._scrape_cc_transactions(page, cc_accounts)
+                if cc_txns:
+                    logger.info("NBE: scraped %d CC statement transaction(s)", len(cc_txns))
+            except Exception as cc_txn_exc:
+                logger.warning("NBE: CC transaction scraping failed (non-fatal): %s", cc_txn_exc)
+                cc_txns = []
+
+            try:
+                cert_accounts = await self._scrape_certificates(page)
+                if cert_accounts:
+                    logger.info("NBE: found %d certificate/deposit account(s)", len(cert_accounts))
+                    raw_html["certificates"] = await page.content()
+            except Exception as cert_exc:
+                logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
+                cert_accounts = []
+
+            # ------------------------------------------------------------------
+            # Reveal the accounts card to enumerate demand-deposit accounts.
+            # ------------------------------------------------------------------
             await self._reveal_accounts_widget(page)
 
             accounts = await self._extract_all_accounts(page)
             total = len(accounts)
             logger.info("NBE: found %d account(s) in widget", total)
 
-            all_transactions: list = []
+            all_transactions: list = list(cc_txns)
 
             for idx, account in enumerate(accounts):
                 logger.info(
@@ -646,39 +679,8 @@ class NBEScraper(BankScraper):
                         )
                     continue
 
-            # ------------------------------------------------------------------
-            # Scrape credit cards (balance + last 6 months of statements)
-            # ------------------------------------------------------------------
-            cc_accounts: list[BankAccount] = []
-            try:
-                cc_accounts = await self._scrape_credit_cards(page)
-                if cc_accounts:
-                    logger.info("NBE: found %d credit card account(s)", len(cc_accounts))
-                    accounts = accounts + cc_accounts
-                    raw_html["credit_cards"] = await page.content()
-            except Exception as cc_exc:
-                logger.warning("NBE: credit card scraping failed (non-fatal): %s", cc_exc)
-
-            try:
-                cc_txns = await self._scrape_cc_transactions(page, cc_accounts)
-                if cc_txns:
-                    logger.info("NBE: scraped %d CC statement transaction(s)", len(cc_txns))
-                    all_transactions.extend(cc_txns)
-            except Exception as cc_txn_exc:
-                logger.warning("NBE: CC transaction scraping failed (non-fatal): %s", cc_txn_exc)
-
-            # ------------------------------------------------------------------
-            # Scrape certificates / deposits (no transactions — balance only)
-            # ------------------------------------------------------------------
-            try:
-                cert_accounts = await self._scrape_certificates(page)
-                if cert_accounts:
-                    logger.info("NBE: found %d certificate/deposit account(s)", len(cert_accounts))
-                    accounts = accounts + cert_accounts
-                    raw_html["certificates"] = await page.content()
-            except Exception as cert_exc:
-                # Non-fatal — log and continue with demand deposit data
-                logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
+            # Combine all account types: demand-deposit + credit cards + certificates
+            accounts = accounts + cc_accounts + cert_accounts
 
             logger.info(
                 "NBE: scrape complete — %d account(s), %d transaction(s) total",
