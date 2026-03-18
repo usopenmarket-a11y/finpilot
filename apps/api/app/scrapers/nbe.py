@@ -1608,9 +1608,17 @@ class NBEScraper(BankScraper):
             return []
         await self._random_delay(1.5, 2.5)
 
-        # Wait for CCA widget to hydrate (Oracle JET SPA injects widgets after domcontentloaded)
+        # Confirm session is still active before waiting for widgets.
         try:
-            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=60_000)
+            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: session lost before CC transaction scrape — skipping")
+            return []
+
+        # Wait for CCA widget to hydrate (Oracle JET SPA injects widgets after domcontentloaded).
+        # After a heavy multi-account scrape the browser is resource-constrained — use 120s.
+        try:
+            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=120_000)
         except PlaywrightTimeoutError:
             logger.info("NBE: no CCA widget — skipping CC transaction scrape")
             return []
