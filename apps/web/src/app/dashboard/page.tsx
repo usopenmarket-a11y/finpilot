@@ -3,11 +3,13 @@ import { AccountCard } from '@/components/dashboard/account-card';
 import { SpendingChart } from '@/components/dashboard/spending-chart';
 import { RecentTransactions } from '@/components/dashboard/recent-transactions';
 import { HealthScore } from '@/components/dashboard/health-score';
+import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import type { Transaction } from '@/lib/types';
 import type { Database } from '@finpilot/shared';
 
 // ---------------------------------------------------------------------------
-// Types scoped to this server component
+// Types
 // ---------------------------------------------------------------------------
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
@@ -17,6 +19,12 @@ interface SpendingCategory {
   name: string;
   amount: number;
   color: string;
+}
+
+interface AccountGroup {
+  label: string;
+  accounts: BankAccountRow[];
+  totalBalance: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,9 +50,13 @@ function currentMonthLabel(): string {
   return new Intl.DateTimeFormat('en-EG', { month: 'long', year: 'numeric' }).format(new Date());
 }
 
-/**
- * Derive spending categories from debit transactions in the current calendar month.
- */
+function formatEGP(amount: number): string {
+  return new Intl.NumberFormat('en-EG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 function buildSpendingCategories(transactions: TransactionRow[]): SpendingCategory[] {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -63,9 +75,6 @@ function buildSpendingCategories(transactions: TransactionRow[]): SpendingCatego
     .map(([name, amount]) => ({ name, amount, color: categoryColor(name) }));
 }
 
-/**
- * Map a DB transaction row to the Transaction type expected by RecentTransactions.
- */
 function toTransaction(row: TransactionRow): Transaction {
   return {
     id: row.id,
@@ -78,27 +87,42 @@ function toTransaction(row: TransactionRow): Transaction {
   };
 }
 
-/**
- * Compute a simple financial health score (0–100) based on available data.
- * Score is intentionally conservative when data is sparse.
- *
- * Formula: base 50 + up to 30 pts for positive savings rate + up to 20 pts for tx volume.
- */
-function computeHealthScore(
-  totalIncome: number,
-  totalExpenses: number,
-  txCount: number,
-): number {
-  if (txCount === 0) return 50; // not enough data
-
+function computeHealthScore(totalIncome: number, totalExpenses: number, txCount: number): number {
+  if (txCount === 0) return 50;
   const savingsRate = totalIncome > 0 ? (totalIncome - totalExpenses) / totalIncome : 0;
   const savingsPts = Math.round(Math.max(0, Math.min(1, savingsRate)) * 30);
   const volumePts = Math.min(20, Math.round((txCount / 20) * 20));
   return Math.min(100, 50 + savingsPts + volumePts);
 }
 
+function accountTypeBadgeVariant(
+  type: string,
+): 'default' | 'success' | 'info' | 'warning' | 'danger' {
+  switch (type) {
+    case 'savings': return 'success';
+    case 'current': return 'default';
+    case 'payroll': return 'info';
+    case 'credit_card': return 'warning';
+    case 'certificate':
+    case 'deposit': return 'danger';
+    default: return 'default';
+  }
+}
+
+function accountTypeLabel(type: string): string {
+  switch (type) {
+    case 'savings': return 'Savings';
+    case 'current': return 'Current';
+    case 'payroll': return 'Payroll';
+    case 'credit_card': return 'Credit Card';
+    case 'certificate': return 'Certificate';
+    case 'deposit': return 'Deposit';
+    default: return type;
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Icons (server-safe static SVG components)
+// Icons
 // ---------------------------------------------------------------------------
 
 function TotalBalanceIcon() {
@@ -133,6 +157,61 @@ function SavingsIcon() {
   );
 }
 
+function NetWorthIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AccountGroupSection — renders one category of accounts
+// ---------------------------------------------------------------------------
+
+function AccountGroupSection({ group }: { group: AccountGroup }) {
+  if (group.accounts.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{group.label}</h3>
+        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <span>{group.accounts.length} account{group.accounts.length !== 1 ? 's' : ''}</span>
+          <span className="font-semibold text-gray-900 dark:text-white">
+            EGP {formatEGP(group.totalBalance)}
+          </span>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {group.accounts.map((account) => (
+          <div
+            key={account.id}
+            className="flex items-center justify-between px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {account.bank_name}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {account.account_number_masked}
+                </span>
+              </div>
+              <Badge variant={accountTypeBadgeVariant(account.account_type)}>
+                {accountTypeLabel(account.account_type)}
+              </Badge>
+            </div>
+            <span className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
+              {account.currency} {formatEGP(parseFloat(String(account.balance)))}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page (Server Component — data fetched at request time with RLS)
 // ---------------------------------------------------------------------------
@@ -140,11 +219,9 @@ function SavingsIcon() {
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  // Auth is already guaranteed by the parent layout — just need the user id.
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
-  // Fetch bank accounts and recent transactions in parallel.
   const [accountsResult, transactionsResult] = await Promise.all([
     supabase
       .from('bank_accounts')
@@ -156,19 +233,58 @@ export default async function DashboardPage() {
       .select('*')
       .eq('user_id', userId)
       .order('transaction_date', { ascending: false })
-      .limit(50), // fetch 50 for KPI computation; show last 10 in table
+      .limit(200),
   ]);
 
   const accounts: BankAccountRow[] = accountsResult.data ?? [];
   const allTransactions: TransactionRow[] = transactionsResult.data ?? [];
 
   // ---------------------------------------------------------------------------
+  // Account groups
+  // ---------------------------------------------------------------------------
+
+  const standardAccounts = accounts.filter(
+    (a) => a.account_type === 'savings' || a.account_type === 'current' || a.account_type === 'payroll',
+  );
+  const creditCards = accounts.filter((a) => a.account_type === 'credit_card');
+  const certificates = accounts.filter(
+    (a) => a.account_type === 'certificate' || a.account_type === 'deposit',
+  );
+
+  const accountGroups: AccountGroup[] = [
+    {
+      label: 'Savings, Current & Payroll',
+      accounts: standardAccounts,
+      totalBalance: standardAccounts.reduce((s, a) => s + parseFloat(String(a.balance)), 0),
+    },
+    {
+      label: 'Credit Cards',
+      accounts: creditCards,
+      totalBalance: creditCards.reduce((s, a) => s + parseFloat(String(a.balance)), 0),
+    },
+    {
+      label: 'Certificates & Deposits',
+      accounts: certificates,
+      totalBalance: certificates.reduce((s, a) => s + parseFloat(String(a.balance)), 0),
+    },
+  ].filter((g) => g.accounts.length > 0);
+
+  // ---------------------------------------------------------------------------
   // KPI computation
   // ---------------------------------------------------------------------------
-  const totalBalance = accounts.reduce((sum, a) => sum + a.balance, 0);
+
+  const totalBalance = accounts.reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
+
+  // Net worth = all account balances (including certificates/deposits)
+  const netWorth = totalBalance;
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  // Monthly income counts ONLY credits from payroll accounts
+  const payrollAccountIds = new Set(
+    accounts.filter((a) => a.account_type === 'payroll').map((a) => a.id),
+  );
 
   let monthlyIncome = 0;
   let monthlyExpenses = 0;
@@ -176,8 +292,10 @@ export default async function DashboardPage() {
   for (const tx of allTransactions) {
     if (tx.transaction_date < monthStart) continue;
     if (tx.transaction_type === 'credit') {
-      monthlyIncome += tx.amount;
-    } else {
+      if (payrollAccountIds.has(tx.account_id)) {
+        monthlyIncome += tx.amount;
+      }
+    } else if (tx.transaction_type === 'debit') {
       monthlyExpenses += tx.amount;
     }
   }
@@ -202,7 +320,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <AccountCard
           label="Total Balance"
           amount={totalBalance}
@@ -220,7 +338,7 @@ export default async function DashboardPage() {
           icon={<SpendIcon />}
         />
         <AccountCard
-          label="Monthly Income"
+          label="Payroll Income"
           amount={monthlyIncome}
           currency="EGP"
           trend="neutral"
@@ -235,7 +353,29 @@ export default async function DashboardPage() {
           changePercent={0}
           icon={<SavingsIcon />}
         />
+        <AccountCard
+          label="Net Worth"
+          amount={netWorth}
+          currency="EGP"
+          trend="neutral"
+          changePercent={0}
+          icon={<NetWorthIcon />}
+        />
       </div>
+
+      {/* Accounts grouped by type */}
+      {accounts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Accounts</h2>
+          </CardHeader>
+          <CardBody className="space-y-6">
+            {accountGroups.map((group) => (
+              <AccountGroupSection key={group.label} group={group} />
+            ))}
+          </CardBody>
+        </Card>
+      )}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

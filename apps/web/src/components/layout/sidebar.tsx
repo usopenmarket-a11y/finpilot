@@ -52,9 +52,27 @@ function SettingsIcon() {
   );
 }
 
+function CreditCardIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+    </svg>
+  );
+}
+
+function CertificateIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { href: '/dashboard/transactions', label: 'Transactions', icon: <TransactionsIcon /> },
+  { href: '/dashboard/credit-cards', label: 'Credit Cards', icon: <CreditCardIcon /> },
+  { href: '/dashboard/certificates', label: 'Certificates & Deposits', icon: <CertificateIcon /> },
   { href: '/dashboard/debts', label: 'Debts', icon: <DebtsIcon /> },
   { href: '/dashboard/recommendations', label: 'Recommendations', icon: <RecommendationsIcon /> },
   { href: '/dashboard/settings', label: 'Settings', icon: <SettingsIcon /> },

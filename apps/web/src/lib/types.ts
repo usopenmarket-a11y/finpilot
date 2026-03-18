@@ -29,6 +29,7 @@ export interface Transaction {
   transaction_date: string;
   category: string | null;
   currency: string;
+  account_id?: string;
 }
 
 export interface ActionItem {

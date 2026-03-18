@@ -7,9 +7,11 @@ import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import type { Transaction } from '@/lib/types';
+import type { AccountOption } from '@/app/dashboard/transactions/page';
 
 interface TransactionTableProps {
   transactions: Transaction[];
+  accountOptions?: AccountOption[];
 }
 
 const CATEGORY_OPTIONS = [
@@ -51,15 +53,21 @@ function formatDate(dateStr: string): string {
 type SortField = 'transaction_date' | 'amount' | 'category';
 type SortDir = 'asc' | 'desc';
 
-export function TransactionTable({ transactions }: TransactionTableProps) {
+export function TransactionTable({ transactions, accountOptions = [] }: TransactionTableProps) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [type, setType] = useState('all');
+  const [accountId, setAccountId] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [sortField, setSortField] = useState<SortField>('transaction_date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const accountSelectOptions = useMemo(() => [
+    { value: '', label: 'All Accounts' },
+    ...accountOptions.map((a) => ({ value: a.id, label: a.label })),
+  ], [accountOptions]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -71,11 +79,12 @@ export function TransactionTable({ transactions }: TransactionTableProps) {
       }
       if (category && tx.category !== category) return false;
       if (type !== 'all' && tx.transaction_type !== type) return false;
+      if (accountId && tx.account_id !== accountId) return false;
       if (dateFrom && tx.transaction_date < dateFrom) return false;
       if (dateTo && tx.transaction_date > dateTo) return false;
       return true;
     });
-  }, [transactions, search, category, type, dateFrom, dateTo]);
+  }, [transactions, search, category, type, accountId, dateFrom, dateTo]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -133,13 +142,21 @@ export function TransactionTable({ transactions }: TransactionTableProps) {
     <div className="flex flex-col gap-4">
       {/* Filters */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           <Input
             placeholder="Search transactions…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             aria-label="Search transactions"
           />
+          {accountOptions.length > 0 && (
+            <Select
+              options={accountSelectOptions}
+              value={accountId}
+              onChange={(e) => { setAccountId(e.target.value); setPage(1); }}
+              aria-label="Filter by account"
+            />
+          )}
           <Select
             options={CATEGORY_OPTIONS}
             value={category}
