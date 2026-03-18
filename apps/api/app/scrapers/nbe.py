@@ -601,9 +601,10 @@ class NBEScraper(BankScraper):
                         type(account_exc).__name__,
                         account_exc,
                     )
-                    # Navigate back to the login page for reliable state recovery.
-                    # go_back() is unreliable on Oracle JET SPAs — a full page.goto()
-                    # guarantees a clean DOM state for the next account iteration.
+                    # Navigate back to login page for reliable state recovery.
+                    # go_back() is unreliable on Oracle JET SPAs.  After goto()
+                    # the session may be gone (OBDX logs out on navigation), so
+                    # check for the login form and re-authenticate if needed.
                     try:
                         await page.goto(
                             _LOGIN_URL,
@@ -611,8 +612,24 @@ class NBEScraper(BankScraper):
                             timeout=_PAGE_LOAD_TIMEOUT_MS,
                         )
                         await self._random_delay(1.0, 2.0)
-                    except Exception:
-                        pass  # best-effort; next reveal_accounts_widget will confirm
+                        # If the login username field is visible, the session
+                        # was lost — re-login before the next account iteration.
+                        login_field = await page.query_selector(_SEL_USERNAME)
+                        if login_field is not None and await login_field.is_visible():
+                            logger.info(
+                                "NBE: session lost after account %d failure — re-logging in",
+                                idx + 1,
+                            )
+                            await self._login(page)
+                            await self._wait_for_dashboard(page)
+                    except (ScraperLoginError, ScraperOTPRequired):
+                        raise  # propagate auth failures — can't continue
+                    except Exception as recovery_exc:
+                        logger.warning(
+                            "NBE: recovery re-login failed after account %d: %s",
+                            idx + 1,
+                            recovery_exc,
+                        )
                     continue
 
             # ------------------------------------------------------------------
@@ -1275,8 +1292,15 @@ class NBEScraper(BankScraper):
             logger.debug("NBE: found %d rows on page %d", len(rows), page_num)
 
             if not rows and page_num == 1:
-                await self._safe_screenshot(page, "txn_table_empty")
-                raise ScraperParseError("NBE: transaction table rendered no rows", bank_code="NBE")
+                # Table is absent or empty — _navigate_to_transactions_for_account
+                # already logged a warning when it couldn't find the oj-table.
+                # Return an empty list rather than raising so that the account is
+                # recorded (with its balance) and subsequent accounts still run.
+                logger.warning(
+                    "NBE: _extract_transactions found no rows on page 1 — "
+                    "returning empty list (account has no visible transactions)"
+                )
+                return transactions
 
             for row_idx, cells in enumerate(rows):
                 if len(transactions) >= _MAX_TRANSACTIONS:
