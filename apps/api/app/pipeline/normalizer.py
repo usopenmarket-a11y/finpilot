@@ -137,6 +137,13 @@ def _normalize_account(
         balance=account.balance if account.balance >= 0 else account.balance,
         is_active=account.is_active,
         last_synced_at=datetime.now(UTC),
+        # Credit card billing detail — pass through from scraper; None for other types
+        credit_limit=account.credit_limit,
+        billed_amount=account.billed_amount,
+        unbilled_amount=account.unbilled_amount,
+        # Certificate / deposit metadata — pass through from scraper; None for other types
+        interest_rate=account.interest_rate,
+        maturity_date=account.maturity_date,
         created_at=account.created_at,
         updated_at=account.updated_at,
     )

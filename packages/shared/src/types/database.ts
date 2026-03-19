@@ -24,11 +24,21 @@ export type Database = {
           account_type: string
           balance: number
           bank_name: string
+          /** Current statement billed amount — credit_card accounts only */
+          billed_amount: number | null
           created_at: string
+          /** Authorised credit limit — credit_card accounts only */
+          credit_limit: number | null
           currency: string
           id: string
+          /** Annual interest rate as decimal fraction (0.15 = 15%) — certificate/deposit accounts only */
+          interest_rate: number | null
           is_active: boolean
           last_synced_at: string | null
+          /** Maturity date (ISO 8601) — certificate/deposit accounts only */
+          maturity_date: string | null
+          /** Pending unbilled transactions — credit_card accounts only */
+          unbilled_amount: number | null
           updated_at: string
           user_id: string
         }
@@ -37,11 +47,16 @@ export type Database = {
           account_type: string
           balance?: number
           bank_name: string
+          billed_amount?: number | null
           created_at?: string
+          credit_limit?: number | null
           currency?: string
           id?: string
+          interest_rate?: number | null
           is_active?: boolean
           last_synced_at?: string | null
+          maturity_date?: string | null
+          unbilled_amount?: number | null
           updated_at?: string
           user_id: string
         }
@@ -50,11 +65,16 @@ export type Database = {
           account_type?: string
           balance?: number
           bank_name?: string
+          billed_amount?: number | null
           created_at?: string
+          credit_limit?: number | null
           currency?: string
           id?: string
+          interest_rate?: number | null
           is_active?: boolean
           last_synced_at?: string | null
+          maturity_date?: string | null
+          unbilled_amount?: number | null
           updated_at?: string
           user_id?: string
         }

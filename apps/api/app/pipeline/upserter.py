@@ -57,6 +57,13 @@ async def upsert_account(
         "balance": str(account.balance),
         "is_active": account.is_active,
         "last_synced_at": account.last_synced_at.isoformat() if account.last_synced_at else None,
+        # Credit card billing detail — None for non-credit-card accounts
+        "credit_limit": str(account.credit_limit) if account.credit_limit is not None else None,
+        "billed_amount": str(account.billed_amount) if account.billed_amount is not None else None,
+        "unbilled_amount": str(account.unbilled_amount) if account.unbilled_amount is not None else None,
+        # Certificate / deposit metadata — None for other account types
+        "interest_rate": str(account.interest_rate) if account.interest_rate is not None else None,
+        "maturity_date": account.maturity_date.isoformat() if account.maturity_date is not None else None,
     }
 
     response = await supabase_client.table("bank_accounts").upsert(account_data).execute()

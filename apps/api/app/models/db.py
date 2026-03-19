@@ -63,6 +63,28 @@ class BankAccount(BaseModel):
     last_synced_at: datetime | None = Field(
         default=None, description="Timestamp of the most recent successful scrape"
     )
+    # Credit card billing detail columns (NULL for non-credit-card accounts)
+    credit_limit: Decimal | None = Field(
+        default=None,
+        description="Authorised credit limit (NUMERIC 15,2) — credit_card accounts only",
+    )
+    billed_amount: Decimal | None = Field(
+        default=None,
+        description="Current statement billed amount (NUMERIC 15,2) — credit_card accounts only",
+    )
+    unbilled_amount: Decimal | None = Field(
+        default=None,
+        description="Pending/unbilled transactions (NUMERIC 15,2) — credit_card accounts only",
+    )
+    # Certificate / deposit metadata columns (NULL for other account types)
+    interest_rate: Decimal | None = Field(
+        default=None,
+        description="Annual interest rate as a decimal fraction, e.g. 0.1850 = 18.50% (NUMERIC 6,4) — certificate/deposit accounts only",
+    )
+    maturity_date: date | None = Field(
+        default=None,
+        description="Date the certificate or deposit matures (DATE) — certificate/deposit accounts only",
+    )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
 

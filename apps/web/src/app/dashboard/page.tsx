@@ -169,6 +169,98 @@ function NetWorthIcon() {
 // AccountGroupSection — renders one category of accounts
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Credit card utilization bar
+// ---------------------------------------------------------------------------
+
+function CreditUtilizationBar({ used, limit }: { used: number; limit: number }) {
+  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const color =
+    pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500';
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct.toFixed(1)}%` }} />
+      </div>
+      <span className="text-xs tabular-nums text-gray-500 dark:text-gray-400">{pct.toFixed(0)}%</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Single account row — renders type-appropriate detail
+// ---------------------------------------------------------------------------
+
+function AccountRow({ account }: { account: BankAccountRow }) {
+  const balance = parseFloat(String(account.balance));
+  const isCreditCard = account.account_type === 'credit_card';
+  const isCertificate = account.account_type === 'certificate' || account.account_type === 'deposit';
+
+  const creditLimit = account.credit_limit != null ? parseFloat(String(account.credit_limit)) : null;
+  const billedAmount = account.billed_amount != null ? parseFloat(String(account.billed_amount)) : null;
+  const unbilledAmount = account.unbilled_amount != null ? parseFloat(String(account.unbilled_amount)) : null;
+
+  return (
+    <div className="px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
+      <div className="flex items-center justify-between">
+        {/* Left: bank + masked number + type badge */}
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {account.bank_name}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {account.account_number_masked}
+            </span>
+          </div>
+          <Badge variant={accountTypeBadgeVariant(account.account_type)}>
+            {accountTypeLabel(account.account_type)}
+          </Badge>
+        </div>
+
+        {/* Right: balance */}
+        <span className={`text-sm font-semibold tabular-nums ${isCreditCard ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white'}`}>
+          {account.currency} {formatEGP(balance)}
+        </span>
+      </div>
+
+      {/* Credit card detail row */}
+      {isCreditCard && (billedAmount != null || unbilledAmount != null || creditLimit != null) && (
+        <div className="mt-2">
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {billedAmount != null && (
+              <span>Billed: <span className="font-medium text-gray-700 dark:text-gray-300">{account.currency} {formatEGP(billedAmount)}</span></span>
+            )}
+            {unbilledAmount != null && (
+              <span>Unbilled: <span className="font-medium text-gray-700 dark:text-gray-300">{account.currency} {formatEGP(unbilledAmount)}</span></span>
+            )}
+            {creditLimit != null && (
+              <span>Limit: <span className="font-medium text-gray-700 dark:text-gray-300">{account.currency} {formatEGP(creditLimit)}</span></span>
+            )}
+          </div>
+          {creditLimit != null && creditLimit > 0 && (
+            <CreditUtilizationBar used={balance} limit={creditLimit} />
+          )}
+        </div>
+      )}
+
+      {/* Certificate / deposit detail row */}
+      {isCertificate && (account.interest_rate != null || account.maturity_date != null) && (
+        <div className="mt-1.5 flex flex-wrap gap-x-4 text-xs text-gray-500 dark:text-gray-400">
+          {account.interest_rate != null && (
+            <span>Rate: <span className="font-medium text-emerald-600 dark:text-emerald-400">{(parseFloat(String(account.interest_rate)) * 100).toFixed(2)}%</span></span>
+          )}
+          {account.maturity_date != null && (
+            <span>Matures: <span className="font-medium text-gray-700 dark:text-gray-300">
+              {new Intl.DateTimeFormat('en-EG', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(account.maturity_date))}
+            </span></span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountGroupSection({ group }: { group: AccountGroup }) {
   if (group.accounts.length === 0) return null;
 
@@ -185,27 +277,7 @@ function AccountGroupSection({ group }: { group: AccountGroup }) {
       </div>
       <div className="space-y-2">
         {group.accounts.map((account) => (
-          <div
-            key={account.id}
-            className="flex items-center justify-between px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {account.bank_name}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {account.account_number_masked}
-                </span>
-              </div>
-              <Badge variant={accountTypeBadgeVariant(account.account_type)}>
-                {accountTypeLabel(account.account_type)}
-              </Badge>
-            </div>
-            <span className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
-              {account.currency} {formatEGP(parseFloat(String(account.balance)))}
-            </span>
-          </div>
+          <AccountRow key={account.id} account={account} />
         ))}
       </div>
     </div>
@@ -233,7 +305,7 @@ export default async function DashboardPage() {
       .select('*')
       .eq('user_id', userId)
       .order('transaction_date', { ascending: false })
-      .limit(200),
+      .limit(600),
   ]);
 
   const accounts: BankAccountRow[] = accountsResult.data ?? [];
@@ -273,17 +345,28 @@ export default async function DashboardPage() {
   // KPI computation
   // ---------------------------------------------------------------------------
 
-  const totalBalance = accounts.reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
+  // Total liquid balance = savings + current + payroll + certificates (assets)
+  // Credit card balances are liabilities — excluded from total balance, shown separately
+  const totalBalance = accounts
+    .filter((a) => a.account_type !== 'credit_card')
+    .reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
 
-  // Net worth = all account balances (including certificates/deposits)
-  const netWorth = totalBalance;
+  // Total CC outstanding = sum of CC balances (what you owe)
+  const totalCCOutstanding = accounts
+    .filter((a) => a.account_type === 'credit_card')
+    .reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
+
+  // Net worth = assets minus CC liabilities
+  const netWorth = totalBalance - totalCCOutstanding;
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 
-  // Monthly income counts ONLY credits from payroll accounts
-  const payrollAccountIds = new Set(
-    accounts.filter((a) => a.account_type === 'payroll').map((a) => a.id),
+  // Exclude credit card accounts from income/expense KPIs — CC debits/credits
+  // are billing events (billed/unbilled amounts already tracked separately),
+  // not cash-flow. Count all non-CC credits as income.
+  const ccAccountIds = new Set(
+    accounts.filter((a) => a.account_type === 'credit_card').map((a) => a.id),
   );
 
   let monthlyIncome = 0;
@@ -291,10 +374,9 @@ export default async function DashboardPage() {
 
   for (const tx of allTransactions) {
     if (tx.transaction_date < monthStart) continue;
+    if (ccAccountIds.has(tx.account_id)) continue; // exclude CC statement transactions
     if (tx.transaction_type === 'credit') {
-      if (payrollAccountIds.has(tx.account_id)) {
-        monthlyIncome += tx.amount;
-      }
+      monthlyIncome += tx.amount;
     } else if (tx.transaction_type === 'debit') {
       monthlyExpenses += tx.amount;
     }
@@ -338,7 +420,7 @@ export default async function DashboardPage() {
           icon={<SpendIcon />}
         />
         <AccountCard
-          label="Payroll Income"
+          label="Monthly Income"
           amount={monthlyIncome}
           currency="EGP"
           trend="neutral"

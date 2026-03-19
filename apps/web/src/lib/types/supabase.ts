@@ -1,6 +1,7 @@
 // AUTO-GENERATED — do not edit by hand.
 // Regenerate with: Supabase MCP → generate_typescript_types
-// Last generated: 2026-03-16
+// Last generated: 2026-03-19
+// Schema change: add credit card billing detail and certificate metadata columns to bank_accounts
 
 export type Json =
   | string
@@ -24,11 +25,21 @@ export type Database = {
           account_type: string
           balance: number
           bank_name: string
+          /** Billed (current statement) amount — credit_card accounts only */
+          billed_amount: number | null
           created_at: string
+          /** Authorised credit limit — credit_card accounts only */
+          credit_limit: number | null
           currency: string
           id: string
+          /** Annual interest rate as decimal fraction (e.g. 0.1850 = 18.50%) — certificate/deposit accounts only */
+          interest_rate: number | null
           is_active: boolean
           last_synced_at: string | null
+          /** Certificate/deposit maturity date (ISO 8601 date string) — certificate/deposit accounts only */
+          maturity_date: string | null
+          /** Pending/unbilled transactions — credit_card accounts only */
+          unbilled_amount: number | null
           updated_at: string
           user_id: string
         }
@@ -37,11 +48,16 @@ export type Database = {
           account_type: string
           balance?: number
           bank_name: string
+          billed_amount?: number | null
           created_at?: string
+          credit_limit?: number | null
           currency?: string
           id?: string
+          interest_rate?: number | null
           is_active?: boolean
           last_synced_at?: string | null
+          maturity_date?: string | null
+          unbilled_amount?: number | null
           updated_at?: string
           user_id: string
         }
@@ -50,11 +66,16 @@ export type Database = {
           account_type?: string
           balance?: number
           bank_name?: string
+          billed_amount?: number | null
           created_at?: string
+          credit_limit?: number | null
           currency?: string
           id?: string
+          interest_rate?: number | null
           is_active?: boolean
           last_synced_at?: string | null
+          maturity_date?: string | null
+          unbilled_amount?: number | null
           updated_at?: string
           user_id?: string
         }

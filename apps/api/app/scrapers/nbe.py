@@ -1548,6 +1548,30 @@ class NBEScraper(BankScraper):
 
             masked = self._mask_account_number(raw_card_number)
 
+            # Populate individual billing detail fields from the API intercept.
+            cc_credit_limit: Decimal | None = None
+            cc_billed_amount: Decimal | None = None
+            cc_unbilled_amount: Decimal | None = None
+            if api_entry:
+                try:
+                    cc_billed_amount = Decimal(
+                        str(api_entry.get("totalbilledamount", "0")).replace(",", "")
+                    )
+                except InvalidOperation:
+                    cc_billed_amount = None
+                try:
+                    cc_unbilled_amount = Decimal(
+                        str(api_entry.get("totalunbilledamount", "0")).replace(",", "")
+                    )
+                except InvalidOperation:
+                    cc_unbilled_amount = None
+                try:
+                    cc_credit_limit = Decimal(
+                        str(api_entry.get("creditlimit", "0")).replace(",", "")
+                    )
+                except InvalidOperation:
+                    cc_credit_limit = None
+
             accounts.append(
                 BankAccount(
                     id=_ZERO_UUID,
@@ -1559,6 +1583,9 @@ class NBEScraper(BankScraper):
                     balance=balance,
                     is_active=True,
                     last_synced_at=now,
+                    credit_limit=cc_credit_limit,
+                    billed_amount=cc_billed_amount,
+                    unbilled_amount=cc_unbilled_amount,
                     created_at=now,
                     updated_at=now,
                 )
@@ -2153,13 +2180,38 @@ class NBEScraper(BankScraper):
 
             masked = self._mask_account_number(raw_account_number)
 
+            # Parse interest rate and maturity date from the detail line.
+            # NBE renders a detail span with text like:
+            #   "Interest Rate 15% | Maturing 12 Mar 2027 | Opened Date 12 Mar 2026"
+            # We search the full row text for both patterns.
+            row_full_text = row.get_text(separator=" ")
+
+            cert_interest_rate: Decimal | None = None
+            rate_match = re.search(r"Interest\s+Rate\s+([\d.]+)\s*%", row_full_text, re.I)
+            if rate_match:
+                try:
+                    # Convert percentage string to decimal fraction (e.g. "15" → 0.1500)
+                    cert_interest_rate = Decimal(rate_match.group(1)) / Decimal("100")
+                except InvalidOperation:
+                    cert_interest_rate = None
+
+            cert_maturity_date: date | None = None
+            maturity_match = re.search(
+                r"Maturing\s+(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})", row_full_text, re.I
+            )
+            if maturity_match:
+                cert_maturity_date = _parse_nbe_date(maturity_match.group(1).strip())
+
             logger.debug(
-                "NBE: certificate row %d → masked=%s name=%r currency=%s balance=%s",
+                "NBE: certificate row %d → masked=%s name=%r currency=%s balance=%s "
+                "interest_rate=%s maturity_date=%s",
                 row_idx,
                 masked,
                 raw_name,
                 currency,
                 balance,
+                cert_interest_rate,
+                cert_maturity_date,
             )
 
             accounts.append(
@@ -2173,6 +2225,8 @@ class NBEScraper(BankScraper):
                     balance=balance,
                     is_active=True,
                     last_synced_at=now,
+                    interest_rate=cert_interest_rate,
+                    maturity_date=cert_maturity_date,
                     created_at=now,
                     updated_at=now,
                 )
