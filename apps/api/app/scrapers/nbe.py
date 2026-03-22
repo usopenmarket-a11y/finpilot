@@ -571,9 +571,9 @@ class NBEScraper(BankScraper):
             raw_html["dashboard"] = await page.content()
 
             # ------------------------------------------------------------------
-            # Scrape credit cards + certificates FIRST while the browser is fresh.
+            # Scrape credit cards FIRST while the browser is fresh.
             # After scraping 4 demand-deposit accounts the Oracle JET SPA is
-            # resource-constrained and li.CCA / li.TRD take >120s to hydrate.
+            # resource-constrained and li.CCA takes >120s to hydrate.
             # ------------------------------------------------------------------
             cc_accounts: list[BankAccount] = []
             try:
@@ -592,20 +592,10 @@ class NBEScraper(BankScraper):
                 logger.warning("NBE: CC transaction scraping failed (non-fatal): %s", cc_txn_exc)
                 cc_txns = []
 
-            try:
-                cert_accounts = await self._scrape_certificates(page)
-                if cert_accounts:
-                    logger.info("NBE: found %d certificate/deposit account(s)", len(cert_accounts))
-                    raw_html["certificates"] = await page.content()
-            except Exception as cert_exc:
-                logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
-                cert_accounts = []
-
             # ------------------------------------------------------------------
             # Reveal the accounts card to enumerate demand-deposit accounts.
-            # Navigate to a fresh dashboard first — _scrape_certificates leaves
-            # the TRD flip-card open, which prevents li.flip-account-list__items
-            # for the CSA card from appearing after _reveal_accounts_widget click.
+            # Navigate to a fresh dashboard first — the CC statement page may
+            # be active after _scrape_cc_transactions, hiding the CSA widget.
             # ------------------------------------------------------------------
             try:
                 await page.goto(
@@ -716,6 +706,22 @@ class NBEScraper(BankScraper):
                             recovery_exc,
                         )
                     continue
+
+            # ------------------------------------------------------------------
+            # Scrape certificates LAST — after demand-deposit accounts so that
+            # the CC + demand-deposit data is already captured even if the TRD
+            # widget navigation triggers an OOM on memory-constrained instances.
+            # li.TRD hydration is slow post-DD but acceptable since certs are
+            # lower priority than the CC and demand-deposit data above.
+            # ------------------------------------------------------------------
+            cert_accounts: list[BankAccount] = []
+            try:
+                cert_accounts = await self._scrape_certificates(page)
+                if cert_accounts:
+                    logger.info("NBE: found %d certificate/deposit account(s)", len(cert_accounts))
+                    raw_html["certificates"] = await page.content()
+            except Exception as cert_exc:
+                logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
 
             # Combine all account types: demand-deposit + credit cards + certificates
             accounts = accounts + cc_accounts + cert_accounts
