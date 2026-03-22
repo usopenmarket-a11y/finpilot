@@ -1992,6 +1992,10 @@ class NBEScraper(BankScraper):
             logger.info("NBE: captured %d listStatements API response(s)", len(captured_responses))
             txn_time = datetime.now(UTC)
 
+            # Collect statement summaries keyed by (year, month) so we can pick
+            # the most recent one to backfill closing balance / min payment / due date.
+            stmt_summaries: dict[tuple[int, int], dict] = {}
+
             for url, body in captured_responses.items():
                 # Extract month/year from URL for logging
                 url_month, url_year = 0, 0
@@ -2017,13 +2021,20 @@ class NBEScraper(BankScraper):
                     )
                     continue
 
+                # Extract viewtxnSummary — contains closingbal, minamt, duedate, etc.
+                summary = data.get("viewtxnSummary")
+                if summary and url_year and url_month:
+                    stmt_summaries[(url_year, url_month)] = summary
+                    logger.info(
+                        "NBE: CC statement %04d/%02d summary: closingbal=%s minamt=%s duedate=%s",
+                        url_year,
+                        url_month,
+                        summary.get("closingbal"),
+                        summary.get("minamt"),
+                        summary.get("duedate"),
+                    )
+
                 items = data.get("items", [])
-                # Log top-level data keys (excl. items/status) to discover
-                # closing balance / minimum payment / due date field names
-                data_meta = {k: v for k, v in data.items() if k not in ("items", "status")}
-                logger.info(
-                    "NBE: CC statement %04d/%02d data_meta: %s", url_year, url_month, data_meta
-                )
                 if not items:
                     logger.debug(
                         "NBE: CC statement %04d/%02d — no items in response", url_year, url_month
@@ -2031,14 +2042,40 @@ class NBEScraper(BankScraper):
                     continue
 
                 for item in items:
-                    # Log all keys in each item (excl. statmentItems list) to discover fields
-                    item_meta = {k: v for k, v in item.items() if k != "statmentItems"}
-                    logger.info("NBE: CC statement item meta: %s", item_meta)
                     stmt_items = item.get("statmentItems", [])
                     for stmt in stmt_items:
                         txn = self._parse_cc_statement_item(stmt, cc_accounts[0], txn_time)
                         if txn is not None:
                             all_txns.append(txn)
+
+            # Backfill CC account with billing details from the most recent statement
+            if stmt_summaries and cc_accounts:
+                latest_key = max(stmt_summaries.keys())
+                latest = stmt_summaries[latest_key]
+                acc = cc_accounts[0]
+                try:
+                    acc.billed_amount = Decimal(str(latest["closingbal"]).replace(",", ""))
+                except (KeyError, InvalidOperation):
+                    pass
+                try:
+                    acc.minimum_payment = Decimal(str(latest["minamt"]).replace(",", ""))
+                except (KeyError, InvalidOperation):
+                    pass
+                raw_due = str(latest.get("duedate", "")).strip()
+                if raw_due:
+                    try:
+                        acc.payment_due_date = datetime.fromisoformat(raw_due[:10]).date()
+                    except ValueError:
+                        pass
+                logger.info(
+                    "NBE: CC account backfilled from statement %04d/%02d — "
+                    "billed=%s min_payment=%s due=%s",
+                    latest_key[0],
+                    latest_key[1],
+                    acc.billed_amount,
+                    acc.minimum_payment,
+                    acc.payment_due_date,
+                )
 
                 logger.info(
                     "NBE: CC statement %04d/%02d — parsed %d transaction(s) so far (total=%d)",
