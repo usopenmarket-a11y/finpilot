@@ -1395,40 +1395,41 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping credit cards via %r widget", _SEL_CREDIT_CARDS_WIDGET)
 
-        # If we are not on the dashboard home page, navigate there.
-        # After demand-deposit scraping the last account does NOT call go_back(),
-        # leaving the page on demand-deposit-transactions.  We must navigate back
-        # to see the CCA widget.  The OBDX dashboard URL contains "page=home".
-        # Always navigate back to dashboard to get a clean SPA state with all widgets visible.
-        # Skipping goto can leave the CCA flip-card open or the page on a transaction URL,
-        # causing li.CCA / li.TRD wait_for_selector to time out.
+        # Navigate to the dashboard only if we are not already there.
+        # CC is scraped right after login so we are usually already on the dashboard —
+        # an unconditional goto wastes 30-90s waiting for domcontentloaded + loggedInUser.
         current_url = page.url
-        logger.info("NBE: navigating to dashboard for CC scrape (current url: %s)", current_url)
-        try:
-            await page.goto(
-                _LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=_PAGE_LOAD_TIMEOUT_MS,
-            )
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "NBE: dashboard navigation timed out before credit card scrape — skipping"
-            )
-            return []
+        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip("/")
+        logger.info(
+            "NBE: navigating to dashboard for CC scrape (current url: %s, on_dashboard=%s)",
+            current_url, on_dashboard,
+        )
+        if not on_dashboard:
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="domcontentloaded",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    "NBE: dashboard navigation timed out before credit card scrape — skipping"
+                )
+                return []
 
-        # Wait for login session to be confirmed before waiting for widgets.
-        # After navigating to the dashboard mid-scrape, the SPA may re-authenticate
-        # before rendering widgets — wait for loggedInUser first (confirms session active).
-        try:
-            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: session lost after navigation — cannot scrape credit cards")
-            return []
+            # Wait for login session to be confirmed after navigation.
+            try:
+                await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+            except PlaywrightTimeoutError:
+                logger.warning("NBE: session lost after navigation — cannot scrape credit cards")
+                return []
 
-        # Wait for Oracle JET to hydrate the CCA widget. After a full 4-account scrape
-        # session the browser is resource-constrained — use 120s to give plenty of room.
+        # Wait for Oracle JET to hydrate the CCA widget.
+        # Use 150s — after a fresh login the widget should appear quickly; this
+        # gives headroom if the SPA is slow but avoids treating a timeout as
+        # "no credit card" when the widget is just slow to hydrate.
         try:
-            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=120_000)
+            await page.wait_for_selector(_SEL_CREDIT_CARDS_WIDGET, timeout=150_000)
         except PlaywrightTimeoutError:
             logger.info("NBE: no CCA (credit cards) widget found — user has no credit cards")
             return []
