@@ -1968,6 +1968,12 @@ class NBEScraper(BankScraper):
                     continue
 
                 items = data.get("items", [])
+                # Log top-level data keys (excl. items/status) to discover
+                # closing balance / minimum payment / due date field names
+                data_meta = {k: v for k, v in data.items() if k not in ("items", "status")}
+                logger.info(
+                    "NBE: CC statement %04d/%02d data_meta: %s", url_year, url_month, data_meta
+                )
                 if not items:
                     logger.debug(
                         "NBE: CC statement %04d/%02d — no items in response", url_year, url_month
@@ -1975,8 +1981,7 @@ class NBEScraper(BankScraper):
                     continue
 
                 for item in items:
-                    # Log statement-level fields (excl. statmentItems) to discover
-                    # closing balance / minimum payment / due date field names
+                    # Log all keys in each item (excl. statmentItems list) to discover fields
                     item_meta = {k: v for k, v in item.items() if k != "statmentItems"}
                     logger.info("NBE: CC statement item meta: %s", item_meta)
                     stmt_items = item.get("statmentItems", [])
