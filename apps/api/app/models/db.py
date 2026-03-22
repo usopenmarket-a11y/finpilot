@@ -76,6 +76,14 @@ class BankAccount(BaseModel):
         default=None,
         description="Pending/unbilled transactions (NUMERIC 15,2) — credit_card accounts only",
     )
+    minimum_payment: Decimal | None = Field(
+        default=None,
+        description="Minimum payment due on the current CC statement (NUMERIC 15,2) — credit_card accounts only",
+    )
+    payment_due_date: date | None = Field(
+        default=None,
+        description="Payment due date for the CC bill (DATE) — credit_card accounts only",
+    )
     # Certificate / deposit metadata columns (NULL for other account types)
     interest_rate: Decimal | None = Field(
         default=None,
