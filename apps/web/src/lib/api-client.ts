@@ -159,7 +159,7 @@ export async function syncBank(
   );
 
   const jobId = jobStart.job_id;
-  const maxWaitMs = 10 * 60 * 1000; // 10 minutes — 4-account scrape can take 5-8 min
+  const maxWaitMs = 20 * 60 * 1000; // 20 minutes — full scrape (login + CC + certs + 4 accounts + re-login) can take 12-15 min
   const pollIntervalMs = 5 * 1000; // 5 seconds
   const startTime = Date.now();
 
@@ -198,5 +198,5 @@ export async function syncBank(
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
-  throw new Error('Sync job timed out after 10 minutes');
+  throw new Error('Sync job timed out after 20 minutes');
 }
