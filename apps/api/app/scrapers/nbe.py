@@ -536,14 +536,37 @@ class NBEScraper(BankScraper):
             ScraperTimeoutError: If any Playwright wait exceeds its deadline.
             ScraperParseError: If the HTML structure is not as expected.
         """
-        browser, context, page = await self._launch_browser()
-        raw_html: dict[str, str] = {}
+        # Retry once on dashboard timeout — NBE portal from Oregon is intermittently
+        # slow to render li.loggedInUser after a successful login.  A fresh browser
+        # session on the second attempt succeeds in most cases.
+        _MAX_LOGIN_ATTEMPTS = 2
+        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            browser, context, page = await self._launch_browser()
+            raw_html: dict[str, str] = {}
+            _dashboard_ok = False
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                _dashboard_ok = True
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "NBE: dashboard timed out on attempt %d/%d — retrying with fresh browser",
+                        _attempt,
+                        _MAX_LOGIN_ATTEMPTS,
+                    )
+                    continue
+                raise  # exhausted retries
+            except Exception:
+                await self._close_browser(browser)
+                raise
+
+            if _dashboard_ok:
+                break  # proceed with the open browser/page below
 
         try:
-            await self._navigate_to_login(page)
-            await self._login(page)
-            await self._wait_for_dashboard(page)
-
             # Capture dashboard HTML for audit trail (post-auth — safe to screenshot)
             raw_html["dashboard"] = await page.content()
 
