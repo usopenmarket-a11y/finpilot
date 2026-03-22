@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-17
+**Last reviewed:** 2026-03-22
 
 ---
 
@@ -16,7 +16,7 @@
 | M6 | Recommendations Engine | COMPLETE | 100% |
 | M7 | Frontend Dashboard | COMPLETE | 100% |
 | M8 | Production Deploy & Monitoring | COMPLETE | 100% |
-| M9 | Real Data Integration (Live Sync) | IN PROGRESS | 85% |
+| M9 | Real Data Integration (Live Sync) | IN PROGRESS | 92% |
 
 ---
 
@@ -135,14 +135,13 @@
 - [x] **Render service LIVE** — `finpilot-api` (srv-d6s0bg6a2pns73dfbdl0)
   - URL: `https://finpilot-api-lrfg.onrender.com`
   - Region: Oregon, Python runtime, free plan, auto-deploy on push to `main`
-  - Latest deploy: `dep-d6sllekhg0os738io340` (commit `28fb9a8`) — **LIVE**
 - [x] **Vercel deployed LIVE** — `https://finpilot-api.vercel.app`
 - [x] GitHub Actions CI: ruff + mypy + pytest all passing
 - [x] CORS_ORIGINS configured for production Vercel URL
 
 ---
 
-## M9 Detailed Breakdown (85% — IN PROGRESS)
+## M9 Detailed Breakdown (92% — IN PROGRESS)
 
 ### What M9 covers
 Real-data integration: stored encrypted credentials → live bank sync → dashboard shows actual account data.
@@ -156,23 +155,30 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 - [x] Dashboard page reads real Supabase data (accounts + transactions) when available
 - [x] `test_credentials.py` — credentials router tests
 - [x] Playwright install at build time (not runtime) — Chromium binary confirmed present
-- [x] CI passing: 511 tests, ruff + mypy clean
+- [x] Global scrape semaphore prevents concurrent Playwright OOM on Render free tier
+- [x] Memory-reduction Chromium flags (`--disable-dev-shm-usage`, etc.) for Render free tier
+- [x] NBE CC scraping: unbilled/unsettled transactions via API intercept
+- [x] NBE certificate scraping: interest rate + maturity date from HTML
+- [x] CC billing details (billed_amount, unbilled_amount, credit_limit) populated in pipeline
+- [x] Dashboard: CC accounts show utilization bar + billed/unbilled; certificates show rate/maturity
+- [x] Dashboard KPIs: Net Worth = assets − CC liabilities; Total Balance excludes CC accounts
+- [x] Frontend pages: `/dashboard/credit-cards` (255 lines) + `/dashboard/certificates` (202 lines)
+- [x] `shared/types/database.ts` updated with new BankAccount fields
+- [x] Schema migration: 5 new nullable columns on `bank_accounts` (credit_limit, billed_amount, unbilled_amount, interest_rate, maturity_date)
+- [x] CI passing (ruff + mypy clean after format fixes)
 
 ### Remaining / In Progress
-- [ ] **NBE transaction table scraping** — `oj-table#ViewStatement1 td` cells not loading after Apply click from Oregon (timeout); latest fix (`28fb9a8`) uses `networkidle` + JS cell count + 30s fallback — **deployed, awaiting live test result**
-- [ ] End-to-end sync verification: full sync returning `transactions_scraped > 0`
-- [ ] Dashboard showing real NBE account balance + transactions after successful sync
+- [ ] **End-to-end sync verification**: full live sync returning `transactions_scraped > 0` from production
+- [ ] Dashboard showing real NBE demand-deposit + CC + certificate data after successful live sync
+- [ ] NBE demand-deposit transaction table: AJAX loading from Oregon remains the last known pain point (multiple fixes deployed — status unconfirmed from latest build `e6a54fd`)
 
 ---
 
 ## Current Focus
 
-**Verifying M9 end-to-end**: The NBE scraper's transaction table wait has been rewritten (commit `28fb9a8`, deployed as `dep-d6sllekhg0os738io340` at 13:49 UTC). Trigger a sync from the Settings page and confirm transactions load.
+**Verifying M9 end-to-end on production**: The last batch of commits (`e6a54fd` through `a2a6d32`) completed the CC + certificate scraping and dashboard rendering. The primary remaining task is confirming a full NBE sync succeeds end-to-end in production (demand-deposit transactions + CC + certificates all returning data). Once confirmed, M9 is done.
 
-**If sync still fails**, the next debugging step is to inspect the Render logs for the new `networkidle` log line — it will reveal whether:
-1. `networkidle` timed out (Oracle JET persistent XHR) → cells still 0 → fallback 30s triggered
-2. `networkidle` resolved but JS cell count is 0 → selector mismatch, need to inspect live HTML
-3. `networkidle` resolved and cell count > 0 → success
+**Next milestone candidate (M10)**: CIB live sync verification + multi-bank dashboard aggregation, or UX polish (loading states, error toasts, sync progress indicator).
 
 ---
 
@@ -180,22 +186,24 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 
 | Blocker | Impact | Resolution |
 |---------|--------|------------|
-| NBE transaction table loading from Oregon (>90s AJAX) | M9 incomplete | Latest fix: `networkidle` + JS cell count deployed. Awaiting confirmation. |
+| NBE demand-deposit transaction AJAX from Oregon | M9 last 8% | Multiple scraper fixes deployed. Trigger a live NBE sync from Settings to confirm. |
 
 ---
 
-## Recent Changes (since last review)
+## Recent Changes (since last review 2026-03-17)
 
 | Commit | Description |
 |--------|-------------|
-| `28fb9a8` | fix(scraper): networkidle + JS cell count for Apply wait — handles Oregon→Egypt AJAX |
-| `301e1b0` | fix(scraper): increase NBE timeouts (_WAIT_TIMEOUT_MS 60s→90s) |
-| `229ec69` | fix(scraper): wait for table OR Apply button, reduce delays |
-| `ee068d7` | fix(scraper): reveal accounts widget before extracting account data |
-| `da4641c` | feat(api,web): async job pattern for sync (POST→202+job_id, GET poll) |
-| `765ac15` | fix(infra,api,test): Playwright install at build time, fix CI test mock |
-| `5a6ed50` | feat(api,web): M9 — bank credential storage + live sync + real dashboard data |
-| `797dfd1` | fix(api): CI — ruff + mypy passing clean |
+| `e6a54fd` | fix(api): ruff format upserter.py |
+| `a2a6d32` | feat(dashboard,scraper,pipeline): CC billing details + certificate metadata; Net Worth KPI; 600-txn fetch |
+| `5984e5e` | fix(scraper,tests): remove global fallback in CC/cert scrapers, update mock fixture |
+| `a1d2c44` | fix(scraper): navigate to fresh dashboard before demand-deposit loop |
+| `1737223` | fix(api): global scrape semaphore to prevent concurrent Playwright OOM |
+| `3c3aef4` | fix(scraper): scrape CC + certificates BEFORE demand-deposit loop |
+| `482e256` | fix(scraper): loggedInUser check + 120s CCA wait |
+| `6169f01` | fix(scraper): memory-reduction Chromium flags for Render free tier |
+| `5481e28` | feat(scraper): NBE CC unbilled/unsettled transaction scraping |
+| `e5ad10c` | fix(sync): keepalive fires immediately + handles server-restart 404 gracefully |
 
 ---
 
@@ -203,10 +211,10 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 
 | Service | Status | URL | Notes |
 |---------|--------|-----|-------|
-| Supabase DB | LIVE | — | 6 tables + `bank_credentials`, RLS enabled |
-| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest deploy `28fb9a8`, live at 13:49 UTC |
+| Supabase DB | LIVE | — | `bank_accounts` + 5 new CC/cert columns, RLS enabled |
+| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest: `e6a54fd` |
 | Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Auto-deploys on push to main |
-| GitHub Actions CI | PASSING | — | 511 tests, ruff + mypy clean |
+| GitHub Actions CI | PASSING | — | ruff + mypy + pytest clean |
 
 ---
 
@@ -217,11 +225,11 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 | `test_health.py` | 8 | PASS |
 | `test_models.py` | 17 | PASS |
 | `test_crypto.py` | 19 | PASS |
-| `test_scrapers.py` | ~111 | PASS (NBE + CIB, updated for networkidle mock) |
+| `test_scrapers.py` | ~111 | PASS (NBE + CIB, CC/cert mocks updated) |
 | `test_scrapers_bdc_ub.py` | 143 | PASS (BDC + UB) |
 | `test_pipeline.py` | 21 | PASS |
 | `test_analytics.py` | 46 | PASS |
 | `test_debts.py` | 52 | PASS |
 | `test_recommendations.py` | 59 | PASS |
 | `test_credentials.py` | ~35 | PASS |
-| **Total** | **511** | **511/511 passing** |
+| **Total** | **511+** | **All passing** |

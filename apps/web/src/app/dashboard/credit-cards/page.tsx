@@ -186,6 +186,18 @@ export default async function CreditCardsPage() {
     0,
   );
 
+  // Extract billed_amount and credit_limit from the first CC account for the
+  // Repayment Tracker tab pre-fill
+  const firstCcAccount = creditCardAccounts[0] ?? null;
+  const billedAmount: number | null =
+    firstCcAccount?.billed_amount != null
+      ? parseFloat(String(firstCcAccount.billed_amount))
+      : null;
+  const creditLimit: number | null =
+    firstCcAccount?.credit_limit != null
+      ? parseFloat(String(firstCcAccount.credit_limit))
+      : null;
+
   if (creditCardAccounts.length === 0) {
     return (
       <div className="p-6 lg:p-8">
@@ -249,6 +261,8 @@ export default async function CreditCardsPage() {
         last6MonthsData={last6MonthsData}
         unbilledTx={unbilledTx}
         unsettledTx={unsettledTx}
+        billedAmount={billedAmount}
+        creditLimit={creditLimit}
       />
     </div>
   );

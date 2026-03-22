@@ -1959,6 +1959,10 @@ class NBEScraper(BankScraper):
                     continue
 
                 for item in items:
+                    # Log statement-level fields (excl. statmentItems) to discover
+                    # closing balance / minimum payment / due date field names
+                    item_meta = {k: v for k, v in item.items() if k != "statmentItems"}
+                    logger.info("NBE: CC statement item meta: %s", item_meta)
                     stmt_items = item.get("statmentItems", [])
                     for stmt in stmt_items:
                         txn = self._parse_cc_statement_item(stmt, cc_accounts[0], txn_time)
