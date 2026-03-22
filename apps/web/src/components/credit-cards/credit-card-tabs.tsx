@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { CreditCardSpendChart } from '@/components/charts/credit-card-spend-chart';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +31,8 @@ interface CreditCardTabsProps {
   unsettledTx: CreditCardTransaction[];
   billedAmount?: number | null;
   creditLimit?: number | null;
+  minimumPayment?: number | null;
+  paymentDueDate?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,157 +110,109 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
 }
 
 // ---------------------------------------------------------------------------
-// Repayment category types
-// ---------------------------------------------------------------------------
-
-type RepaymentCategory = 'card_payment' | 'fawry_withdrawal' | 'fee' | 'other';
-
-interface ClassifiedTransaction extends CreditCardTransaction {
-  repaymentCategory: RepaymentCategory;
-}
-
-function classifyTransaction(tx: CreditCardTransaction): RepaymentCategory {
-  if (tx.transaction_type === 'credit') return 'card_payment';
-  if (tx.description.toLowerCase().includes('fawry')) return 'fawry_withdrawal';
-  if (/interest|fee|charge/i.test(tx.description)) return 'fee';
-  return 'other';
-}
-
-const REPAYMENT_CATEGORY_BADGE: Record<RepaymentCategory, { variant: 'success' | 'info' | 'danger' | 'default'; label: string }> = {
-  card_payment:     { variant: 'success', label: 'Card Payment' },
-  fawry_withdrawal: { variant: 'info',    label: 'Fawry Withdrawal' },
-  fee:              { variant: 'danger',  label: 'Fee / Interest' },
-  other:            { variant: 'default', label: 'Other' },
-};
-
-// ---------------------------------------------------------------------------
 // Repayment Tracker tab panel
 // ---------------------------------------------------------------------------
 
 interface RepaymentTrackerPanelProps {
   allCcTx: CreditCardTransaction[];
   billedAmount?: number | null;
+  minimumPayment?: number | null;
+  paymentDueDate?: string | null;
 }
 
-function RepaymentTrackerPanel({ allCcTx, billedAmount }: RepaymentTrackerPanelProps) {
-  const [closingBalanceInput, setClosingBalanceInput] = useState<string>(
-    billedAmount != null && billedAmount > 0 ? String(billedAmount) : '',
+function RepaymentTrackerPanel({
+  allCcTx,
+  billedAmount,
+  minimumPayment,
+  paymentDueDate,
+}: RepaymentTrackerPanelProps) {
+  const closingBalance = billedAmount ?? 0;
+
+  // Total amounts paid = sum of all credit transactions
+  const totalPaid = allCcTx
+    .filter((tx) => tx.transaction_type === 'credit')
+    .reduce((s, tx) => s + tx.amount, 0);
+
+  // Fawry withdrawals — description contains "MY FAWRY"
+  const fawryTx = allCcTx.filter((tx) =>
+    tx.description.toUpperCase().includes('MY FAWRY'),
   );
-  const [cashPerCycleInput, setCashPerCycleInput] = useState<string>('');
+  const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
 
-  // Parse inputs
-  const closingBalance = parseFloat(closingBalanceInput) || 0;
-  const baseCashAmount = parseFloat(cashPerCycleInput) || 0;
+  // Fawry interest cost = total_fawry * 0.008
+  const fawryCost = totalFawry * 0.008;
 
-  // Classify all CC transactions
-  const classified: ClassifiedTransaction[] = allCcTx.map((tx) => ({
-    ...tx,
-    repaymentCategory: classifyTransaction(tx),
-  }));
-
-  // Sort date-descending for display
-  const sortedClassified = [...classified].sort((a, b) =>
-    b.transaction_date.localeCompare(a.transaction_date),
-  );
-
-  // Aggregates
-  const totalPaid = classified
-    .filter((tx) => tx.repaymentCategory === 'card_payment')
-    .reduce((s, tx) => s + tx.amount, 0);
-
-  const totalFawry = classified
-    .filter((tx) => tx.repaymentCategory === 'fawry_withdrawal')
-    .reduce((s, tx) => s + tx.amount, 0);
-
-  const totalFees = classified
-    .filter((tx) => tx.repaymentCategory === 'fee')
-    .reduce((s, tx) => s + tx.amount, 0);
-
+  // Remaining = closing balance - total paid
   const remaining = closingBalance - totalPaid;
+  const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
+
+  // Progress
   const rawProgress = closingBalance > 0 ? (totalPaid / closingBalance) * 100 : 0;
   const progress = Math.min(100, rawProgress);
-  const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
-  const fawryCost = totalFawry * 0.008;
-  const netReduction = totalPaid - fawryCost;
-  const recyclingLoops = baseCashAmount > 0 ? Math.floor(totalPaid / baseCashAmount) : 0;
-
-  // Progress bar color: green >= 50%, yellow 25–49%, red < 25%
   const progressBarColor =
-    progress >= 50
-      ? 'bg-green-500'
-      : progress >= 25
-      ? 'bg-yellow-500'
-      : 'bg-red-500';
+    progress >= 50 ? 'bg-green-500' : progress >= 25 ? 'bg-yellow-500' : 'bg-red-500';
 
-  // No balance due state
-  if (closingBalance === 0 && closingBalanceInput !== '') {
-    return (
-      <div className="space-y-6">
-        {/* Input row */}
-        <InputRow
-          closingBalanceInput={closingBalanceInput}
-          cashPerCycleInput={cashPerCycleInput}
-          onClosingBalanceChange={setClosingBalanceInput}
-          onCashPerCycleChange={setCashPerCycleInput}
-        />
-        <div className="py-10 text-center">
-          <p className="text-base font-medium text-gray-600 dark:text-gray-400">
-            No balance due
-          </p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-            Your closing balance is zero — nothing to repay this cycle.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Format payment due date
+  const dueDateDisplay = paymentDueDate
+    ? new Intl.DateTimeFormat('en-EG', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+        new Date(paymentDueDate),
+      )
+    : null;
 
   return (
     <div className="space-y-6">
-      {/* 1. Input row */}
-      <InputRow
-        closingBalanceInput={closingBalanceInput}
-        cashPerCycleInput={cashPerCycleInput}
-        onClosingBalanceChange={setClosingBalanceInput}
-        onCashPerCycleChange={setCashPerCycleInput}
-      />
-
-      {/* 2. KPI cards — 2×2 grid */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Statement header row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard
+          label="Closing Balance"
+          value={closingBalance > 0 ? `EGP ${formatEGP(closingBalance)}` : '—'}
+          valueColor="text-gray-900 dark:text-white"
+        />
+        <KpiCard
+          label="Minimum Payment"
+          value={
+            minimumPayment != null && minimumPayment > 0
+              ? `EGP ${formatEGP(minimumPayment)}`
+              : '—'
+          }
+          valueColor="text-yellow-600 dark:text-yellow-400"
+        />
         <KpiCard
           label="Total Paid"
           value={`EGP ${formatEGP(totalPaid)}`}
           valueColor="text-green-600 dark:text-green-400"
         />
         <KpiCard
-          label="Remaining Balance"
+          label="Remaining"
           value={`EGP ${formatEGP(Math.max(0, remaining))}`}
-          valueColor={remaining > 0 ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}
-        />
-        <KpiCard
-          label="Recycling Loops"
-          value={String(recyclingLoops)}
-          valueColor="text-indigo-600 dark:text-indigo-400"
-        />
-        <KpiCard
-          label="Net Reduction"
-          value={`EGP ${formatEGP(netReduction)}`}
-          valueColor="text-gray-900 dark:text-white"
+          valueColor={
+            isOverpaid
+              ? 'text-green-600 dark:text-green-400'
+              : remaining > 0
+              ? 'text-red-500 dark:text-red-400'
+              : 'text-green-600 dark:text-green-400'
+          }
+          badge={isOverpaid ? <Badge variant="success">Overpaid</Badge> : null}
         />
       </div>
 
-      {/* 3. Progress bar */}
+      {/* Payment due date */}
+      {dueDateDisplay && (
+        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+          <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span>Payment due: <span className="font-semibold text-gray-900 dark:text-white">{dueDateDisplay}</span></span>
+        </div>
+      )}
+
+      {/* Progress bar */}
       {closingBalance > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">
-              Repayment Progress
-            </span>
-            <span className="flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
+            <span className="font-medium text-gray-700 dark:text-gray-300">Repayment Progress</span>
+            <span className="font-semibold text-gray-900 dark:text-white">
               {progress.toFixed(1)}% repaid
-              {isOverpaid && (
-                <Badge variant="warning">Overpaid</Badge>
-              )}
             </span>
           </div>
           <div className="h-3 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
@@ -271,44 +224,35 @@ function RepaymentTrackerPanel({ allCcTx, billedAmount }: RepaymentTrackerPanelP
         </div>
       )}
 
-      {/* 4. Cost breakdown */}
+      {/* Fawry breakdown */}
       <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-          Cost Breakdown
+          Fawry Breakdown
         </p>
-        <div className="grid grid-cols-3 gap-4">
-          <CostStat label="Fawry Withdrawals" value={`EGP ${formatEGP(totalFawry)}`} />
+        <div className="grid grid-cols-2 gap-4">
           <CostStat
-            label="Fawry Cost (0.8%)"
-            value={`EGP ${formatEGP(fawryCost)}`}
-            valueColor="text-red-500 dark:text-red-400"
+            label="MY FAWRY CAIRO EGY total"
+            value={`EGP ${formatEGP(totalFawry)}`}
           />
           <CostStat
-            label="Fees & Interest"
-            value={`EGP ${formatEGP(totalFees)}`}
-            valueColor={totalFees > 0 ? 'text-red-500 dark:text-red-400' : undefined}
+            label="Fawry interest (0.8%)"
+            value={`EGP ${formatEGP(fawryCost)}`}
+            valueColor="text-red-500 dark:text-red-400"
           />
         </div>
       </div>
 
-      {/* 5. Classified transaction table */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-          Classified Transactions ({sortedClassified.length})
-        </p>
-        {sortedClassified.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-400 dark:text-gray-500">
-            No transactions found
-          </div>
-        ) : (
+      {/* Fawry transaction list */}
+      {fawryTx.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+            MY FAWRY CAIRO EGY Transactions ({fawryTx.length})
+          </p>
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {sortedClassified.map((tx) => {
-              const cat = REPAYMENT_CATEGORY_BADGE[tx.repaymentCategory];
-              return (
-                <div
-                  key={tx.id}
-                  className="flex items-center justify-between py-3 px-1 gap-3"
-                >
+            {[...fawryTx]
+              .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+              .map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between py-3 px-1 gap-3">
                   <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {tx.description}
@@ -317,26 +261,25 @@ function RepaymentTrackerPanel({ allCcTx, billedAmount }: RepaymentTrackerPanelP
                       {formatDate(tx.transaction_date)}
                     </span>
                   </div>
-                  <Badge variant={cat.variant}>{cat.label}</Badge>
-                  <span
-                    className={`text-sm font-semibold tabular-nums flex-shrink-0 ${
-                      tx.repaymentCategory === 'card_payment'
-                        ? 'text-green-600 dark:text-green-400'
-                        : tx.repaymentCategory === 'fawry_withdrawal'
-                        ? 'text-blue-600 dark:text-blue-400'
-                        : tx.repaymentCategory === 'fee'
-                        ? 'text-red-500 dark:text-red-400'
-                        : 'text-gray-700 dark:text-gray-300'
-                    }`}
-                  >
-                    {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}
+                  <span className="text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400 flex-shrink-0">
+                    - EGP {formatEGP(tx.amount)}
                   </span>
                 </div>
-              );
-            })}
+              ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {closingBalance === 0 && (
+        <div className="py-10 text-center">
+          <p className="text-base font-medium text-gray-600 dark:text-gray-400">
+            No balance due
+          </p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+            Sync your account to load closing balance and payment details.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -345,63 +288,21 @@ function RepaymentTrackerPanel({ allCcTx, billedAmount }: RepaymentTrackerPanelP
 // Repayment Tracker sub-components
 // ---------------------------------------------------------------------------
 
-interface InputRowProps {
-  closingBalanceInput: string;
-  cashPerCycleInput: string;
-  onClosingBalanceChange: (v: string) => void;
-  onCashPerCycleChange: (v: string) => void;
-}
-
-function InputRow({
-  closingBalanceInput,
-  cashPerCycleInput,
-  onClosingBalanceChange,
-  onCashPerCycleChange,
-}: InputRowProps) {
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1">
-          <Input
-            label="Closing Balance (EGP)"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="e.g. 30000"
-            value={closingBalanceInput}
-            onChange={(e) => onClosingBalanceChange(e.target.value)}
-          />
-        </div>
-        <div className="flex-1">
-          <Input
-            label="Cash per Cycle (EGP)"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="e.g. 5000"
-            value={cashPerCycleInput}
-            onChange={(e) => onCashPerCycleChange(e.target.value)}
-          />
-        </div>
-      </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500">
-        These values are not saved — re-enter each visit.
-      </p>
-    </div>
-  );
-}
-
 interface KpiCardProps {
   label: string;
   value: string;
   valueColor?: string;
+  badge?: React.ReactNode;
 }
 
-function KpiCard({ label, value, valueColor = 'text-gray-900 dark:text-white' }: KpiCardProps) {
+function KpiCard({ label, value, valueColor = 'text-gray-900 dark:text-white', badge }: KpiCardProps) {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-      <p className={`text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className={`text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
+        {badge}
+      </div>
     </div>
   );
 }
@@ -432,6 +333,8 @@ export function CreditCardTabs({
   unsettledTx,
   billedAmount,
   creditLimit,
+  minimumPayment,
+  paymentDueDate,
 }: CreditCardTabsProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('current');
 
@@ -556,6 +459,8 @@ export function CreditCardTabs({
           <RepaymentTrackerPanel
             allCcTx={allCcTx}
             billedAmount={billedAmount}
+            minimumPayment={minimumPayment}
+            paymentDueDate={paymentDueDate}
           />
         )}
       </CardBody>

@@ -1438,7 +1438,8 @@ class NBEScraper(BankScraper):
             return []
 
         # Intercept the creditcarddetails API call to get authoritative billed amounts
-        # Maps maskedcardno → {totalbilledamount, totalunbilledamount, creditlimit, currency}
+        # Maps maskedcardno → {totalbilledamount, totalunbilledamount, creditlimit,
+        #                       minamountdue, paymentduedate, currency}
         cc_api_data: dict[str, dict] = {}
 
         async def _capture_cc_details(resp: object) -> None:
@@ -1456,12 +1457,17 @@ class NBEScraper(BankScraper):
                                 "creditlimit": card.get("creditlimit", "0"),
                                 "currency": card.get("cardcurrency", "EGP"),
                                 "accountreferenceno": card.get("accountreferenceno", ""),
+                                "minamountdue": card.get("minamountdue", "0"),
+                                "paymentduedate": card.get("paymentduedate", ""),
                             }
-                            logger.debug(
-                                "NBE: CC details API → masked=%s billed=%s unbilled=%s",
+                            logger.info(
+                                "NBE: CC details API → masked=%s billed=%s unbilled=%s "
+                                "minamountdue=%s paymentduedate=%s",
                                 masked,
                                 card.get("totalbilledamount"),
                                 card.get("totalunbilledamount"),
+                                card.get("minamountdue"),
+                                card.get("paymentduedate"),
                             )
                 except Exception:
                     pass
@@ -1561,6 +1567,8 @@ class NBEScraper(BankScraper):
             cc_credit_limit: Decimal | None = None
             cc_billed_amount: Decimal | None = None
             cc_unbilled_amount: Decimal | None = None
+            cc_minimum_payment: Decimal | None = None
+            cc_payment_due_date: date | None = None
             if api_entry:
                 try:
                     cc_billed_amount = Decimal(
@@ -1580,6 +1588,23 @@ class NBEScraper(BankScraper):
                     )
                 except InvalidOperation:
                     cc_credit_limit = None
+                try:
+                    cc_minimum_payment = Decimal(
+                        str(api_entry.get("minamountdue", "0")).replace(",", "")
+                    )
+                except InvalidOperation:
+                    cc_minimum_payment = None
+                raw_due = str(api_entry.get("paymentduedate", "")).strip()
+                if raw_due:
+                    try:
+                        # NBE returns dates as "DD Mon YYYY" e.g. "27 Mar 2026"
+                        cc_payment_due_date = datetime.strptime(raw_due, "%d %b %Y").date()
+                    except ValueError:
+                        try:
+                            # Fallback: ISO format "YYYY-MM-DD"
+                            cc_payment_due_date = date.fromisoformat(raw_due[:10])
+                        except ValueError:
+                            cc_payment_due_date = None
 
             accounts.append(
                 BankAccount(
@@ -1595,6 +1620,8 @@ class NBEScraper(BankScraper):
                     credit_limit=cc_credit_limit,
                     billed_amount=cc_billed_amount,
                     unbilled_amount=cc_unbilled_amount,
+                    minimum_payment=cc_minimum_payment,
+                    payment_due_date=cc_payment_due_date,
                     created_at=now,
                     updated_at=now,
                 )

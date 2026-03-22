@@ -63,6 +63,12 @@ async def upsert_account(
         "unbilled_amount": str(account.unbilled_amount)
         if account.unbilled_amount is not None
         else None,
+        "minimum_payment": str(account.minimum_payment)
+        if account.minimum_payment is not None
+        else None,
+        "payment_due_date": account.payment_due_date.isoformat()
+        if account.payment_due_date is not None
+        else None,
         # Certificate / deposit metadata — None for other account types
         "interest_rate": str(account.interest_rate) if account.interest_rate is not None else None,
         "maturity_date": account.maturity_date.isoformat()

@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit manually.
 // Regenerate with: Supabase MCP → generate_typescript_types
-// Last generated: 2026-03-15
+// Last generated: 2026-03-23
 
 export type Json =
   | string
@@ -37,6 +37,10 @@ export type Database = {
           last_synced_at: string | null
           /** Maturity date (ISO 8601) — certificate/deposit accounts only */
           maturity_date: string | null
+          /** Minimum payment due on a CC statement — credit_card accounts only */
+          minimum_payment: number | null
+          /** Payment due date for the CC bill — credit_card accounts only */
+          payment_due_date: string | null
           /** Pending unbilled transactions — credit_card accounts only */
           unbilled_amount: number | null
           updated_at: string
@@ -56,6 +60,8 @@ export type Database = {
           is_active?: boolean
           last_synced_at?: string | null
           maturity_date?: string | null
+          minimum_payment?: number | null
+          payment_due_date?: string | null
           unbilled_amount?: number | null
           updated_at?: string
           user_id: string
@@ -74,6 +80,8 @@ export type Database = {
           is_active?: boolean
           last_synced_at?: string | null
           maturity_date?: string | null
+          minimum_payment?: number | null
+          payment_due_date?: string | null
           unbilled_amount?: number | null
           updated_at?: string
           user_id?: string

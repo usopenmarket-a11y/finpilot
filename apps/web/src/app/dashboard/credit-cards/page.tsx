@@ -197,6 +197,11 @@ export default async function CreditCardsPage() {
     firstCcAccount?.credit_limit != null
       ? parseFloat(String(firstCcAccount.credit_limit))
       : null;
+  const minimumPayment: number | null =
+    firstCcAccount?.minimum_payment != null
+      ? parseFloat(String(firstCcAccount.minimum_payment))
+      : null;
+  const paymentDueDate: string | null = firstCcAccount?.payment_due_date ?? null;
 
   if (creditCardAccounts.length === 0) {
     return (
@@ -263,6 +268,8 @@ export default async function CreditCardsPage() {
         unsettledTx={unsettledTx}
         billedAmount={billedAmount}
         creditLimit={creditLimit}
+        minimumPayment={minimumPayment}
+        paymentDueDate={paymentDueDate}
       />
     </div>
   );
