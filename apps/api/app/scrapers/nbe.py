@@ -1464,15 +1464,20 @@ class NBEScraper(BankScraper):
                     pass
 
         page.on("response", _capture_cc_details)
+        _cc_rows_loaded = False
         try:
             await page.click(_SEL_CREDIT_CARDS_WIDGET)
             await self._random_delay(1.5, 2.5)
+            # Keep listening until the account rows appear — the creditcarddetails API
+            # response may arrive after the click delay.
+            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
+            _cc_rows_loaded = True
+        except PlaywrightTimeoutError:
+            pass
         finally:
             page.remove_listener("response", _capture_cc_details)
 
-        try:
-            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
-        except PlaywrightTimeoutError:
+        if not _cc_rows_loaded:
             logger.warning("NBE: credit card rows did not appear after clicking CCA widget")
             return []
 
@@ -1657,8 +1662,15 @@ class NBEScraper(BankScraper):
         try:
             await page.wait_for_selector("li.loggedInUser", timeout=90_000)
         except PlaywrightTimeoutError:
-            logger.warning("NBE: session lost before CC transaction scrape — skipping")
-            return []
+            logger.warning("NBE: session lost before CC transaction scrape — re-logging in")
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                logger.info("NBE: re-login successful — continuing CC transaction scrape")
+            except Exception as relogin_exc:
+                logger.warning("NBE: re-login failed — skipping CC transactions: %s", relogin_exc)
+                return []
 
         # Wait for CCA widget to hydrate (Oracle JET SPA injects widgets after domcontentloaded).
         # After a heavy multi-account scrape the browser is resource-constrained — use 120s.
