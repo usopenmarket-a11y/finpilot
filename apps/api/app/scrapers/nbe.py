@@ -1399,10 +1399,13 @@ class NBEScraper(BankScraper):
         # CC is scraped right after login so we are usually already on the dashboard —
         # an unconditional goto wastes 30-90s waiting for domcontentloaded + loggedInUser.
         current_url = page.url
-        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip("/")
+        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip(
+            "/"
+        )
         logger.info(
             "NBE: navigating to dashboard for CC scrape (current url: %s, on_dashboard=%s)",
-            current_url, on_dashboard,
+            current_url,
+            on_dashboard,
         )
         if not on_dashboard:
             try:
