@@ -288,6 +288,17 @@ def _parse_nbe_date(raw: str) -> date | None:
         except (ValueError, TypeError):
             pass
 
+    # Epoch milliseconds fallback (e.g. "1742256000000" from Oracle OBDX APIs)
+    if raw.isdigit() and len(raw) >= 10:
+        try:
+            ts = int(raw)
+            # If > 1e10 it's milliseconds, otherwise seconds
+            if ts > 10_000_000_000:
+                ts //= 1000
+            return datetime.fromtimestamp(ts, tz=UTC).date()
+        except (ValueError, OSError):
+            pass
+
     logger.debug("NBE: could not parse date string %r", raw)
     return None
 
