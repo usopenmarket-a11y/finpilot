@@ -267,7 +267,7 @@ def _parse_nbe_date(raw: str) -> date | None:
     if not raw:
         return None
 
-    for fmt in ("%d %b %Y", "%-d %b %Y", "%d/%m/%Y", "%d-%m-%Y"):
+    for fmt in ("%d %b %Y", "%-d %b %Y", "%d/%m/%Y", "%d-%m/%Y", "%Y%m%d"):
         try:
             return datetime.strptime(raw, fmt).date()
         except ValueError:
@@ -2657,7 +2657,7 @@ class NBEScraper(BankScraper):
                         break
 
         if txn_date is None:
-            logger.debug("NBE: CC stmt — unparseable date %r — skipping", txndate_str)
+            logger.info("NBE: CC stmt — unparseable date txndate=%r postdate=%r — skipping", txndate_str, postdate_str)
             return None
 
         # Map crdrflag to transaction_type
