@@ -2340,6 +2340,8 @@ class NBEScraper(BankScraper):
                             await asyncio.sleep(1.0)
                         else:
                             logger.info("NBE: UBT — no response captured within 15s, skipping pagination")
+                        # Extra wait for the paginator to re-render after data loads
+                        await asyncio.sleep(2.0)
 
                         _MAX_UBT_PAGES = 20  # safety cap
                         for ubt_page in range(2, _MAX_UBT_PAGES + 1):
@@ -2590,11 +2592,18 @@ class NBEScraper(BankScraper):
         """
         description = str(stmt.get("description", "")).strip() or "N/A"
         crdrflag = str(stmt.get("crdrflag", "D")).upper()
-        amount_str = str(stmt.get("originalamt", "0"))
-        currency_raw = str(stmt.get("originalcurrency", "EGP"))
+        # Statement API uses "originalamt"/"originalcurrency";
+        # Unbilled (UBT) API uses "txnamt"/"txnccy" (EGP equivalent) and "amt"/"currency" (original).
+        # Prefer EGP txnamt if available, else fall back to originalamt/amt.
+        amount_str = (
+            str(stmt.get("txnamt") or stmt.get("originalamt") or stmt.get("amt") or "0")
+        )
+        currency_raw = str(
+            stmt.get("txnccy") or stmt.get("originalcurrency") or stmt.get("currency") or "EGP"
+        )
         txndate_str = str(stmt.get("txndate", ""))
         postdate_str = str(stmt.get("postdate", ""))
-        authcode = str(stmt.get("authcode", ""))
+        authcode = str(stmt.get("authcode", "") or stmt.get("referenceno", ""))
 
         # Parse amount
         try:
