@@ -2329,6 +2329,18 @@ class NBEScraper(BankScraper):
 
                     # For UBT only: paginate through all pages
                     if tab_code == "UBT":
+                        # Log paginator state to diagnose page count
+                        try:
+                            pager_text = await page.locator(".oj-pagingcontrol-nav-label, .oj-pagingcontrol-range").first.text_content(timeout=3000)
+                            logger.info("NBE: UBT paginator text=%r", pager_text)
+                        except Exception:
+                            pass
+                        try:
+                            next_btn_cls = await page.locator("a.oj-pagingcontrol-nav-next").first.get_attribute("class", timeout=3000) or ""
+                            logger.info("NBE: UBT next-button classes on page 1: %r", next_btn_cls)
+                        except Exception:
+                            pass
+
                         _MAX_UBT_PAGES = 20  # safety cap
                         for ubt_page in range(2, _MAX_UBT_PAGES + 1):
                             try:
@@ -2343,8 +2355,9 @@ class NBEScraper(BankScraper):
                                 btn_classes = await next_btn.get_attribute("class") or ""
                                 if "oj-disabled" in btn_classes:
                                     logger.info(
-                                        "NBE: UBT reached last page after page %d",
+                                        "NBE: UBT reached last page after page %d (btn_classes=%r)",
                                         ubt_page - 1,
+                                        btn_classes,
                                     )
                                     break
                                 logger.info("NBE: UBT page %d -> clicking next", ubt_page)
@@ -2382,11 +2395,23 @@ class NBEScraper(BankScraper):
                     logger.debug("NBE: could not parse UBT/UNS response as JSON: %r", body[:200])
                     continue
 
-                # Determine tab type from URL
-                is_ubt = "unbill" in url.lower() or "UBT" in url
+                # Determine tab type from URL or body content
+                is_ubt = (
+                    "unbill" in url.lower()
+                    or "UBT" in url
+                    or "unbilledtransaction" in body.lower()[:2000]
+                )
                 tab_type = "unbilled" if is_ubt else "unsettled"
 
                 status = data.get("status", {}).get("result", "")
+                top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
+                logger.info(
+                    "NBE: %s response — status=%r top_keys=%s url=%s",
+                    tab_type,
+                    status,
+                    top_keys,
+                    url[-80:],
+                )
                 if status not in ("SUCCESSFUL", ""):
                     logger.debug("NBE: %s response status=%r — skipping", tab_type, status)
                     continue
@@ -2399,6 +2424,17 @@ class NBEScraper(BankScraper):
                     or data.get("items")
                     or []
                 )
+                if not txn_list:
+                    # Log all top-level values to find the list
+                    for k, v in data.items():
+                        if isinstance(v, list) and len(v) > 0:
+                            logger.info(
+                                "NBE: %s response — key=%r is list len=%d first_item_keys=%s",
+                                tab_type, k, len(v),
+                                list(v[0].keys()) if isinstance(v[0], dict) else type(v[0]).__name__,
+                            )
+                        elif isinstance(v, dict):
+                            logger.info("NBE: %s response — key=%r is dict keys=%s", tab_type, k, list(v.keys()))
                 # Shape 2: items[].statmentItems[]
                 if txn_list and isinstance(txn_list[0], dict) and "statmentItems" in txn_list[0]:
                     flat: list[dict] = []
