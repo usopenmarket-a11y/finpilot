@@ -152,23 +152,15 @@ export default async function CreditCardsPage() {
   const creditCardIds = new Set(creditCardAccounts.map((a) => a.id));
   const creditCardTx = allTransactions.filter((tx) => creditCardIds.has(tx.account_id));
 
-  // Current month transactions
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const currentMonthTx = creditCardTx
-    .filter((tx) => tx.transaction_date >= monthStart)
-    .map(toCardTx);
 
   // Last 6 months monthly spend
   const last6MonthsData = buildLast6MonthsData(allTransactions, creditCardIds);
 
-  // Unbilled: transaction_type = 'unbilled' OR in current month (proxy)
+  // Unbilled Transactions: current month's CC spending (open statement period)
   const unbilledTx = creditCardTx
-    .filter(
-      (tx) =>
-        tx.transaction_type === 'unbilled' ||
-        tx.transaction_date >= monthStart,
-    )
+    .filter((tx) => tx.transaction_date >= monthStart)
     .map(toCardTx);
 
   // Unsettled: transaction_type = 'unsettled' OR description contains 'pending'/'unsettled'
@@ -202,6 +194,16 @@ export default async function CreditCardsPage() {
       ? parseFloat(String(firstCcAccount.minimum_payment))
       : null;
   const paymentDueDate: string | null = firstCcAccount?.payment_due_date ?? null;
+  const unbilledAmount: number | null =
+    firstCcAccount?.unbilled_amount != null
+      ? parseFloat(String(firstCcAccount.unbilled_amount))
+      : null;
+  const cardAccountNumber: string = firstCcAccount?.account_number_masked ?? '';
+  const cardIsActive: boolean = firstCcAccount?.is_active ?? false;
+  const cardBankName: string = firstCcAccount?.bank_name ?? '';
+  const cardBalance: number = firstCcAccount != null
+    ? parseFloat(String(firstCcAccount.balance))
+    : 0;
 
   if (creditCardAccounts.length === 0) {
     return (
@@ -262,7 +264,6 @@ export default async function CreditCardsPage() {
 
       {/* Tabs */}
       <CreditCardTabs
-        currentMonthTx={currentMonthTx}
         last6MonthsData={last6MonthsData}
         unbilledTx={unbilledTx}
         unsettledTx={unsettledTx}
@@ -270,6 +271,11 @@ export default async function CreditCardsPage() {
         creditLimit={creditLimit}
         minimumPayment={minimumPayment}
         paymentDueDate={paymentDueDate}
+        cardAccountNumber={cardAccountNumber}
+        cardIsActive={cardIsActive}
+        cardBankName={cardBankName}
+        cardBalance={cardBalance}
+        unbilledAmount={unbilledAmount}
       />
     </div>
   );

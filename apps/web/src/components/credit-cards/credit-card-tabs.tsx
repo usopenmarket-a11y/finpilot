@@ -25,7 +25,6 @@ export interface MonthlySpend {
 }
 
 interface CreditCardTabsProps {
-  currentMonthTx: CreditCardTransaction[];
   last6MonthsData: MonthlySpend[];
   unbilledTx: CreditCardTransaction[];
   unsettledTx: CreditCardTransaction[];
@@ -33,20 +32,26 @@ interface CreditCardTabsProps {
   creditLimit?: number | null;
   minimumPayment?: number | null;
   paymentDueDate?: string | null;
+  // Card Details props
+  cardAccountNumber: string;
+  cardIsActive: boolean;
+  cardBankName: string;
+  cardBalance: number;
+  unbilledAmount?: number | null;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type TabKey = 'current' | 'last6' | 'unbilled' | 'unsettled' | 'repayment';
+type TabKey = 'repayment' | 'unbilled' | 'unsettled' | 'last6' | 'details';
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'current', label: 'Current Month' },
-  { key: 'last6', label: 'Last 6 Months' },
-  { key: 'unbilled', label: 'Unbilled' },
-  { key: 'unsettled', label: 'Unsettled' },
   { key: 'repayment', label: 'Repayment Tracker' },
+  { key: 'unbilled', label: 'Unbilled Transactions' },
+  { key: 'unsettled', label: 'Unsettled' },
+  { key: 'last6', label: 'Monthly Spend' },
+  { key: 'details', label: 'Card Details' },
 ];
 
 function formatEGP(amount: number): string {
@@ -110,6 +115,71 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
 }
 
 // ---------------------------------------------------------------------------
+// Fawry breakdown — shared between Unbilled tab and (formerly) Repayment
+// ---------------------------------------------------------------------------
+
+interface FawryBreakdownProps {
+  transactions: CreditCardTransaction[];
+}
+
+function FawryBreakdown({ transactions }: FawryBreakdownProps) {
+  const fawryTx = transactions.filter((tx) =>
+    tx.description.toUpperCase().includes('MY FAWRY'),
+  );
+
+  if (fawryTx.length === 0) return null;
+
+  const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
+  const fawryCost = totalFawry * 0.008;
+
+  return (
+    <div className="mt-6 space-y-3">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+          Fawry Breakdown
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <CostStat
+            label="MY FAWRY CAIRO EGY total"
+            value={`EGP ${formatEGP(totalFawry)}`}
+          />
+          <CostStat
+            label="Fawry interest (0.8%)"
+            value={`EGP ${formatEGP(fawryCost)}`}
+            valueColor="text-red-500 dark:text-red-400"
+          />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+          MY FAWRY CAIRO EGY Transactions ({fawryTx.length})
+        </p>
+        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          {[...fawryTx]
+            .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+            .map((tx) => (
+              <div key={tx.id} className="flex items-center justify-between py-3 px-1 gap-3">
+                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {tx.description}
+                  </span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {formatDate(tx.transaction_date)}
+                  </span>
+                </div>
+                <span className="text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400 flex-shrink-0">
+                  - EGP {formatEGP(tx.amount)}
+                </span>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Repayment Tracker tab panel
 // ---------------------------------------------------------------------------
 
@@ -132,15 +202,6 @@ function RepaymentTrackerPanel({
   const totalPaid = allCcTx
     .filter((tx) => tx.transaction_type === 'credit')
     .reduce((s, tx) => s + tx.amount, 0);
-
-  // Fawry withdrawals — description contains "MY FAWRY"
-  const fawryTx = allCcTx.filter((tx) =>
-    tx.description.toUpperCase().includes('MY FAWRY'),
-  );
-  const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
-
-  // Fawry interest cost = total_fawry * 0.008
-  const fawryCost = totalFawry * 0.008;
 
   // Remaining = closing balance - total paid
   const remaining = closingBalance - totalPaid;
@@ -224,52 +285,6 @@ function RepaymentTrackerPanel({
         </div>
       )}
 
-      {/* Fawry breakdown */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-          Fawry Breakdown
-        </p>
-        <div className="grid grid-cols-2 gap-4">
-          <CostStat
-            label="MY FAWRY CAIRO EGY total"
-            value={`EGP ${formatEGP(totalFawry)}`}
-          />
-          <CostStat
-            label="Fawry interest (0.8%)"
-            value={`EGP ${formatEGP(fawryCost)}`}
-            valueColor="text-red-500 dark:text-red-400"
-          />
-        </div>
-      </div>
-
-      {/* Fawry transaction list */}
-      {fawryTx.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-            MY FAWRY CAIRO EGY Transactions ({fawryTx.length})
-          </p>
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {[...fawryTx]
-              .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
-              .map((tx) => (
-                <div key={tx.id} className="flex items-center justify-between py-3 px-1 gap-3">
-                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {tx.description}
-                    </span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
-                      {formatDate(tx.transaction_date)}
-                    </span>
-                  </div>
-                  <span className="text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400 flex-shrink-0">
-                    - EGP {formatEGP(tx.amount)}
-                  </span>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
       {closingBalance === 0 && (
         <div className="py-10 text-center">
           <p className="text-base font-medium text-gray-600 dark:text-gray-400">
@@ -323,11 +338,142 @@ function CostStat({ label, value, valueColor = 'text-gray-900 dark:text-white' }
 }
 
 // ---------------------------------------------------------------------------
+// Card Details tab panel
+// ---------------------------------------------------------------------------
+
+interface CardDetailsPanelProps {
+  accountNumber: string;
+  isActive: boolean;
+  bankName: string;
+  balance: number;
+  creditLimit: number | null | undefined;
+  billedAmount: number | null | undefined;
+  unbilledAmount: number | null | undefined;
+  minimumPayment: number | null | undefined;
+  paymentDueDate: string | null | undefined;
+}
+
+function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
+  const display = value != null && value !== '' ? value : null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+      {display != null ? (
+        <span className="text-sm font-semibold text-gray-900 dark:text-white">{display}</span>
+      ) : (
+        <span className="text-sm font-semibold text-gray-400 dark:text-gray-600">—</span>
+      )}
+    </div>
+  );
+}
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+      {children}
+    </p>
+  );
+}
+
+function CardDetailsPanel({
+  accountNumber,
+  isActive,
+  bankName,
+  balance,
+  creditLimit,
+  billedAmount,
+  unbilledAmount,
+  minimumPayment,
+  paymentDueDate,
+}: CardDetailsPanelProps) {
+  const availableCredit =
+    creditLimit != null ? creditLimit - balance : null;
+
+  const dueDateDisplay = paymentDueDate
+    ? new Intl.DateTimeFormat('en-EG', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+        new Date(paymentDueDate),
+      )
+    : null;
+
+  return (
+    <div className="space-y-6">
+      {/* Card Info */}
+      <div>
+        <SectionHeader>Card Info</SectionHeader>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+            <DetailRow label="Card Number" value={accountNumber} />
+            <DetailRow label="Bank" value={bankName} />
+            <DetailRow label="Card Type" value="Credit Card" />
+            <DetailRow label="Product" value={`${bankName} Credit Card`} />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Status</span>
+              <div>
+                {isActive ? (
+                  <Badge variant="success">Active</Badge>
+                ) : (
+                  <Badge variant="warning">Inactive</Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Limits & Balance */}
+      <div>
+        <SectionHeader>Limits & Balance</SectionHeader>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+            <DetailRow
+              label="Credit Limit"
+              value={creditLimit != null ? `EGP ${formatEGP(creditLimit)}` : null}
+            />
+            <DetailRow
+              label="Available Credit"
+              value={availableCredit != null ? `EGP ${formatEGP(availableCredit)}` : null}
+            />
+            <DetailRow
+              label="Current Balance"
+              value={`EGP ${formatEGP(balance)}`}
+            />
+            <DetailRow
+              label="Billed Amount"
+              value={billedAmount != null ? `EGP ${formatEGP(billedAmount)}` : null}
+            />
+            <DetailRow
+              label="Unbilled Amount"
+              value={unbilledAmount != null ? `EGP ${formatEGP(unbilledAmount)}` : null}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Payment */}
+      <div>
+        <SectionHeader>Payment</SectionHeader>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+            <DetailRow
+              label="Minimum Payment"
+              value={minimumPayment != null ? `EGP ${formatEGP(minimumPayment)}` : null}
+            />
+            <DetailRow
+              label="Payment Due Date"
+              value={dueDateDisplay}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function CreditCardTabs({
-  currentMonthTx,
   last6MonthsData,
   unbilledTx,
   unsettledTx,
@@ -335,22 +481,21 @@ export function CreditCardTabs({
   creditLimit,
   minimumPayment,
   paymentDueDate,
+  cardAccountNumber,
+  cardIsActive,
+  cardBankName,
+  cardBalance,
+  unbilledAmount,
 }: CreditCardTabsProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>('current');
+  const [activeTab, setActiveTab] = useState<TabKey>('repayment');
 
-  // Combine all CC transactions available for the repayment tracker
-  // Use currentMonthTx as the base — the page passes all CC tx through this prop set.
-  // The repayment tracker needs the full set passed via a dedicated prop; for now
-  // we derive it from the union of all provided transaction arrays, deduped by id.
+  // Build the full CC transaction set for the repayment tracker — union of all
+  // provided transaction arrays, deduped by id.
   const allCcTxMap = new Map<string, CreditCardTransaction>();
-  for (const tx of [...currentMonthTx, ...unbilledTx, ...unsettledTx]) {
+  for (const tx of [...unbilledTx, ...unsettledTx]) {
     allCcTxMap.set(tx.id, tx);
   }
   const allCcTx = Array.from(allCcTxMap.values());
-
-  const totalCurrent = currentMonthTx
-    .filter((tx) => tx.transaction_type === 'debit')
-    .reduce((s, tx) => s + tx.amount, 0);
 
   const totalUnbilled = unbilledTx
     .filter((tx) => tx.transaction_type === 'debit')
@@ -359,9 +504,6 @@ export function CreditCardTabs({
   const totalUnsettled = unsettledTx
     .filter((tx) => tx.transaction_type === 'debit')
     .reduce((s, tx) => s + tx.amount, 0);
-
-  // creditLimit is available for future utilization display — currently unused in UI
-  void creditLimit;
 
   return (
     <Card>
@@ -387,22 +529,48 @@ export function CreditCardTabs({
       </div>
 
       <CardBody>
-        {/* Current Month */}
-        {activeTab === 'current' && (
+        {/* Repayment Tracker */}
+        {activeTab === 'repayment' && (
+          <RepaymentTrackerPanel
+            allCcTx={allCcTx}
+            billedAmount={billedAmount}
+            minimumPayment={minimumPayment}
+            paymentDueDate={paymentDueDate}
+          />
+        )}
+
+        {/* Unbilled Transactions — current month spending + Fawry breakdown */}
+        {activeTab === 'unbilled' && (
           <div>
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {currentMonthTx.length} transaction{currentMonthTx.length !== 1 ? 's' : ''}
+                {unbilledTx.length} transaction{unbilledTx.length !== 1 ? 's' : ''}
               </p>
               <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Total spend: EGP {formatEGP(totalCurrent)}
+                Total spend: EGP {formatEGP(totalUnbilled)}
               </p>
             </div>
-            <TransactionList transactions={currentMonthTx} />
+            <TransactionList transactions={unbilledTx} />
+            <FawryBreakdown transactions={unbilledTx} />
           </div>
         )}
 
-        {/* Last 6 Months chart */}
+        {/* Unsettled */}
+        {activeTab === 'unsettled' && (
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {unsettledTx.length} transaction{unsettledTx.length !== 1 ? 's' : ''}
+              </p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Total: EGP {formatEGP(totalUnsettled)}
+              </p>
+            </div>
+            <TransactionList transactions={unsettledTx} />
+          </div>
+        )}
+
+        {/* Monthly Spend chart */}
         {activeTab === 'last6' && (
           <div>
             <CardHeader className="px-0 pt-0 pb-4 border-b-0">
@@ -424,41 +592,16 @@ export function CreditCardTabs({
           </div>
         )}
 
-        {/* Unbilled */}
-        {activeTab === 'unbilled' && (
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {unbilledTx.length} transaction{unbilledTx.length !== 1 ? 's' : ''}
-              </p>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Total: EGP {formatEGP(totalUnbilled)}
-              </p>
-            </div>
-            <TransactionList transactions={unbilledTx} />
-          </div>
-        )}
-
-        {/* Unsettled */}
-        {activeTab === 'unsettled' && (
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {unsettledTx.length} transaction{unsettledTx.length !== 1 ? 's' : ''}
-              </p>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                Total: EGP {formatEGP(totalUnsettled)}
-              </p>
-            </div>
-            <TransactionList transactions={unsettledTx} />
-          </div>
-        )}
-
-        {/* Repayment Tracker */}
-        {activeTab === 'repayment' && (
-          <RepaymentTrackerPanel
-            allCcTx={allCcTx}
+        {/* Card Details */}
+        {activeTab === 'details' && (
+          <CardDetailsPanel
+            accountNumber={cardAccountNumber}
+            isActive={cardIsActive}
+            bankName={cardBankName}
+            balance={cardBalance}
+            creditLimit={creditLimit}
             billedAmount={billedAmount}
+            unbilledAmount={unbilledAmount}
             minimumPayment={minimumPayment}
             paymentDueDate={paymentDueDate}
           />
