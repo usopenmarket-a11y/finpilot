@@ -2296,9 +2296,47 @@ class NBEScraper(BankScraper):
                         await self._random_delay(0.3, 0.6)
                         continue
                     await tab_opt.click()
-                    # Wait for the AJAX response
+                    # Wait for the first page AJAX response
                     await self._random_delay(5.0, 8.0)
-                    logger.info("NBE: %s tab selected — waiting for API response", tab_code)
+                    logger.info("NBE: %s tab selected — page 1 loaded", tab_code)
+
+                    # For UBT only: paginate through all pages
+                    if tab_code == "UBT":
+                        _MAX_UBT_PAGES = 20  # safety cap
+                        for ubt_page in range(2, _MAX_UBT_PAGES + 1):
+                            try:
+                                next_btn = page.locator("a.oj-pagingcontrol-nav-next").first
+                                if not await next_btn.count():
+                                    logger.info(
+                                        "NBE: UBT no more pages (next button not found) after page %d",
+                                        ubt_page - 1,
+                                    )
+                                    break
+                                # Check if disabled (last page)
+                                btn_classes = await next_btn.get_attribute("class") or ""
+                                if "oj-disabled" in btn_classes:
+                                    logger.info(
+                                        "NBE: UBT reached last page after page %d",
+                                        ubt_page - 1,
+                                    )
+                                    break
+                                logger.info("NBE: UBT page %d -> clicking next", ubt_page)
+                                await next_btn.click()
+                                await self._random_delay(3.0, 5.0)
+                            except PlaywrightTimeoutError:
+                                logger.debug(
+                                    "NBE: UBT pagination timeout at page %d — stopping",
+                                    ubt_page,
+                                )
+                                break
+                            except Exception as page_exc:
+                                logger.debug(
+                                    "NBE: UBT pagination error at page %d: %s — stopping",
+                                    ubt_page,
+                                    page_exc,
+                                )
+                                break
+
                 except PlaywrightTimeoutError as e:
                     logger.debug("NBE: timeout selecting %s tab: %s", tab_code, e)
                 except Exception as e:
