@@ -2630,19 +2630,24 @@ class NBEScraper(BankScraper):
         - ``authcode``: authorisation code
         - ``cardno``: masked card number (e.g. "5441*********204")
         """
-        description = str(stmt.get("description", "")).strip() or "N/A"
-        crdrflag = str(stmt.get("crdrflag", "D")).upper()
+        # Unsettled (UNS) API puts merchant in 'responsedesc', statement/UBT use 'description'
+        description = (
+            str(stmt.get("responsedesc") or stmt.get("description") or "").strip() or "N/A"
+        )
+        crdrflag_raw = str(stmt.get("crdrflag", "D")).upper()
+        # UNS API uses numeric response codes ('000' = approved debit) rather than D/C
+        crdrflag = crdrflag_raw if crdrflag_raw in ("D", "C") else "D"
         # Statement API uses "originalamt"/"originalcurrency";
-        # Unbilled (UBT) API uses "txnamt"/"txnccy" (EGP equivalent) and "amt"/"currency" (original).
-        # Prefer EGP txnamt if available, else fall back to originalamt/amt.
+        # Unbilled (UBT) / Unsettled (UNS) APIs use "txnamt"/"txnccy" (EGP) and "amt"/"currency" (original).
         amount_str = (
             str(stmt.get("txnamt") or stmt.get("originalamt") or stmt.get("amt") or "0")
         )
         currency_raw = str(
             stmt.get("txnccy") or stmt.get("originalcurrency") or stmt.get("currency") or "EGP"
         )
-        txndate_str = str(stmt.get("txndate", ""))
-        postdate_str = str(stmt.get("postdate", ""))
+        # UNS API uses 'authdate'/'authtime' instead of 'txndate'/'postdate'
+        txndate_str = str(stmt.get("txndate") or stmt.get("authdate") or "")
+        postdate_str = str(stmt.get("postdate") or "")
         authcode = str(stmt.get("authcode", "") or stmt.get("referenceno", ""))
 
         # Parse amount
