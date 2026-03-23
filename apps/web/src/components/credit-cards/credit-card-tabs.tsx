@@ -120,7 +120,7 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
 
 function FawryBreakdown({ transactions }: { transactions: CreditCardTransaction[] }) {
   const fawryTx = transactions.filter((tx) =>
-    tx.description.toUpperCase().includes('MY FAWRY'),
+    tx.description.toUpperCase().includes('FAWRY'),
   );
 
   if (fawryTx.length === 0) return null;
@@ -135,7 +135,7 @@ function FawryBreakdown({ transactions }: { transactions: CreditCardTransaction[
           Fawry Breakdown
         </p>
         <div className="grid grid-cols-2 gap-4">
-          <CostStat label="MY FAWRY CAIRO EGY total" value={`EGP ${formatEGP(totalFawry)}`} />
+          <CostStat label="Fawry charges total" value={`EGP ${formatEGP(totalFawry)}`} />
           <CostStat
             label="Fawry interest (0.8%)"
             value={`EGP ${formatEGP(fawryCost)}`}
@@ -146,7 +146,7 @@ function FawryBreakdown({ transactions }: { transactions: CreditCardTransaction[
 
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
-          MY FAWRY CAIRO EGY Transactions ({fawryTx.length})
+          Fawry Transactions ({fawryTx.length})
         </p>
         <div className="divide-y divide-gray-100 dark:divide-gray-800">
           {[...fawryTx]
@@ -261,7 +261,7 @@ function RepaymentTrackerPanel({
       {totalFawry > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <KpiCard
-            label="MY FAWRY CAIRO EGY (total)"
+            label="Fawry Charges (total)"
             value={`EGP ${formatEGP(totalFawry)}`}
             valueColor="text-blue-600 dark:text-blue-400"
           />

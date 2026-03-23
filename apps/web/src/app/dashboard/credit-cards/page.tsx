@@ -158,9 +158,24 @@ export default async function CreditCardsPage() {
   // Last 6 months monthly spend
   const last6MonthsData = buildLast6MonthsData(allTransactions, creditCardIds);
 
-  // Unbilled Transactions: current month's CC spending (open statement period)
+  // Unbilled Transactions: current open statement period.
+  // The statement cycle runs from ~27th to ~27th (billing date), so "unbilled"
+  // means transactions since the last billing date (payment_due_date - 30 days).
+  // If payment_due_date is known, use that to anchor the period start;
+  // otherwise fall back to the start of the current calendar month.
+  const firstCcForUnbilled = creditCardAccounts[0] ?? null;
+  const unbilledPeriodStart: string = (() => {
+    const due = firstCcForUnbilled?.payment_due_date;
+    if (due) {
+      // Statement opens ~30 days before due date
+      const d = new Date(due);
+      d.setDate(d.getDate() - 30);
+      return d.toISOString().slice(0, 10);
+    }
+    return monthStart;
+  })();
   const unbilledTx = creditCardTx
-    .filter((tx) => tx.transaction_date >= monthStart)
+    .filter((tx) => tx.transaction_date >= unbilledPeriodStart)
     .map(toCardTx);
 
   // Unsettled: transaction_type = 'unsettled' OR description contains 'pending'/'unsettled'
@@ -180,7 +195,7 @@ export default async function CreditCardsPage() {
 
   // Extract billed_amount and credit_limit from the first CC account for the
   // Repayment Tracker tab pre-fill
-  const firstCcAccount = creditCardAccounts[0] ?? null;
+  const firstCcAccount = firstCcForUnbilled;
   const billedAmount: number | null =
     firstCcAccount?.billed_amount != null
       ? parseFloat(String(firstCcAccount.billed_amount))
