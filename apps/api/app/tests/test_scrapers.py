@@ -1053,7 +1053,8 @@ class TestNbeScraperScrape:
             with pytest.raises(ScraperTimeoutError):
                 await nbe_scraper.scrape()
 
-        mock_browser.close.assert_awaited_once()
+        # Retry logic may open more than one browser; assert close was called at least once
+        mock_browser.close.assert_awaited()
 
     async def test_account_number_is_masked_in_result(self, nbe_scraper: NBEScraper) -> None:
         """account_number_masked in result follows ****XXXX format for all accounts."""
@@ -1192,7 +1193,8 @@ class TestCibScraperScrape:
             with pytest.raises(ScraperTimeoutError):
                 await cib_scraper.scrape()
 
-        mock_browser.close.assert_awaited_once()
+        # Retry logic may open more than one browser; assert close was called at least once
+        mock_browser.close.assert_awaited()
 
     async def test_cib_transactions_use_cib_date_format(self, cib_scraper: CIBScraper) -> None:
         """Transactions parsed from CIB HTML use DD-MMM-YYYY dates correctly."""
