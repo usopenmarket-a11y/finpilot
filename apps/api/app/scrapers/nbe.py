@@ -784,6 +784,358 @@ class NBEScraper(BankScraper):
         finally:
             await self._close_browser(browser)
 
+    async def scrape_accounts(self) -> ScraperResult:
+        """Scrape demand-deposit accounts and their transactions only.
+
+        Skips credit cards and certificates entirely.  Faster than the full
+        ``scrape()`` — suitable for a focused accounts-only sync job.
+
+        Returns:
+            ``ScraperResult`` with demand-deposit ``BankAccount`` objects and
+            their transactions.
+
+        Raises:
+            ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError,
+            ScraperParseError: same semantics as ``scrape()``.
+        """
+        logger.info("NBE: scrape_accounts starting")
+        _MAX_LOGIN_ATTEMPTS = 2
+        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            browser, context, page = await self._launch_browser()
+            raw_html: dict[str, str] = {}
+            _dashboard_ok = False
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                _dashboard_ok = True
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "NBE: scrape_accounts dashboard timed out on attempt %d/%d — retrying",
+                        _attempt,
+                        _MAX_LOGIN_ATTEMPTS,
+                    )
+                    continue
+                raise
+            except Exception:
+                await self._close_browser(browser)
+                raise
+
+            if _dashboard_ok:
+                break
+
+        try:
+            raw_html["dashboard"] = await page.content()
+
+            await self._reveal_accounts_widget(page)
+            accounts = await self._extract_all_accounts(page)
+            total = len(accounts)
+            logger.info("NBE: scrape_accounts — found %d account(s)", total)
+
+            all_transactions: list = []
+            for idx, account in enumerate(accounts):
+                logger.info(
+                    "NBE: scrape_accounts — account %d/%d masked=%s",
+                    idx + 1,
+                    total,
+                    account.account_number_masked,
+                )
+                try:
+                    if idx > 0:
+                        await self._reveal_accounts_widget(page)
+                    await self._navigate_to_transactions_for_account(page, idx)
+                    raw_html[f"transactions_{idx}"] = await page.content()
+                    txns = await self._extract_transactions(page, account)
+                    logger.info(
+                        "NBE: scrape_accounts — account %d/%d extracted %d transactions",
+                        idx + 1,
+                        total,
+                        len(txns),
+                    )
+                    all_transactions.extend(txns)
+                    if idx < total - 1:
+                        try:
+                            await page.go_back(
+                                wait_until="domcontentloaded",
+                                timeout=_PAGE_LOAD_TIMEOUT_MS,
+                            )
+                        except PlaywrightTimeoutError:
+                            logger.warning(
+                                "NBE: scrape_accounts go_back() timed out for account %d — proceeding",
+                                idx + 1,
+                            )
+                        await self._random_delay(0.8, 1.5)
+                except (ScraperLoginError, ScraperOTPRequired):
+                    raise
+                except Exception as account_exc:
+                    logger.warning(
+                        "NBE: scrape_accounts — skipping account %d/%d (masked=%s): %s: %s",
+                        idx + 1,
+                        total,
+                        account.account_number_masked,
+                        type(account_exc).__name__,
+                        account_exc,
+                    )
+                    try:
+                        await page.goto(
+                            _LOGIN_URL,
+                            wait_until="domcontentloaded",
+                            timeout=_PAGE_LOAD_TIMEOUT_MS,
+                        )
+                        await self._random_delay(1.0, 2.0)
+                        login_field = await page.query_selector(_SEL_USERNAME)
+                        if login_field is not None and await login_field.is_visible():
+                            logger.info(
+                                "NBE: scrape_accounts session lost after account %d — re-logging in",
+                                idx + 1,
+                            )
+                            await self._login(page)
+                            await self._wait_for_dashboard(page)
+                    except (ScraperLoginError, ScraperOTPRequired):
+                        raise
+                    except Exception as recovery_exc:
+                        logger.warning(
+                            "NBE: scrape_accounts recovery failed after account %d: %s",
+                            idx + 1,
+                            recovery_exc,
+                        )
+                    continue
+
+            logger.info(
+                "NBE: scrape_accounts complete — %d account(s), %d transaction(s)",
+                len(accounts),
+                len(all_transactions),
+            )
+            return ScraperResult(
+                accounts=accounts,
+                transactions=all_transactions,
+                raw_html=raw_html,
+            )
+
+        except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
+            raise
+
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "accounts_timeout_error")
+            raise ScraperTimeoutError(
+                f"NBE scrape_accounts timed out: {exc}", bank_code="NBE"
+            ) from exc
+
+        except Exception as exc:
+            await self._safe_screenshot(page, "accounts_unexpected_error")
+            logger.error(
+                "NBE scrape_accounts failed — url=%r error=%s: %s",
+                page.url,
+                type(exc).__name__,
+                exc,
+            )
+            raise ScraperParseError(
+                f"NBE scrape_accounts unexpected error: {type(exc).__name__}: {exc}",
+                bank_code="NBE",
+            ) from exc
+
+        finally:
+            await self._close_browser(browser)
+
+    async def scrape_credit_cards(self) -> ScraperResult:
+        """Scrape credit card accounts and their statement transactions only.
+
+        Skips demand-deposit accounts and certificates entirely.
+
+        Returns:
+            ``ScraperResult`` with CC ``BankAccount`` objects and their
+            statement transactions.
+
+        Raises:
+            ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError,
+            ScraperParseError: same semantics as ``scrape()``.
+        """
+        logger.info("NBE: scrape_credit_cards starting")
+        _MAX_LOGIN_ATTEMPTS = 2
+        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            browser, context, page = await self._launch_browser()
+            raw_html: dict[str, str] = {}
+            _dashboard_ok = False
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                _dashboard_ok = True
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "NBE: scrape_credit_cards dashboard timed out on attempt %d/%d — retrying",
+                        _attempt,
+                        _MAX_LOGIN_ATTEMPTS,
+                    )
+                    continue
+                raise
+            except Exception:
+                await self._close_browser(browser)
+                raise
+
+            if _dashboard_ok:
+                break
+
+        try:
+            raw_html["dashboard"] = await page.content()
+
+            cc_accounts: list[BankAccount] = []
+            try:
+                cc_accounts = await self._scrape_credit_cards(page)
+                if cc_accounts:
+                    logger.info(
+                        "NBE: scrape_credit_cards — found %d CC account(s)", len(cc_accounts)
+                    )
+                    raw_html["credit_cards"] = await page.content()
+            except Exception as cc_exc:
+                logger.warning("NBE: scrape_credit_cards — CC account scraping failed: %s", cc_exc)
+
+            cc_txns: list = []
+            try:
+                cc_txns = await self._scrape_cc_transactions(page, cc_accounts)
+                if cc_txns:
+                    logger.info(
+                        "NBE: scrape_credit_cards — scraped %d CC transaction(s)", len(cc_txns)
+                    )
+            except Exception as cc_txn_exc:
+                logger.warning(
+                    "NBE: scrape_credit_cards — CC transaction scraping failed: %s", cc_txn_exc
+                )
+
+            logger.info(
+                "NBE: scrape_credit_cards complete — %d account(s), %d transaction(s)",
+                len(cc_accounts),
+                len(cc_txns),
+            )
+            return ScraperResult(
+                accounts=cc_accounts,
+                transactions=cc_txns,
+                raw_html=raw_html,
+            )
+
+        except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
+            raise
+
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "cc_timeout_error")
+            raise ScraperTimeoutError(
+                f"NBE scrape_credit_cards timed out: {exc}", bank_code="NBE"
+            ) from exc
+
+        except Exception as exc:
+            await self._safe_screenshot(page, "cc_unexpected_error")
+            logger.error(
+                "NBE scrape_credit_cards failed — url=%r error=%s: %s",
+                page.url,
+                type(exc).__name__,
+                exc,
+            )
+            raise ScraperParseError(
+                f"NBE scrape_credit_cards unexpected error: {type(exc).__name__}: {exc}",
+                bank_code="NBE",
+            ) from exc
+
+        finally:
+            await self._close_browser(browser)
+
+    async def scrape_certificates(self) -> ScraperResult:
+        """Scrape certificate/term-deposit accounts only.
+
+        Skips demand-deposit accounts and credit cards entirely.
+
+        Returns:
+            ``ScraperResult`` with certificate ``BankAccount`` objects and an
+            empty transaction list (certificates have no transaction history on
+            the NBE portal).
+
+        Raises:
+            ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError,
+            ScraperParseError: same semantics as ``scrape()``.
+        """
+        logger.info("NBE: scrape_certificates starting")
+        _MAX_LOGIN_ATTEMPTS = 2
+        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            browser, context, page = await self._launch_browser()
+            raw_html: dict[str, str] = {}
+            _dashboard_ok = False
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                _dashboard_ok = True
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "NBE: scrape_certificates dashboard timed out on attempt %d/%d — retrying",
+                        _attempt,
+                        _MAX_LOGIN_ATTEMPTS,
+                    )
+                    continue
+                raise
+            except Exception:
+                await self._close_browser(browser)
+                raise
+
+            if _dashboard_ok:
+                break
+
+        try:
+            raw_html["dashboard"] = await page.content()
+
+            cert_accounts: list[BankAccount] = []
+            try:
+                cert_accounts = await self._scrape_certificates(page)
+                if cert_accounts:
+                    logger.info(
+                        "NBE: scrape_certificates — found %d certificate/deposit account(s)",
+                        len(cert_accounts),
+                    )
+                    raw_html["certificates"] = await page.content()
+            except Exception as cert_exc:
+                logger.warning(
+                    "NBE: scrape_certificates — certificate scraping failed: %s", cert_exc
+                )
+
+            logger.info(
+                "NBE: scrape_certificates complete — %d account(s)",
+                len(cert_accounts),
+            )
+            return ScraperResult(
+                accounts=cert_accounts,
+                transactions=[],
+                raw_html=raw_html,
+            )
+
+        except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
+            raise
+
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "certs_timeout_error")
+            raise ScraperTimeoutError(
+                f"NBE scrape_certificates timed out: {exc}", bank_code="NBE"
+            ) from exc
+
+        except Exception as exc:
+            await self._safe_screenshot(page, "certs_unexpected_error")
+            logger.error(
+                "NBE scrape_certificates failed — url=%r error=%s: %s",
+                page.url,
+                type(exc).__name__,
+                exc,
+            )
+            raise ScraperParseError(
+                f"NBE scrape_certificates unexpected error: {type(exc).__name__}: {exc}",
+                bank_code="NBE",
+            ) from exc
+
+        finally:
+            await self._close_browser(browser)
+
     # ------------------------------------------------------------------
     # Navigation
     # ------------------------------------------------------------------

@@ -7,6 +7,9 @@ import {
   saveCredential,
   deleteCredential,
   syncBank,
+  syncBankAccounts,
+  syncBankCreditCards,
+  syncBankCertificates,
   encryptValue,
   type CredentialInfo,
 } from '@/lib/api-client';
@@ -151,7 +154,7 @@ export function BankAccountsSection() {
     }));
 
     try {
-      // syncBank now handles polling internally and can take 2-4 minutes
+      // syncBank handles polling internally and can take 2-4 minutes
       const result = await syncBank(userId, bank);
       setSyncStates((prev) => ({
         ...prev,
@@ -168,6 +171,51 @@ export function BankAccountsSection() {
       setSyncStates((prev) => ({
         ...prev,
         [bank]: { loading: false, error: message, lastResult: null },
+      }));
+    }
+  };
+
+  /**
+   * Trigger a focused NBE sync domain (accounts | cc | certs).
+   * Uses composite key "<BANK>_<domain>" in syncStates so each button
+   * tracks its own loading/error/result independently.
+   */
+  const handleSyncDomain = async (
+    bank: string,
+    domain: 'accounts' | 'cc' | 'certs',
+  ) => {
+    if (!userId || !isValidBank(bank)) return;
+    const key = `${bank}_${domain}`;
+
+    setSyncStates((prev) => ({
+      ...prev,
+      [key]: { loading: true, error: null, lastResult: null },
+    }));
+
+    try {
+      let result;
+      if (domain === 'accounts') {
+        result = await syncBankAccounts(userId, bank);
+      } else if (domain === 'cc') {
+        result = await syncBankCreditCards(userId, bank);
+      } else {
+        result = await syncBankCertificates(userId, bank);
+      }
+
+      setSyncStates((prev) => ({
+        ...prev,
+        [key]: {
+          loading: false,
+          error: null,
+          lastResult: `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
+        },
+      }));
+      await fetchCredentials(userId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Sync failed';
+      setSyncStates((prev) => ({
+        ...prev,
+        [key]: { loading: false, error: message, lastResult: null },
       }));
     }
   };
@@ -221,6 +269,35 @@ export function BankAccountsSection() {
                 const isSyncing = syncState?.loading ?? false;
                 const isRemoving = removingBank === cred.bank;
 
+                // For NBE, track each domain independently via composite keys.
+                const isNBE = cred.bank === 'NBE';
+                const accountsState = syncStates[`${cred.bank}_accounts`];
+                const ccState = syncStates[`${cred.bank}_cc`];
+                const certsState = syncStates[`${cred.bank}_certs`];
+                // Any focused sync running counts as "syncing" for Remove disabled state.
+                const isAnySyncing =
+                  isSyncing ||
+                  (accountsState?.loading ?? false) ||
+                  (ccState?.loading ?? false) ||
+                  (certsState?.loading ?? false);
+
+                // Collect inline feedback messages across all active domains.
+                const domainMessages: { key: string; text: string; isError: boolean }[] = [];
+                if (isNBE) {
+                  for (const [domainKey, label] of [
+                    [`${cred.bank}_accounts`, 'Accounts'],
+                    [`${cred.bank}_cc`, 'CC'],
+                    [`${cred.bank}_certs`, 'Certs'],
+                  ] as [string, string][]) {
+                    const ds = syncStates[domainKey];
+                    if (ds?.error) {
+                      domainMessages.push({ key: domainKey, text: `${label}: ${ds.error}`, isError: true });
+                    } else if (ds?.lastResult) {
+                      domainMessages.push({ key: domainKey, text: `${label}: ${ds.lastResult}`, isError: false });
+                    }
+                  }
+                }
+
                 return (
                   <li key={cred.bank} className="py-4 first:pt-0 last:pb-0">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -232,16 +309,30 @@ export function BankAccountsSection() {
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                           Last synced: {formatDate(cred.last_synced_at)}
                         </p>
-                        {syncState?.error && (
+                        {/* Non-NBE single sync feedback */}
+                        {!isNBE && syncState?.error && (
                           <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
                             {syncState.error}
                           </p>
                         )}
-                        {syncState?.lastResult && (
+                        {!isNBE && syncState?.lastResult && (
                           <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
                             {syncState.lastResult}
                           </p>
                         )}
+                        {/* NBE domain-specific feedback */}
+                        {isNBE && domainMessages.map((msg) => (
+                          <p
+                            key={msg.key}
+                            className={`text-xs mt-0.5 ${
+                              msg.isError
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-green-700 dark:text-green-400'
+                            }`}
+                          >
+                            {msg.text}
+                          </p>
+                        ))}
                       </div>
 
                       {/* Status badge */}
@@ -257,20 +348,52 @@ export function BankAccountsSection() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          loading={isSyncing}
-                          disabled={isSyncing || isRemoving}
-                          onClick={() => void handleSync(cred.bank)}
-                        >
-                          Sync Now
-                        </Button>
+                        {isNBE ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={accountsState?.loading ?? false}
+                              disabled={isAnySyncing || isRemoving}
+                              onClick={() => void handleSyncDomain(cred.bank, 'accounts')}
+                            >
+                              Accounts
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={ccState?.loading ?? false}
+                              disabled={isAnySyncing || isRemoving}
+                              onClick={() => void handleSyncDomain(cred.bank, 'cc')}
+                            >
+                              CC
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={certsState?.loading ?? false}
+                              disabled={isAnySyncing || isRemoving}
+                              onClick={() => void handleSyncDomain(cred.bank, 'certs')}
+                            >
+                              Certs
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={isSyncing}
+                            disabled={isSyncing || isRemoving}
+                            onClick={() => void handleSync(cred.bank)}
+                          >
+                            Sync Now
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="danger"
                           loading={isRemoving}
-                          disabled={isSyncing || isRemoving}
+                          disabled={isAnySyncing || isRemoving}
                           onClick={() => void handleRemove(cred.bank)}
                         >
                           Remove

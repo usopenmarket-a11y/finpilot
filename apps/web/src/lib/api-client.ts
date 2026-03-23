@@ -137,37 +137,22 @@ export async function deleteCredential(
 // ---------------------------------------------------------------------------
 
 /**
- * Start a bank sync job and poll until completion.
+ * Poll a job until it reaches 'complete' or 'failed' status.
  *
- * The backend sync can take 2-4 minutes due to Cloudflare's 100-second HTTP timeout,
- * so this uses a background job pattern:
- * 1. POST /accounts/sync/{bank} returns immediately with a job_id (HTTP 202)
- * 2. Poll GET /accounts/sync/status/{job_id} every 5 seconds
- * 3. Return result when status is 'complete' or 'failed' (max 5 minutes)
+ * Internal helper — not exported. All public sync functions delegate here.
  */
-export async function syncBank(
+async function _pollSyncJob(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  jobId: string,
+  maxWaitMs: number,
 ): Promise<SyncResult> {
-  // Step 1: Start the job
-  const jobStart = await apiFetch<SyncJobStartResponse>(
-    `/api/v1/accounts/sync/${bank}`,
-    {
-      method: 'POST',
-      userId,
-    }
-  );
-
-  const jobId = jobStart.job_id;
-  const maxWaitMs = 20 * 60 * 1000; // 20 minutes — full scrape (login + CC + certs + 4 accounts + re-login) can take 12-15 min
   const pollIntervalMs = 5 * 1000; // 5 seconds
   const startTime = Date.now();
 
-  // Step 2: Poll for completion
   while (Date.now() - startTime < maxWaitMs) {
-    let status: SyncJobStatusResponse;
+    let jobStatus: SyncJobStatusResponse;
     try {
-      status = await apiFetch<SyncJobStatusResponse>(
+      jobStatus = await apiFetch<SyncJobStatusResponse>(
         `/api/v1/accounts/sync/status/${jobId}`,
         {
           method: 'GET',
@@ -178,25 +163,100 @@ export async function syncBank(
       const msg = err instanceof Error ? err.message : String(err);
       // 404 means the backend restarted mid-scrape and lost the in-memory job.
       if (msg.includes('Not Found') || msg.includes('not found')) {
-        throw new Error('Sync was interrupted — the server restarted mid-scrape. Please try again.');
+        throw new Error(
+          'Sync was interrupted — the server restarted mid-scrape. Please try again.',
+        );
       }
       throw err;
     }
 
-    if (status.status === 'complete') {
-      if (!status.result) {
+    if (jobStatus.status === 'complete') {
+      if (!jobStatus.result) {
         throw new Error('Job completed but no result returned');
       }
-      return status.result;
+      return jobStatus.result;
     }
 
-    if (status.status === 'failed') {
-      throw new Error(status.error || 'Sync job failed');
+    if (jobStatus.status === 'failed') {
+      throw new Error(jobStatus.error ?? 'Sync job failed');
     }
 
     // Status is 'pending' or 'running' — wait before polling again
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
-  throw new Error('Sync job timed out after 20 minutes');
+  const minutes = Math.round(maxWaitMs / 60000);
+  throw new Error(`Sync job timed out after ${minutes} minutes`);
+}
+
+/**
+ * Start a bank sync job and poll until completion.
+ *
+ * The backend sync can take 2-4 minutes due to Cloudflare's 100-second HTTP timeout,
+ * so this uses a background job pattern:
+ * 1. POST /accounts/sync/{bank} returns immediately with a job_id (HTTP 202)
+ * 2. Poll GET /accounts/sync/status/{job_id} every 5 seconds
+ * 3. Return result when status is 'complete' or 'failed' (max 20 minutes)
+ */
+export async function syncBank(
+  userId: string,
+  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+): Promise<SyncResult> {
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}`,
+    { method: 'POST', userId }
+  );
+  const maxWaitMs = 20 * 60 * 1000; // full scrape (login + CC + certs + 4 accounts + re-login)
+  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+}
+
+/**
+ * Sync NBE demand-deposit accounts and transactions only (skip CC and certs).
+ * Falls back to full scrape for non-NBE banks.
+ * Timeout: 10 minutes.
+ */
+export async function syncBankAccounts(
+  userId: string,
+  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+): Promise<SyncResult> {
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}/accounts`,
+    { method: 'POST', userId }
+  );
+  const maxWaitMs = 10 * 60 * 1000;
+  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+}
+
+/**
+ * Sync NBE credit card accounts and statement transactions only (skip demand-deposit and certs).
+ * Falls back to full scrape for non-NBE banks.
+ * Timeout: 8 minutes.
+ */
+export async function syncBankCreditCards(
+  userId: string,
+  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+): Promise<SyncResult> {
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}/credit-cards`,
+    { method: 'POST', userId }
+  );
+  const maxWaitMs = 8 * 60 * 1000;
+  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+}
+
+/**
+ * Sync NBE certificate/term-deposit accounts only (skip demand-deposit and CC).
+ * Falls back to full scrape for non-NBE banks.
+ * Timeout: 4 minutes.
+ */
+export async function syncBankCertificates(
+  userId: string,
+  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+): Promise<SyncResult> {
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}/certificates`,
+    { method: 'POST', userId }
+  );
+  const maxWaitMs = 4 * 60 * 1000;
+  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
 }
