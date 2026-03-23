@@ -81,6 +81,7 @@ in ``models.db.Transaction``.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -2329,17 +2330,16 @@ class NBEScraper(BankScraper):
 
                     # For UBT only: paginate through all pages
                     if tab_code == "UBT":
-                        # Log paginator state to diagnose page count
-                        try:
-                            pager_text = await page.locator(".oj-pagingcontrol-nav-label, .oj-pagingcontrol-range").first.text_content(timeout=3000)
-                            logger.info("NBE: UBT paginator text=%r", pager_text)
-                        except Exception:
-                            pass
-                        try:
-                            next_btn_cls = await page.locator("a.oj-pagingcontrol-nav-next").first.get_attribute("class", timeout=3000) or ""
-                            logger.info("NBE: UBT next-button classes on page 1: %r", next_btn_cls)
-                        except Exception:
-                            pass
+                        # Wait for the first UBT API response to arrive before
+                        # checking pagination — the paginator starts disabled and
+                        # only becomes enabled once the API response lands.
+                        _ubt_wait_start = asyncio.get_event_loop().time()
+                        while (asyncio.get_event_loop().time() - _ubt_wait_start) < 15:
+                            if any("unbill" in u.lower() or "UBT" in u for u in captured_ubt_uns):
+                                break
+                            await asyncio.sleep(1.0)
+                        else:
+                            logger.info("NBE: UBT — no response captured within 15s, skipping pagination")
 
                         _MAX_UBT_PAGES = 20  # safety cap
                         for ubt_page in range(2, _MAX_UBT_PAGES + 1):
@@ -2444,6 +2444,14 @@ class NBEScraper(BankScraper):
 
                 txn_time_inner = datetime.now(UTC)
                 count_before = len(all_txns)
+                # Log first item structure to diagnose field name differences
+                if txn_list and isinstance(txn_list[0], dict):
+                    logger.info(
+                        "NBE: %s items[0] keys=%s sample=%s",
+                        tab_type,
+                        list(txn_list[0].keys()),
+                        {k: v for k, v in list(txn_list[0].items())[:6]},
+                    )
                 for stmt in txn_list:
                     if not isinstance(stmt, dict):
                         continue
