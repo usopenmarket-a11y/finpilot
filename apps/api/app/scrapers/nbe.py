@@ -2468,10 +2468,19 @@ class NBEScraper(BankScraper):
                         elif isinstance(v, dict):
                             logger.info("NBE: %s response — key=%r is dict keys=%s", tab_type, k, list(v.keys()))
                 # Shape 2: items[].statmentItems[]
+                # Parent item may carry date fields (e.g. authdate for UNS) that child
+                # statmentItems lack — merge them in so the parser can find the date.
                 if txn_list and isinstance(txn_list[0], dict) and "statmentItems" in txn_list[0]:
                     flat: list[dict] = []
                     for item in txn_list:
-                        flat.extend(item.get("statmentItems", []))
+                        parent_date_fields = {
+                            k: item[k]
+                            for k in ("authdate", "authtime", "txndate", "postdate")
+                            if k in item and item[k]
+                        }
+                        for child in item.get("statmentItems", []):
+                            merged = {**parent_date_fields, **child}
+                            flat.append(merged)
                     txn_list = flat
 
                 txn_time_inner = datetime.now(UTC)
