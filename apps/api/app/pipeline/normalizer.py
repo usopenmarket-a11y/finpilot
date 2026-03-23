@@ -141,6 +141,8 @@ def _normalize_account(
         credit_limit=account.credit_limit,
         billed_amount=account.billed_amount,
         unbilled_amount=account.unbilled_amount,
+        minimum_payment=account.minimum_payment,
+        payment_due_date=account.payment_due_date,
         # Certificate / deposit metadata — pass through from scraper; None for other types
         interest_rate=account.interest_rate,
         maturity_date=account.maturity_date,
