@@ -191,7 +191,7 @@ function RepaymentTrackerPanel({
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
-  // Total amounts paid = sum of credit transactions in unbilled (current month payments)
+  // Total credits = sum of all credit transactions in unbilled
   const totalPaid = unbilledTx
     .filter((tx) => tx.transaction_type === 'credit')
     .reduce((s, tx) => s + tx.amount, 0);
@@ -200,9 +200,9 @@ function RepaymentTrackerPanel({
   const remaining = closingBalance - totalPaid;
   const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
 
-  // Fawry totals from unbilled transactions
+  // MY FAWRY totals from unbilled transactions
   const fawryTx = unbilledTx.filter((tx) =>
-    tx.description.toUpperCase().includes('FAWRY'),
+    tx.description.toUpperCase().includes('MY FAWRY'),
   );
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
   const fawryInterest = totalFawry * 0.008;
@@ -257,11 +257,22 @@ function RepaymentTrackerPanel({
         />
       </div>
 
+      {/* Total Credits */}
+      {totalPaid > 0 && (
+        <div className="grid grid-cols-1 gap-3">
+          <KpiCard
+            label="Total Credits (sum of all credit transactions)"
+            value={`EGP ${formatEGP(totalPaid)}`}
+            valueColor="text-green-600 dark:text-green-400"
+          />
+        </div>
+      )}
+
       {/* Fawry row */}
       {totalFawry > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <KpiCard
-            label="Fawry Charges (total)"
+            label="MY FAWRY Charges (total)"
             value={`EGP ${formatEGP(totalFawry)}`}
             valueColor="text-blue-600 dark:text-blue-400"
           />
