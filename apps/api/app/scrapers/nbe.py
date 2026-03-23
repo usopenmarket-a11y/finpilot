@@ -2363,7 +2363,7 @@ class NBEScraper(BankScraper):
                                 try:
                                     _btn = page.locator("a.oj-pagingcontrol-nav-next").first
                                     _cls = await _btn.get_attribute("class") or ""
-                                    logger.info("NBE: UBT next-btn classes (polling): %r", _cls)
+                                    logger.debug("NBE: UBT next-btn classes (polling): %r", _cls)
                                     if "oj-disabled" not in _cls:
                                         _btn_enabled = True
                                         break
@@ -2457,16 +2457,7 @@ class NBEScraper(BankScraper):
                     or []
                 )
                 if not txn_list:
-                    # Log all top-level values to find the list
-                    for k, v in data.items():
-                        if isinstance(v, list) and len(v) > 0:
-                            logger.info(
-                                "NBE: %s response — key=%r is list len=%d first_item_keys=%s",
-                                tab_type, k, len(v),
-                                list(v[0].keys()) if isinstance(v[0], dict) else type(v[0]).__name__,
-                            )
-                        elif isinstance(v, dict):
-                            logger.info("NBE: %s response — key=%r is dict keys=%s", tab_type, k, list(v.keys()))
+                    logger.warning("NBE: %s — no transaction list found in response keys=%s", tab_type, list(data.keys()))
                 # Shape 2: items[].statmentItems[]
                 # Parent item may carry date fields (e.g. authdate for UNS) that child
                 # statmentItems lack — merge them in so the parser can find the date.
@@ -2485,15 +2476,6 @@ class NBEScraper(BankScraper):
 
                 txn_time_inner = datetime.now(UTC)
                 count_before = len(all_txns)
-                logger.info("NBE: %s txn_list len=%d", tab_type, len(txn_list))
-                # Log first item structure to diagnose field name differences
-                if txn_list and isinstance(txn_list[0], dict):
-                    logger.info(
-                        "NBE: %s items[0] keys=%s ALL_FIELDS=%s",
-                        tab_type,
-                        list(txn_list[0].keys()),
-                        dict(txn_list[0]),
-                    )
                 for stmt in txn_list:
                     if not isinstance(stmt, dict):
                         continue
@@ -2504,7 +2486,7 @@ class NBEScraper(BankScraper):
                             txn.raw_data["source"] = f"nbe_cc_{tab_type}"
                         all_txns.append(txn)
                     else:
-                        logger.info(
+                        logger.debug(
                             "NBE: %s skipped item — amt=%r txnamt=%r txndate=%r postdate=%r",
                             tab_type,
                             stmt.get("amt"),
