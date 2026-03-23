@@ -2181,22 +2181,49 @@ class NBEScraper(BankScraper):
                     )
                 except Exception as e:
                     logger.debug("NBE: could not read listStatements response body: %s", e)
-            elif any(
-                kw in url
-                for kw in (
-                    "unbilledTransaction",
-                    "unsettledTransaction",
-                    "listUnbilled",
-                    "listUnsettled",
-                    "creditcard",
+            else:
+                # Capture UBT/UNS responses — match by URL keyword OR by body content.
+                # NBE may use endpoint paths we haven't seen yet, so we also inspect
+                # the body of any JSON API response for unbilled/unsettled transaction data.
+                url_matches = any(
+                    kw in url
+                    for kw in (
+                        "unbilledTransaction",
+                        "unsettledTransaction",
+                        "listUnbilled",
+                        "listUnsettled",
+                        "Unbilled",
+                        "Unsettled",
+                        "creditcard",
+                        "digx",
+                    )
                 )
-            ):
+                # Only read the body for plausible API calls (skip static assets)
+                is_api_call = (
+                    url_matches or ("/v1/" in url) or ("/api/" in url) or url.endswith(".json")
+                )
+                if not is_api_call:
+                    return
                 try:
                     body = await resp.text()  # type: ignore[union-attr]
-                    if body and len(body) > 50:
+                    if not body or len(body) < 50:
+                        return
+                    # Accept if URL matched or body contains UBT/UNS data keys
+                    body_lower = body[:2000].lower()
+                    body_matches = (
+                        "unbilledtransaction" in body_lower
+                        or "unsettledtransaction" in body_lower
+                        or "crdrflag" in body_lower
+                        or "originalamt" in body_lower
+                    )
+                    if url_matches or body_matches:
                         captured_ubt_uns[url] = body
-                        logger.debug(
-                            "NBE: captured UBT/UNS response: %s (%d bytes)", url, len(body)
+                        logger.info(
+                            "NBE: captured UBT/UNS response: %s (%d bytes) url_match=%s body_match=%s",
+                            url,
+                            len(body),
+                            url_matches,
+                            body_matches,
                         )
                 except Exception as e:
                     logger.debug("NBE: could not read UBT/UNS response body: %s", e)
