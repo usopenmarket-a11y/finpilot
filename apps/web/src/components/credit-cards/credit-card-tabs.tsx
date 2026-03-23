@@ -202,7 +202,7 @@ function RepaymentTrackerPanel({
 
   // Fawry totals from unbilled transactions
   const fawryTx = unbilledTx.filter((tx) =>
-    tx.description.toUpperCase().includes('MY FAWRY'),
+    tx.description.toUpperCase().includes('FAWRY'),
   );
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
   const fawryInterest = totalFawry * 0.008;

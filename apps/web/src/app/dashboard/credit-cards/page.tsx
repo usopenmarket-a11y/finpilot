@@ -143,7 +143,7 @@ export default async function CreditCardsPage() {
       .select('*')
       .eq('user_id', userId)
       .order('transaction_date', { ascending: false })
-      .limit(500),
+      .limit(1000),
   ]);
 
   const creditCardAccounts: BankAccountRow[] = accountsResult.data ?? [];
@@ -152,31 +152,14 @@ export default async function CreditCardsPage() {
   const creditCardIds = new Set(creditCardAccounts.map((a) => a.id));
   const creditCardTx = allTransactions.filter((tx) => creditCardIds.has(tx.account_id));
 
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-
   // Last 6 months monthly spend
   const last6MonthsData = buildLast6MonthsData(allTransactions, creditCardIds);
 
-  // Unbilled Transactions: current open statement period.
-  // The statement cycle runs from ~27th to ~27th (billing date), so "unbilled"
-  // means transactions since the last billing date (payment_due_date - 30 days).
-  // If payment_due_date is known, use that to anchor the period start;
-  // otherwise fall back to the start of the current calendar month.
   const firstCcForUnbilled = creditCardAccounts[0] ?? null;
-  const unbilledPeriodStart: string = (() => {
-    const due = firstCcForUnbilled?.payment_due_date;
-    if (due) {
-      // Statement opens ~30 days before due date
-      const d = new Date(due);
-      d.setDate(d.getDate() - 30);
-      return d.toISOString().slice(0, 10);
-    }
-    return monthStart;
-  })();
-  const unbilledTx = creditCardTx
-    .filter((tx) => tx.transaction_date >= unbilledPeriodStart)
-    .map(toCardTx);
+
+  // Unbilled Transactions: all CC transactions available from the scraper —
+  // no date filter. NBE returns whatever is on the statement history page.
+  const unbilledTx = creditCardTx.map(toCardTx);
 
   // Unsettled: transaction_type = 'unsettled' OR description contains 'pending'/'unsettled'
   const unsettledTx = creditCardTx
