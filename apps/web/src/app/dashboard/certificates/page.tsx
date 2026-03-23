@@ -44,6 +44,8 @@ function typeBadgeVariant(type: string): 'danger' | 'info' | 'warning' {
 
 function CertificateRow({ account }: { account: BankAccountRow }) {
   const balance = parseFloat(String(account.balance));
+  const interestRate = account.interest_rate != null ? parseFloat(String(account.interest_rate)) : null;
+  const maturityDate = account.maturity_date ?? null;
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
@@ -71,10 +73,26 @@ function CertificateRow({ account }: { account: BankAccountRow }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="flex flex-wrap items-center gap-4 sm:gap-6">
         <Badge variant={typeBadgeVariant(account.account_type)}>
           {typeLabel(account.account_type)}
         </Badge>
+        {interestRate != null && (
+          <div className="text-right">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Interest Rate</p>
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+              {interestRate.toFixed(2)}%
+            </p>
+          </div>
+        )}
+        {maturityDate && (
+          <div className="text-right">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Matures</p>
+            <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+              {maturityDate}
+            </p>
+          </div>
+        )}
         <div className="text-right">
           <p className="text-xs text-gray-500 dark:text-gray-400">Principal</p>
           <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">

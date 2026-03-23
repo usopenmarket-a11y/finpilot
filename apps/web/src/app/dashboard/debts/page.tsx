@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { DebtList } from '@/components/debts/debt-list';
 import { AddDebtForm } from '@/components/debts/add-debt-form';
 import { PaymentModal } from '@/components/debts/payment-modal';
@@ -9,42 +10,30 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { Debt, DebtPayment } from '@/lib/types';
 
-const MOCK_DEBTS: Debt[] = [
-  {
-    id: '1',
-    debt_type: 'lent',
-    counterparty_name: 'Ahmed Hassan',
-    outstanding_balance: 3000,
-    original_amount: 5000,
-    currency: 'EGP',
-    status: 'partial',
-    due_date: '2026-04-01',
-    notes: 'For business expenses',
-    created_at: '2026-01-15T00:00:00Z',
-    updated_at: '2026-02-15T00:00:00Z',
-  },
-  {
-    id: '2',
-    debt_type: 'borrowed',
-    counterparty_name: 'Sara Mohamed',
-    outstanding_balance: 2000,
-    original_amount: 2000,
-    currency: 'EGP',
-    status: 'active',
-    due_date: '2026-05-01',
-    notes: null,
-    created_at: '2026-02-01T00:00:00Z',
-    updated_at: '2026-02-01T00:00:00Z',
-  },
-];
-
 type ActiveTab = 'borrowing' | 'lending';
 
 export default function DebtsPage() {
-  const [debts, setDebts] = useState<Debt[]>(MOCK_DEBTS);
+  const [debts, setDebts] = useState<Debt[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('lending');
   const [showAddForm, setShowAddForm] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Debt | null>(null);
+
+  const fetchDebts = useCallback(async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data } = await supabase
+      .from('debts')
+      .select('*')
+      .eq('user_id', user.id)
+      .neq('status', 'settled')
+      .order('created_at', { ascending: false });
+    setDebts((data ?? []) as Debt[]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void fetchDebts(); }, [fetchDebts]);
 
   const lentDebts = debts.filter((d) => d.debt_type === 'lent');
   const borrowedDebts = debts.filter((d) => d.debt_type === 'borrowed');
@@ -58,20 +47,10 @@ export default function DebtsPage() {
     setShowAddForm(false);
   };
 
-  const handlePaymentRecorded = (payment: DebtPayment) => {
-    setDebts((prev) =>
-      prev.map((d) => {
-        if (d.id !== payment.debt_id) return d;
-        const newBalance = Math.max(0, d.outstanding_balance - payment.amount);
-        return {
-          ...d,
-          outstanding_balance: newBalance,
-          status: newBalance === 0 ? 'settled' : newBalance < d.original_amount ? 'partial' : d.status,
-          updated_at: new Date().toISOString(),
-        };
-      })
-    );
+  const handlePaymentRecorded = (_payment: DebtPayment) => {
     setPaymentTarget(null);
+    // Refetch so outstanding_balance and status are accurate from DB
+    void fetchDebts();
   };
 
   function formatEGP(amount: number): string {
@@ -96,54 +75,62 @@ export default function DebtsPage() {
         </Button>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total to Collect</p>
-          <p className="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">
-            EGP {formatEGP(totalLent)}
-          </p>
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
         </div>
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Owed</p>
-          <p className="text-xl font-bold text-red-500 dark:text-red-400 tabular-nums">
-            EGP {formatEGP(totalBorrowed)}
-          </p>
-        </div>
-      </div>
+      ) : (
+        <>
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total to Collect</p>
+              <p className="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">
+                EGP {formatEGP(totalLent)}
+              </p>
+            </div>
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Owed</p>
+              <p className="text-xl font-bold text-red-500 dark:text-red-400 tabular-nums">
+                EGP {formatEGP(totalBorrowed)}
+              </p>
+            </div>
+          </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 dark:border-gray-800 gap-1">
-        <button
-          onClick={() => setActiveTab('lending')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-            activeTab === 'lending'
-              ? 'border-brand-500 text-brand-500'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-          }`}
-        >
-          Lending
-          <Badge variant="success">{lentDebts.length}</Badge>
-        </button>
-        <button
-          onClick={() => setActiveTab('borrowing')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-            activeTab === 'borrowing'
-              ? 'border-brand-500 text-brand-500'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-          }`}
-        >
-          Borrowing
-          <Badge variant="danger">{borrowedDebts.length}</Badge>
-        </button>
-      </div>
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200 dark:border-gray-800 gap-1">
+            <button
+              onClick={() => setActiveTab('lending')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === 'lending'
+                  ? 'border-brand-500 text-brand-500'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              Lending
+              <Badge variant="success">{lentDebts.length}</Badge>
+            </button>
+            <button
+              onClick={() => setActiveTab('borrowing')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === 'borrowing'
+                  ? 'border-brand-500 text-brand-500'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              Borrowing
+              <Badge variant="danger">{borrowedDebts.length}</Badge>
+            </button>
+          </div>
 
-      {/* Debt list */}
-      <DebtList
-        debts={visibleDebts}
-        onAddDebt={() => setShowAddForm(true)}
-        onRecordPayment={(debt) => setPaymentTarget(debt)}
-      />
+          {/* Debt list */}
+          <DebtList
+            debts={visibleDebts}
+            onAddDebt={() => setShowAddForm(true)}
+            onRecordPayment={(debt) => setPaymentTarget(debt)}
+          />
+        </>
+      )}
 
       {/* Add debt modal */}
       <Modal

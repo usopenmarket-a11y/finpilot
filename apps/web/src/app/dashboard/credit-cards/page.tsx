@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { CreditCardTabs } from '@/components/credit-cards/credit-card-tabs';
+import { Card, CardBody } from '@/components/ui/card';
+import { CreditCardSelector } from '@/components/credit-cards/credit-card-selector';
+import type { CreditCardData } from '@/components/credit-cards/credit-card-selector';
 import type { MonthlySpend, CreditCardTransaction } from '@/components/credit-cards/credit-card-tabs';
 import type { Database } from '@finpilot/shared';
 
@@ -19,24 +19,13 @@ function formatEGP(amount: number): string {
   }).format(amount);
 }
 
-function utilization(balance: number, limit: number): number {
-  if (limit <= 0) return 0;
-  return Math.min(100, Math.round((balance / limit) * 100));
-}
-
-function utilizationColor(pct: number): string {
-  if (pct >= 80) return 'text-red-500 dark:text-red-400';
-  if (pct >= 50) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-green-600 dark:text-green-400';
-}
-
 function monthLabel(date: Date): string {
   return new Intl.DateTimeFormat('en-EG', { month: 'short', year: 'numeric' }).format(date);
 }
 
 function buildLast6MonthsData(
   transactions: TransactionRow[],
-  creditCardIds: Set<string>,
+  accountId: string,
 ): MonthlySpend[] {
   const now = new Date();
   const months: MonthlySpend[] = [];
@@ -50,7 +39,7 @@ function buildLast6MonthsData(
     const total = transactions
       .filter(
         (tx) =>
-          creditCardIds.has(tx.account_id) &&
+          tx.account_id === accountId &&
           tx.transaction_type === 'debit' &&
           tx.transaction_date >= start &&
           tx.transaction_date <= end,
@@ -75,50 +64,54 @@ function toCardTx(row: TransactionRow): CreditCardTransaction {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Credit card row card
-// ---------------------------------------------------------------------------
+function buildPerCardData(
+  account: BankAccountRow,
+  allTransactions: TransactionRow[],
+): CreditCardData {
+  const cardTx = allTransactions.filter((tx) => tx.account_id === account.id);
 
-function CreditCardAccountCard({ account }: { account: BankAccountRow }) {
-  const balance = parseFloat(String(account.balance));
-  // We don't have a credit_limit field — show balance as current owed amount
-  const pct = 0; // cannot compute without limit field
+  // Unbilled: current billing cycle (payment_due_date - 27 days)
+  const cycleStartDate = (() => {
+    const dueDate = account.payment_due_date;
+    if (dueDate) {
+      const d = new Date(dueDate);
+      d.setDate(d.getDate() - 27);
+      return d.toISOString().slice(0, 10);
+    }
+    const fallback = new Date();
+    fallback.setDate(fallback.getDate() - 30);
+    return fallback.toISOString().slice(0, 10);
+  })();
 
-  return (
-    <div className="flex items-center justify-between px-5 py-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-      <div className="flex items-center gap-4">
-        {/* Card icon */}
-        <div className="h-10 w-16 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-          <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-          </svg>
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">{account.bank_name}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
-            {account.account_number_masked}
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center gap-6">
-        <div className="text-right">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Current Balance</p>
-          <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
-            {account.currency} {formatEGP(balance)}
-          </p>
-        </div>
-        {pct > 0 && (
-          <div className="text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Utilization</p>
-            <p className={`text-sm font-bold tabular-nums ${utilizationColor(pct)}`}>
-              {pct}%
-            </p>
-          </div>
-        )}
-        <Badge variant="warning">Credit Card</Badge>
-      </div>
-    </div>
-  );
+  const unbilledTx = cardTx
+    .filter((tx) => tx.transaction_date > cycleStartDate)
+    .map(toCardTx);
+
+  const unsettledTx = cardTx
+    .filter(
+      (tx) =>
+        tx.transaction_type === 'unsettled' ||
+        tx.description.toLowerCase().includes('pending') ||
+        tx.description.toLowerCase().includes('unsettled'),
+    )
+    .map(toCardTx);
+
+  return {
+    id: account.id,
+    bank_name: account.bank_name,
+    account_number_masked: account.account_number_masked,
+    balance: parseFloat(String(account.balance)),
+    currency: account.currency,
+    is_active: account.is_active,
+    billed_amount: account.billed_amount != null ? parseFloat(String(account.billed_amount)) : null,
+    unbilled_amount: account.unbilled_amount != null ? parseFloat(String(account.unbilled_amount)) : null,
+    credit_limit: account.credit_limit != null ? parseFloat(String(account.credit_limit)) : null,
+    minimum_payment: account.minimum_payment != null ? parseFloat(String(account.minimum_payment)) : null,
+    payment_due_date: account.payment_due_date ?? null,
+    unbilledTx,
+    unsettledTx,
+    last6MonthsData: buildLast6MonthsData(allTransactions, account.id),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -149,75 +142,10 @@ export default async function CreditCardsPage() {
   const creditCardAccounts: BankAccountRow[] = accountsResult.data ?? [];
   const allTransactions: TransactionRow[] = transactionsResult.data ?? [];
 
-  const creditCardIds = new Set(creditCardAccounts.map((a) => a.id));
-  const creditCardTx = allTransactions.filter((tx) => creditCardIds.has(tx.account_id));
-
-  // Last 6 months monthly spend
-  const last6MonthsData = buildLast6MonthsData(allTransactions, creditCardIds);
-
-  const firstCcForUnbilled = creditCardAccounts[0] ?? null;
-
-  // Unbilled Transactions: current open billing cycle only.
-  // NBE cycle is ~27 days ending on payment_due_date.
-  // Cutoff = payment_due_date - 27 days (the last statement close date).
-  // Fall back to 30 days ago if payment_due_date is not available.
-  const cycleStartDate = (() => {
-    const dueDate = firstCcForUnbilled?.payment_due_date;
-    if (dueDate) {
-      const d = new Date(dueDate);
-      d.setDate(d.getDate() - 27);
-      return d.toISOString().slice(0, 10);
-    }
-    const fallback = new Date();
-    fallback.setDate(fallback.getDate() - 30);
-    return fallback.toISOString().slice(0, 10);
-  })();
-
-  const unbilledTx = creditCardTx
-    .filter((tx) => tx.transaction_date > cycleStartDate)
-    .map(toCardTx);
-
-  // Unsettled: transaction_type = 'unsettled' OR description contains 'pending'/'unsettled'
-  const unsettledTx = creditCardTx
-    .filter(
-      (tx) =>
-        tx.transaction_type === 'unsettled' ||
-        tx.description.toLowerCase().includes('pending') ||
-        tx.description.toLowerCase().includes('unsettled'),
-    )
-    .map(toCardTx);
-
   const totalBalance = creditCardAccounts.reduce(
     (s, a) => s + parseFloat(String(a.balance)),
     0,
   );
-
-  // Extract billed_amount and credit_limit from the first CC account for the
-  // Repayment Tracker tab pre-fill
-  const firstCcAccount = firstCcForUnbilled;
-  const billedAmount: number | null =
-    firstCcAccount?.billed_amount != null
-      ? parseFloat(String(firstCcAccount.billed_amount))
-      : null;
-  const creditLimit: number | null =
-    firstCcAccount?.credit_limit != null
-      ? parseFloat(String(firstCcAccount.credit_limit))
-      : null;
-  const minimumPayment: number | null =
-    firstCcAccount?.minimum_payment != null
-      ? parseFloat(String(firstCcAccount.minimum_payment))
-      : null;
-  const paymentDueDate: string | null = firstCcAccount?.payment_due_date ?? null;
-  const unbilledAmount: number | null =
-    firstCcAccount?.unbilled_amount != null
-      ? parseFloat(String(firstCcAccount.unbilled_amount))
-      : null;
-  const cardAccountNumber: string = firstCcAccount?.account_number_masked ?? '';
-  const cardIsActive: boolean = firstCcAccount?.is_active ?? false;
-  const cardBankName: string = firstCcAccount?.bank_name ?? '';
-  const cardBalance: number = firstCcAccount != null
-    ? parseFloat(String(firstCcAccount.balance))
-    : 0;
 
   if (creditCardAccounts.length === 0) {
     return (
@@ -251,6 +179,10 @@ export default async function CreditCardsPage() {
     );
   }
 
+  const cards: CreditCardData[] = creditCardAccounts.map((account) =>
+    buildPerCardData(account, allTransactions),
+  );
+
   return (
     <div className="p-6 lg:p-8 space-y-8">
       {/* Header */}
@@ -269,28 +201,8 @@ export default async function CreditCardsPage() {
         </div>
       </div>
 
-      {/* Card list */}
-      <div className="space-y-3">
-        {creditCardAccounts.map((account) => (
-          <CreditCardAccountCard key={account.id} account={account} />
-        ))}
-      </div>
-
-      {/* Tabs */}
-      <CreditCardTabs
-        last6MonthsData={last6MonthsData}
-        unbilledTx={unbilledTx}
-        unsettledTx={unsettledTx}
-        billedAmount={billedAmount}
-        creditLimit={creditLimit}
-        minimumPayment={minimumPayment}
-        paymentDueDate={paymentDueDate}
-        cardAccountNumber={cardAccountNumber}
-        cardIsActive={cardIsActive}
-        cardBankName={cardBankName}
-        cardBalance={cardBalance}
-        unbilledAmount={unbilledAmount}
-      />
+      {/* Card selector + tabs */}
+      <CreditCardSelector cards={cards} />
     </div>
   );
 }

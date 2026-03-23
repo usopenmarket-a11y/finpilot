@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
 import type { Debt } from '@/lib/types';
 
 interface AddDebtFormProps {
@@ -83,16 +83,30 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
     setApiError(null);
 
     try {
-      const payload = {
-        counterparty_name: values.counterparty_name.trim(),
-        debt_type: values.debt_type,
-        original_amount: parseFloat(values.amount),
-        currency: values.currency,
-        due_date: values.due_date || null,
-        notes: values.notes.trim() || null,
-      };
-      const created = await api.post<Debt>('/debts', payload);
-      onSuccess(created);
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const amount = parseFloat(values.amount);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('debts')
+        .insert({
+          user_id: user.id,
+          counterparty_name: values.counterparty_name.trim(),
+          debt_type: values.debt_type,
+          original_amount: amount,
+          outstanding_balance: amount,
+          currency: values.currency,
+          status: 'active',
+          due_date: values.due_date || null,
+          notes: values.notes.trim() || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      onSuccess(data as Debt);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {

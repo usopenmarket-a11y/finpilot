@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
 import type { Debt, DebtPayment } from '@/lib/types';
 
 interface PaymentModalProps {
@@ -83,13 +83,46 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
     setApiError(null);
 
     try {
-      const payload = {
-        amount: parseFloat(values.amount),
-        payment_date: values.payment_date,
-        notes: values.notes.trim() || null,
-      };
-      const payment = await api.post<DebtPayment>(`/debts/${debt.id}/payments`, payload);
-      onSuccess(payment);
+      const supabase = createClient();
+      const amount = parseFloat(values.amount);
+
+      // Insert payment record
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: payment, error: paymentError } = await (supabase as any)
+        .from('debt_payments')
+        .insert({
+          debt_id: debt.id,
+          amount,
+          payment_date: values.payment_date,
+          notes: values.notes.trim() || null,
+        })
+        .select()
+        .single();
+
+      if (paymentError) throw new Error(paymentError.message);
+
+      // Update debt outstanding_balance and status
+      const newBalance = Math.max(0, debt.outstanding_balance - amount);
+      const newStatus =
+        newBalance === 0
+          ? 'settled'
+          : newBalance < debt.original_amount
+          ? 'partial'
+          : debt.status;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: debtError } = await (supabase as any)
+        .from('debts')
+        .update({
+          outstanding_balance: newBalance,
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', debt.id);
+
+      if (debtError) throw new Error(debtError.message);
+
+      onSuccess(payment as DebtPayment);
       handleClose();
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Failed to record payment. Please try again.');
