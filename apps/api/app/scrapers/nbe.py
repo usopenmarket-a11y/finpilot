@@ -2449,10 +2449,10 @@ class NBEScraper(BankScraper):
                 # Log first item structure to diagnose field name differences
                 if txn_list and isinstance(txn_list[0], dict):
                     logger.info(
-                        "NBE: %s items[0] keys=%s sample=%s",
+                        "NBE: %s items[0] keys=%s ALL_FIELDS=%s",
                         tab_type,
                         list(txn_list[0].keys()),
-                        {k: v for k, v in list(txn_list[0].items())[:6]},
+                        dict(txn_list[0]),
                     )
                 for stmt in txn_list:
                     if not isinstance(stmt, dict):
@@ -2463,6 +2463,15 @@ class NBEScraper(BankScraper):
                         if txn.raw_data is not None:
                             txn.raw_data["source"] = f"nbe_cc_{tab_type}"
                         all_txns.append(txn)
+                    else:
+                        logger.info(
+                            "NBE: %s skipped item — amt=%r txnamt=%r txndate=%r postdate=%r",
+                            tab_type,
+                            stmt.get("amt"),
+                            stmt.get("txnamt"),
+                            stmt.get("txndate"),
+                            stmt.get("postdate"),
+                        )
                 logger.info(
                     "NBE: %s tab → %d transaction(s) added",
                     tab_type,
