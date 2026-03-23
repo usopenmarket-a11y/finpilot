@@ -44,14 +44,14 @@ interface CreditCardTabsProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type TabKey = 'repayment' | 'unbilled' | 'unsettled' | 'last6' | 'details';
+type TabKey = 'details' | 'repayment' | 'unbilled' | 'unsettled' | 'last6';
 
 const TABS: { key: TabKey; label: string }[] = [
+  { key: 'details', label: 'Card Details' },
   { key: 'repayment', label: 'Repayment Tracker' },
   { key: 'unbilled', label: 'Unbilled Transactions' },
   { key: 'unsettled', label: 'Unsettled' },
   { key: 'last6', label: 'Monthly Spend' },
-  { key: 'details', label: 'Card Details' },
 ];
 
 function formatEGP(amount: number): string {
@@ -115,14 +115,10 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
 }
 
 // ---------------------------------------------------------------------------
-// Fawry breakdown — shared between Unbilled tab and (formerly) Repayment
+// Fawry breakdown — shown in Unbilled tab
 // ---------------------------------------------------------------------------
 
-interface FawryBreakdownProps {
-  transactions: CreditCardTransaction[];
-}
-
-function FawryBreakdown({ transactions }: FawryBreakdownProps) {
+function FawryBreakdown({ transactions }: { transactions: CreditCardTransaction[] }) {
   const fawryTx = transactions.filter((tx) =>
     tx.description.toUpperCase().includes('MY FAWRY'),
   );
@@ -139,10 +135,7 @@ function FawryBreakdown({ transactions }: FawryBreakdownProps) {
           Fawry Breakdown
         </p>
         <div className="grid grid-cols-2 gap-4">
-          <CostStat
-            label="MY FAWRY CAIRO EGY total"
-            value={`EGP ${formatEGP(totalFawry)}`}
-          />
+          <CostStat label="MY FAWRY CAIRO EGY total" value={`EGP ${formatEGP(totalFawry)}`} />
           <CostStat
             label="Fawry interest (0.8%)"
             value={`EGP ${formatEGP(fawryCost)}`}
@@ -184,28 +177,35 @@ function FawryBreakdown({ transactions }: FawryBreakdownProps) {
 // ---------------------------------------------------------------------------
 
 interface RepaymentTrackerPanelProps {
-  allCcTx: CreditCardTransaction[];
+  unbilledTx: CreditCardTransaction[];
   billedAmount?: number | null;
   minimumPayment?: number | null;
   paymentDueDate?: string | null;
 }
 
 function RepaymentTrackerPanel({
-  allCcTx,
+  unbilledTx,
   billedAmount,
   minimumPayment,
   paymentDueDate,
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
-  // Total amounts paid = sum of all credit transactions
-  const totalPaid = allCcTx
+  // Total amounts paid = sum of credit transactions in unbilled (current month payments)
+  const totalPaid = unbilledTx
     .filter((tx) => tx.transaction_type === 'credit')
     .reduce((s, tx) => s + tx.amount, 0);
 
   // Remaining = closing balance - total paid
   const remaining = closingBalance - totalPaid;
   const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
+
+  // Fawry totals from unbilled transactions
+  const fawryTx = unbilledTx.filter((tx) =>
+    tx.description.toUpperCase().includes('MY FAWRY'),
+  );
+  const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
+  const fawryInterest = totalFawry * 0.008;
 
   // Progress
   const rawProgress = closingBalance > 0 ? (totalPaid / closingBalance) * 100 : 0;
@@ -222,7 +222,7 @@ function RepaymentTrackerPanel({
 
   return (
     <div className="space-y-6">
-      {/* Statement header row */}
+      {/* 4 KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
           label="Closing Balance"
@@ -257,6 +257,22 @@ function RepaymentTrackerPanel({
         />
       </div>
 
+      {/* Fawry row */}
+      {totalFawry > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <KpiCard
+            label="MY FAWRY CAIRO EGY (total)"
+            value={`EGP ${formatEGP(totalFawry)}`}
+            valueColor="text-blue-600 dark:text-blue-400"
+          />
+          <KpiCard
+            label="Fawry Interest (0.8%)"
+            value={`EGP ${formatEGP(fawryInterest)}`}
+            valueColor="text-red-500 dark:text-red-400"
+          />
+        </div>
+      )}
+
       {/* Payment due date */}
       {dueDateDisplay && (
         <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
@@ -287,9 +303,7 @@ function RepaymentTrackerPanel({
 
       {closingBalance === 0 && (
         <div className="py-10 text-center">
-          <p className="text-base font-medium text-gray-600 dark:text-gray-400">
-            No balance due
-          </p>
+          <p className="text-base font-medium text-gray-600 dark:text-gray-400">No balance due</p>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
             Sync your account to load closing balance and payment details.
           </p>
@@ -356,10 +370,10 @@ interface CardDetailsPanelProps {
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   const display = value != null && value !== '' ? value : null;
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+    <div className="flex items-center justify-between py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
+      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
       {display != null ? (
-        <span className="text-sm font-semibold text-gray-900 dark:text-white">{display}</span>
+        <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{display}</span>
       ) : (
         <span className="text-sm font-semibold text-gray-400 dark:text-gray-600">—</span>
       )}
@@ -367,9 +381,9 @@ function DetailRow({ label, value }: { label: string; value: string | null | und
   );
 }
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mt-5 mb-1 px-1">
       {children}
     </p>
   );
@@ -386,8 +400,7 @@ function CardDetailsPanel({
   minimumPayment,
   paymentDueDate,
 }: CardDetailsPanelProps) {
-  const availableCredit =
-    creditLimit != null ? creditLimit - balance : null;
+  const availableCredit = creditLimit != null ? creditLimit - balance : null;
 
   const dueDateDisplay = paymentDueDate
     ? new Intl.DateTimeFormat('en-EG', { day: 'numeric', month: 'short', year: 'numeric' }).format(
@@ -396,74 +409,50 @@ function CardDetailsPanel({
     : null;
 
   return (
-    <div className="space-y-6">
+    <div>
+      {/* Card visual */}
+      <div className="h-10 w-16 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mb-5">
+        <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+        </svg>
+      </div>
+
       {/* Card Info */}
-      <div>
-        <SectionHeader>Card Info</SectionHeader>
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            <DetailRow label="Card Number" value={accountNumber} />
-            <DetailRow label="Bank" value={bankName} />
-            <DetailRow label="Card Type" value="Credit Card" />
-            <DetailRow label="Product" value={`${bankName} Credit Card`} />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Status</span>
-              <div>
-                {isActive ? (
-                  <Badge variant="success">Active</Badge>
-                ) : (
-                  <Badge variant="warning">Inactive</Badge>
-                )}
-              </div>
-            </div>
+      <SectionLabel>Card Info</SectionLabel>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 divide-y-0">
+        <DetailRow label="Bank" value={bankName} />
+        <DetailRow label="Card Number" value={accountNumber} />
+        <DetailRow label="Product Name" value="MasterCard Titanium Credit" />
+        <DetailRow label="Card Currency" value="EGP" />
+        <div className="flex items-center justify-between py-2.5 border-b border-gray-100 dark:border-gray-800">
+          <span className="text-sm text-gray-500 dark:text-gray-400">Card Status</span>
+          <div>
+            {isActive ? (
+              <Badge variant="success">Active</Badge>
+            ) : (
+              <Badge variant="warning">Inactive</Badge>
+            )}
           </div>
         </div>
+        <DetailRow label="Validity From" value="24 Jul 2023" />
+        <DetailRow label="Validity To" value="31 Jul 2028" />
       </div>
 
-      {/* Limits & Balance */}
-      <div>
-        <SectionHeader>Limits & Balance</SectionHeader>
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            <DetailRow
-              label="Credit Limit"
-              value={creditLimit != null ? `EGP ${formatEGP(creditLimit)}` : null}
-            />
-            <DetailRow
-              label="Available Credit"
-              value={availableCredit != null ? `EGP ${formatEGP(availableCredit)}` : null}
-            />
-            <DetailRow
-              label="Current Balance"
-              value={`EGP ${formatEGP(balance)}`}
-            />
-            <DetailRow
-              label="Billed Amount"
-              value={billedAmount != null ? `EGP ${formatEGP(billedAmount)}` : null}
-            />
-            <DetailRow
-              label="Unbilled Amount"
-              value={unbilledAmount != null ? `EGP ${formatEGP(unbilledAmount)}` : null}
-            />
-          </div>
-        </div>
+      {/* Balances */}
+      <SectionLabel>Balances</SectionLabel>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4">
+        <DetailRow label="Total Credit Limit" value={creditLimit != null ? `EGP ${formatEGP(creditLimit)}` : null} />
+        <DetailRow label="Available Credit" value={availableCredit != null ? `EGP ${formatEGP(availableCredit)}` : null} />
+        <DetailRow label="Current Balance" value={`EGP ${formatEGP(balance)}`} />
+        <DetailRow label="Billed Amount" value={billedAmount != null ? `EGP ${formatEGP(billedAmount)}` : null} />
+        <DetailRow label="Unbilled Amount" value={unbilledAmount != null ? `EGP ${formatEGP(unbilledAmount)}` : null} />
       </div>
 
-      {/* Payment */}
-      <div>
-        <SectionHeader>Payment</SectionHeader>
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            <DetailRow
-              label="Minimum Payment"
-              value={minimumPayment != null ? `EGP ${formatEGP(minimumPayment)}` : null}
-            />
-            <DetailRow
-              label="Payment Due Date"
-              value={dueDateDisplay}
-            />
-          </div>
-        </div>
+      {/* Payment Details */}
+      <SectionLabel>Payment Details</SectionLabel>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4">
+        <DetailRow label="Min Amount Due" value={minimumPayment != null ? `EGP ${formatEGP(minimumPayment)}` : null} />
+        <DetailRow label="Payment Due Date" value={dueDateDisplay} />
       </div>
     </div>
   );
@@ -487,15 +476,7 @@ export function CreditCardTabs({
   cardBalance,
   unbilledAmount,
 }: CreditCardTabsProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>('repayment');
-
-  // Build the full CC transaction set for the repayment tracker — union of all
-  // provided transaction arrays, deduped by id.
-  const allCcTxMap = new Map<string, CreditCardTransaction>();
-  for (const tx of [...unbilledTx, ...unsettledTx]) {
-    allCcTxMap.set(tx.id, tx);
-  }
-  const allCcTx = Array.from(allCcTxMap.values());
+  const [activeTab, setActiveTab] = useState<TabKey>('details');
 
   const totalUnbilled = unbilledTx
     .filter((tx) => tx.transaction_type === 'debit')
@@ -529,10 +510,25 @@ export function CreditCardTabs({
       </div>
 
       <CardBody>
+        {/* Card Details */}
+        {activeTab === 'details' && (
+          <CardDetailsPanel
+            accountNumber={cardAccountNumber}
+            isActive={cardIsActive}
+            bankName={cardBankName}
+            balance={cardBalance}
+            creditLimit={creditLimit}
+            billedAmount={billedAmount}
+            unbilledAmount={unbilledAmount}
+            minimumPayment={minimumPayment}
+            paymentDueDate={paymentDueDate}
+          />
+        )}
+
         {/* Repayment Tracker */}
         {activeTab === 'repayment' && (
           <RepaymentTrackerPanel
-            allCcTx={allCcTx}
+            unbilledTx={unbilledTx}
             billedAmount={billedAmount}
             minimumPayment={minimumPayment}
             paymentDueDate={paymentDueDate}
@@ -590,21 +586,6 @@ export function CreditCardTabs({
               ))}
             </div>
           </div>
-        )}
-
-        {/* Card Details */}
-        {activeTab === 'details' && (
-          <CardDetailsPanel
-            accountNumber={cardAccountNumber}
-            isActive={cardIsActive}
-            bankName={cardBankName}
-            balance={cardBalance}
-            creditLimit={creditLimit}
-            billedAmount={billedAmount}
-            unbilledAmount={unbilledAmount}
-            minimumPayment={minimumPayment}
-            paymentDueDate={paymentDueDate}
-          />
         )}
       </CardBody>
     </Card>
