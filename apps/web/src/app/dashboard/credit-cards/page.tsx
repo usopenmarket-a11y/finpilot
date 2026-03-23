@@ -157,9 +157,25 @@ export default async function CreditCardsPage() {
 
   const firstCcForUnbilled = creditCardAccounts[0] ?? null;
 
-  // Unbilled Transactions: all CC transactions available from the scraper —
-  // no date filter. NBE returns whatever is on the statement history page.
-  const unbilledTx = creditCardTx.map(toCardTx);
+  // Unbilled Transactions: current open billing cycle only.
+  // NBE cycle is ~27 days ending on payment_due_date.
+  // Cutoff = payment_due_date - 27 days (the last statement close date).
+  // Fall back to 30 days ago if payment_due_date is not available.
+  const cycleStartDate = (() => {
+    const dueDate = firstCcForUnbilled?.payment_due_date;
+    if (dueDate) {
+      const d = new Date(dueDate);
+      d.setDate(d.getDate() - 27);
+      return d.toISOString().slice(0, 10);
+    }
+    const fallback = new Date();
+    fallback.setDate(fallback.getDate() - 30);
+    return fallback.toISOString().slice(0, 10);
+  })();
+
+  const unbilledTx = creditCardTx
+    .filter((tx) => tx.transaction_date > cycleStartDate)
+    .map(toCardTx);
 
   // Unsettled: transaction_type = 'unsettled' OR description contains 'pending'/'unsettled'
   const unsettledTx = creditCardTx
