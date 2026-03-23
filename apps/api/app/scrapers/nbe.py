@@ -2352,7 +2352,9 @@ class NBEScraper(BankScraper):
                                 break
                             await asyncio.sleep(1.0)
                         if not _ubt_got_response:
-                            logger.info("NBE: UBT — no response captured within 20s, skipping pagination")
+                            logger.info(
+                                "NBE: UBT — no response captured within 20s, skipping pagination"
+                            )
                         else:
                             # Wait for the Oracle JET paginator to finish re-rendering
                             # after data loads. Poll until next-button loses oj-disabled
@@ -2371,7 +2373,9 @@ class NBEScraper(BankScraper):
                                     pass
                                 await asyncio.sleep(1.0)
                             if not _btn_enabled:
-                                logger.info("NBE: UBT — only 1 page (next-button stayed disabled after 10s)")
+                                logger.info(
+                                    "NBE: UBT — only 1 page (next-button stayed disabled after 10s)"
+                                )
 
                             _MAX_UBT_PAGES = 20  # safety cap
                             for ubt_page in range(2, _MAX_UBT_PAGES + 1):
@@ -2457,7 +2461,11 @@ class NBEScraper(BankScraper):
                     or []
                 )
                 if not txn_list:
-                    logger.warning("NBE: %s — no transaction list found in response keys=%s", tab_type, list(data.keys()))
+                    logger.warning(
+                        "NBE: %s — no transaction list found in response keys=%s",
+                        tab_type,
+                        list(data.keys()),
+                    )
                 # Shape 2: items[].statmentItems[]
                 # Parent item may carry date fields (e.g. authdate for UNS) that child
                 # statmentItems lack — merge them in so the parser can find the date.
@@ -2630,9 +2638,7 @@ class NBEScraper(BankScraper):
         crdrflag = crdrflag_raw if crdrflag_raw in ("D", "C") else "D"
         # Statement API uses "originalamt"/"originalcurrency";
         # Unbilled (UBT) / Unsettled (UNS) APIs use "txnamt"/"txnccy" (EGP) and "amt"/"currency" (original).
-        amount_str = (
-            str(stmt.get("txnamt") or stmt.get("originalamt") or stmt.get("amt") or "0")
-        )
+        amount_str = str(stmt.get("txnamt") or stmt.get("originalamt") or stmt.get("amt") or "0")
         currency_raw = str(
             stmt.get("txnccy") or stmt.get("originalcurrency") or stmt.get("currency") or "EGP"
         )
@@ -2664,7 +2670,11 @@ class NBEScraper(BankScraper):
                         break
 
         if txn_date is None:
-            logger.info("NBE: CC stmt — unparseable date txndate=%r postdate=%r — skipping", txndate_str, postdate_str)
+            logger.info(
+                "NBE: CC stmt — unparseable date txndate=%r postdate=%r — skipping",
+                txndate_str,
+                postdate_str,
+            )
             return None
 
         # Map crdrflag to transaction_type
