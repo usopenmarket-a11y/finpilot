@@ -536,36 +536,48 @@ class NBEScraper(BankScraper):
             ScraperTimeoutError: If any Playwright wait exceeds its deadline.
             ScraperParseError: If the HTML structure is not as expected.
         """
-        # Retry once on dashboard timeout — NBE portal from Oregon is intermittently
-        # slow to render li.loggedInUser after a successful login.  A fresh browser
-        # session on the second attempt succeeds in most cases.
-        _MAX_LOGIN_ATTEMPTS = 2
-        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
-            browser, context, page = await self._launch_browser()
-            raw_html: dict[str, str] = {}
-            _dashboard_ok = False
+        # Retry once on dashboard-confirmation timeout — NBE portal from Oregon is
+        # intermittently slow to render li.loggedInUser after a successful login.
+        # A fresh browser session on the second attempt succeeds in most cases.
+        #
+        # Only _wait_for_dashboard timeouts trigger a retry.  Failures in
+        # _navigate_to_login or _login (e.g. page load timeout, bad credentials)
+        # are raised immediately — retrying them rarely helps and makes tests slow.
+        _MAX_DASHBOARD_ATTEMPTS = 2
+        browser, context, page = await self._launch_browser()
+        try:
+            await self._navigate_to_login(page)
+            await self._login(page)
+        except Exception:
+            await self._close_browser(browser)
+            raise
+
+        _dashboard_ok = False
+        for _attempt in range(1, _MAX_DASHBOARD_ATTEMPTS + 1):
             try:
-                await self._navigate_to_login(page)
-                await self._login(page)
                 await self._wait_for_dashboard(page)
                 _dashboard_ok = True
+                break
             except ScraperTimeoutError:
-                await self._close_browser(browser)
-                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                if _attempt < _MAX_DASHBOARD_ATTEMPTS:
                     logger.warning(
                         "NBE: dashboard timed out on attempt %d/%d — retrying with fresh browser",
                         _attempt,
-                        _MAX_LOGIN_ATTEMPTS,
+                        _MAX_DASHBOARD_ATTEMPTS,
                     )
-                    continue
-                raise  # exhausted retries
-            except Exception:
-                await self._close_browser(browser)
-                raise
+                    await self._close_browser(browser)
+                    browser, context, page = await self._launch_browser()
+                    try:
+                        await self._navigate_to_login(page)
+                        await self._login(page)
+                    except Exception:
+                        await self._close_browser(browser)
+                        raise
+                else:
+                    await self._close_browser(browser)
+                    raise
 
-            if _dashboard_ok:
-                break  # proceed with the open browser/page below
-
+        raw_html: dict[str, str] = {}
         try:
             # Capture dashboard HTML for audit trail (post-auth — safe to screenshot)
             raw_html["dashboard"] = await page.content()

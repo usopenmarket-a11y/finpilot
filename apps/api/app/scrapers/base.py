@@ -340,7 +340,13 @@ class BankScraper(ABC):
 
         Called between page navigation events and before clicking interactive
         elements to mimic natural human pacing.
+
+        In test mode (``APP_ENV=test``) the sleep is skipped entirely so that
+        unit tests remain fast and deterministic without requiring the callers
+        to mock ``asyncio.sleep``.
         """
+        if os.environ.get("APP_ENV") == "test":
+            return
         delay = random.uniform(min_s, max_s)
         logger.debug("%s random delay %.2fs", self.bank_name, delay)
         await asyncio.sleep(delay)
