@@ -2334,50 +2334,69 @@ class NBEScraper(BankScraper):
                         # checking pagination — the paginator starts disabled and
                         # only becomes enabled once the API response lands.
                         _ubt_wait_start = asyncio.get_event_loop().time()
-                        while (asyncio.get_event_loop().time() - _ubt_wait_start) < 15:
+                        _ubt_got_response = False
+                        while (asyncio.get_event_loop().time() - _ubt_wait_start) < 20:
                             if any("unbill" in u.lower() or "UBT" in u for u in captured_ubt_uns):
+                                _ubt_got_response = True
                                 break
                             await asyncio.sleep(1.0)
+                        if not _ubt_got_response:
+                            logger.info("NBE: UBT — no response captured within 20s, skipping pagination")
                         else:
-                            logger.info("NBE: UBT — no response captured within 15s, skipping pagination")
-                        # Extra wait for the paginator to re-render after data loads
-                        await asyncio.sleep(2.0)
+                            # Wait for the Oracle JET paginator to finish re-rendering
+                            # after data loads. Poll until next-button loses oj-disabled
+                            # (or 10s timeout — means only 1 page of results).
+                            _render_start = asyncio.get_event_loop().time()
+                            _btn_enabled = False
+                            while (asyncio.get_event_loop().time() - _render_start) < 10:
+                                try:
+                                    _btn = page.locator("a.oj-pagingcontrol-nav-next").first
+                                    _cls = await _btn.get_attribute("class") or ""
+                                    logger.info("NBE: UBT next-btn classes (polling): %r", _cls)
+                                    if "oj-disabled" not in _cls:
+                                        _btn_enabled = True
+                                        break
+                                except Exception:
+                                    pass
+                                await asyncio.sleep(1.0)
+                            if not _btn_enabled:
+                                logger.info("NBE: UBT — only 1 page (next-button stayed disabled after 10s)")
 
-                        _MAX_UBT_PAGES = 20  # safety cap
-                        for ubt_page in range(2, _MAX_UBT_PAGES + 1):
-                            try:
-                                next_btn = page.locator("a.oj-pagingcontrol-nav-next").first
-                                if not await next_btn.count():
-                                    logger.info(
-                                        "NBE: UBT no more pages (next button not found) after page %d",
-                                        ubt_page - 1,
+                            _MAX_UBT_PAGES = 20  # safety cap
+                            for ubt_page in range(2, _MAX_UBT_PAGES + 1):
+                                try:
+                                    next_btn = page.locator("a.oj-pagingcontrol-nav-next").first
+                                    if not await next_btn.count():
+                                        logger.info(
+                                            "NBE: UBT no more pages (next button not found) after page %d",
+                                            ubt_page - 1,
+                                        )
+                                        break
+                                    # Check if disabled (last page)
+                                    btn_classes = await next_btn.get_attribute("class") or ""
+                                    if "oj-disabled" in btn_classes:
+                                        logger.info(
+                                            "NBE: UBT reached last page after page %d (btn_classes=%r)",
+                                            ubt_page - 1,
+                                            btn_classes,
+                                        )
+                                        break
+                                    logger.info("NBE: UBT page %d -> clicking next", ubt_page)
+                                    await next_btn.click()
+                                    await self._random_delay(3.0, 5.0)
+                                except PlaywrightTimeoutError:
+                                    logger.debug(
+                                        "NBE: UBT pagination timeout at page %d — stopping",
+                                        ubt_page,
                                     )
                                     break
-                                # Check if disabled (last page)
-                                btn_classes = await next_btn.get_attribute("class") or ""
-                                if "oj-disabled" in btn_classes:
-                                    logger.info(
-                                        "NBE: UBT reached last page after page %d (btn_classes=%r)",
-                                        ubt_page - 1,
-                                        btn_classes,
+                                except Exception as page_exc:
+                                    logger.debug(
+                                        "NBE: UBT pagination error at page %d: %s — stopping",
+                                        ubt_page,
+                                        page_exc,
                                     )
                                     break
-                                logger.info("NBE: UBT page %d -> clicking next", ubt_page)
-                                await next_btn.click()
-                                await self._random_delay(3.0, 5.0)
-                            except PlaywrightTimeoutError:
-                                logger.debug(
-                                    "NBE: UBT pagination timeout at page %d — stopping",
-                                    ubt_page,
-                                )
-                                break
-                            except Exception as page_exc:
-                                logger.debug(
-                                    "NBE: UBT pagination error at page %d: %s — stopping",
-                                    ubt_page,
-                                    page_exc,
-                                )
-                                break
 
                 except PlaywrightTimeoutError as e:
                     logger.debug("NBE: timeout selecting %s tab: %s", tab_code, e)
@@ -2446,6 +2465,7 @@ class NBEScraper(BankScraper):
 
                 txn_time_inner = datetime.now(UTC)
                 count_before = len(all_txns)
+                logger.info("NBE: %s txn_list len=%d", tab_type, len(txn_list))
                 # Log first item structure to diagnose field name differences
                 if txn_list and isinstance(txn_list[0], dict):
                     logger.info(
