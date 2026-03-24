@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DebtList } from '@/components/debts/debt-list';
 import { AddDebtForm } from '@/components/debts/add-debt-form';
+import { EditDebtForm } from '@/components/debts/edit-debt-form';
 import { PaymentModal } from '@/components/debts/payment-modal';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ export default function DebtsPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('lending');
   const [showAddForm, setShowAddForm] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Debt | null>(null);
+  const [editTarget, setEditTarget] = useState<Debt | null>(null);
 
   const fetchDebts = useCallback(async () => {
     setFetchError(null);
@@ -59,6 +61,28 @@ export default function DebtsPage() {
     setPaymentTarget(null);
     // Refetch so outstanding_balance and status are accurate from DB
     void fetchDebts();
+  };
+
+  const handleEditDebt = (debt: Debt) => {
+    setEditTarget(debt);
+  };
+
+  const handleDeleteDebt = async (debtId: string) => {
+    const supabase = createClient();
+    const { error } = await (supabase as any)
+      .from('debts')
+      .delete()
+      .eq('id', debtId);
+    if (error) {
+      console.error('[DebtsPage] deleteDebt error:', error);
+      return;
+    }
+    setDebts((prev) => prev.filter((d) => d.id !== debtId));
+  };
+
+  const handleEditSuccess = (updated: Debt) => {
+    setDebts((prev) => prev.map((d) => d.id === updated.id ? updated : d));
+    setEditTarget(null);
   };
 
   function formatEGP(amount: number): string {
@@ -143,6 +167,8 @@ export default function DebtsPage() {
             debts={visibleDebts}
             onAddDebt={() => setShowAddForm(true)}
             onRecordPayment={(debt) => setPaymentTarget(debt)}
+            onEditDebt={handleEditDebt}
+            onDeleteDebt={(debtId) => { void handleDeleteDebt(debtId); }}
           />
         </>
       )}
@@ -157,6 +183,21 @@ export default function DebtsPage() {
           onSuccess={handleDebtAdded}
           onCancel={() => setShowAddForm(false)}
         />
+      </Modal>
+
+      {/* Edit debt modal */}
+      <Modal
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title="Edit Debt"
+      >
+        {editTarget && (
+          <EditDebtForm
+            debt={editTarget}
+            onSuccess={handleEditSuccess}
+            onCancel={() => setEditTarget(null)}
+          />
+        )}
       </Modal>
 
       {/* Payment modal */}
