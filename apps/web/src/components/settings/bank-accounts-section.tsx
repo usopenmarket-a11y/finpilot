@@ -18,19 +18,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 
-type Bank = 'NBE' | 'CIB' | 'BDC' | 'UB';
+type Bank = 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB';
 
 const BANK_OPTIONS: { value: string; label: string }[] = [
   { value: 'NBE', label: 'National Bank of Egypt (NBE)' },
   { value: 'CIB', label: 'Commercial International Bank (CIB)' },
-  { value: 'BDC', label: 'Banque Du Caire (BDC)' },
+  { value: 'BDC', label: 'Banque Du Caire — ibanking (BDC)' },
+  { value: 'BDC_RETAIL', label: 'Banque Du Caire — Retail (BDC Retail)' },
   { value: 'UB', label: 'United Bank (UB)' },
 ];
 
 const BANK_LABELS: Record<Bank, string> = {
   NBE: 'National Bank of Egypt',
   CIB: 'Commercial International Bank',
-  BDC: 'Banque Du Caire',
+  BDC: 'Banque Du Caire (ibanking)',
+  BDC_RETAIL: 'Banque Du Caire (Retail)',
   UB: 'United Bank',
 };
 
@@ -43,7 +45,7 @@ function formatDate(iso: string | null): string {
 }
 
 function isValidBank(value: string): value is Bank {
-  return ['NBE', 'CIB', 'BDC', 'UB'].includes(value);
+  return ['NBE', 'CIB', 'BDC', 'BDC_RETAIL', 'UB'].includes(value);
 }
 
 interface SyncState {

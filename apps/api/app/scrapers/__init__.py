@@ -13,6 +13,7 @@ from app.scrapers.base import (
     ScraperTimeoutError,
 )
 from app.scrapers.bdc import BDCScraper
+from app.scrapers.bdc_retail import BDCRetailScraper
 from app.scrapers.cib import CIBScraper
 from app.scrapers.nbe import NBEScraper
 from app.scrapers.ub import UBScraper
@@ -32,5 +33,6 @@ __all__ = [
     "NBEScraper",
     "CIBScraper",
     "BDCScraper",
+    "BDCRetailScraper",
     "UBScraper",
 ]

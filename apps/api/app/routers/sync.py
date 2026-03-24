@@ -40,6 +40,7 @@ from app.crypto import CryptoError, decrypt
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
+    BDCRetailScraper,
     BDCScraper,
     CIBScraper,
     NBEScraper,
@@ -57,6 +58,7 @@ _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
     "BDC": BDCScraper,
+    "BDC_RETAIL": BDCRetailScraper,
     "UB": UBScraper,
 }
 
@@ -160,7 +162,7 @@ def _parse_user_id(raw: str | None) -> UUID:
 async def _background_sync_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task that performs the scrape + pipeline without blocking HTTP."""
@@ -357,7 +359,7 @@ async def _background_sync_task(
 async def _background_sync_accounts_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape demand-deposit accounts + transactions only."""
@@ -421,6 +423,9 @@ async def _background_sync_accounts_task(
             async with _SCRAPE_SEMAPHORE:
                 if bank == "NBE":
                     assert isinstance(scraper, NBEScraper)
+                    result = await scraper.scrape_accounts()
+                elif bank == "BDC_RETAIL":
+                    assert isinstance(scraper, BDCRetailScraper)
                     result = await scraper.scrape_accounts()
                 else:
                     result = await scraper.scrape()
@@ -535,7 +540,7 @@ async def _background_sync_accounts_task(
 async def _background_sync_cc_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape credit card accounts + statement transactions only."""
@@ -719,7 +724,7 @@ async def _background_sync_cc_task(
 async def _background_sync_certificates_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape certificate/term-deposit accounts only."""
@@ -920,7 +925,7 @@ async def _background_sync_certificates_task(
     summary="Start a bank account sync job",
 )
 async def start_sync_job(
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1003,7 +1008,7 @@ async def get_sync_status(job_id: str) -> SyncJobStatusResponse:
 
 def _validate_credentials_exist(
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Raise HTTPException if no active credentials exist for the given user + bank.
@@ -1050,7 +1055,7 @@ def _validate_credentials_exist(
     summary="Start a demand-deposit accounts-only sync job",
 )
 async def start_sync_accounts_job(
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1099,7 +1104,7 @@ async def start_sync_accounts_job(
     summary="Start a credit-card-only sync job",
 )
 async def start_sync_cc_job(
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1147,7 +1152,7 @@ async def start_sync_cc_job(
     summary="Start a certificates-only sync job",
 )
 async def start_sync_certificates_job(
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:

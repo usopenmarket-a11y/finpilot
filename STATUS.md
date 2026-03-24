@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-22
+**Last reviewed:** 2026-03-24
 
 ---
 
@@ -16,7 +16,8 @@
 | M6 | Recommendations Engine | COMPLETE | 100% |
 | M7 | Frontend Dashboard | COMPLETE | 100% |
 | M8 | Production Deploy & Monitoring | COMPLETE | 100% |
-| M9 | Real Data Integration (Live Sync) | IN PROGRESS | 92% |
+| M9 | Real Data Integration (Live Sync) | COMPLETE | 100% |
+| M10 | UX Polish & Multi-bank Expansion | NOT STARTED | 0% |
 
 ---
 
@@ -141,7 +142,7 @@
 
 ---
 
-## M9 Detailed Breakdown (92% — IN PROGRESS)
+## M9 Detailed Breakdown (100% — COMPLETE)
 
 ### What M9 covers
 Real-data integration: stored encrypted credentials → live bank sync → dashboard shows actual account data.
@@ -157,53 +158,63 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 - [x] Playwright install at build time (not runtime) — Chromium binary confirmed present
 - [x] Global scrape semaphore prevents concurrent Playwright OOM on Render free tier
 - [x] Memory-reduction Chromium flags (`--disable-dev-shm-usage`, etc.) for Render free tier
-- [x] NBE CC scraping: unbilled/unsettled transactions via API intercept
+- [x] NBE CC scraping: statement (622 txns) + unbilled/UBT (74 txns) + unsettled/UNS (3 txns) via API intercept
 - [x] NBE certificate scraping: interest rate + maturity date from HTML
-- [x] CC billing details (billed_amount, unbilled_amount, credit_limit) populated in pipeline
-- [x] Dashboard: CC accounts show utilization bar + billed/unbilled; certificates show rate/maturity
+- [x] CC billing details (billed_amount, unbilled_amount, minimum_payment, payment_due_date) populated
+- [x] Dashboard: CC accounts show billed/unbilled amounts; certificates show rate/maturity
 - [x] Dashboard KPIs: Net Worth = assets − CC liabilities; Total Balance excludes CC accounts
-- [x] Frontend pages: `/dashboard/credit-cards` (255 lines) + `/dashboard/certificates` (202 lines)
+- [x] Frontend pages: `/dashboard/credit-cards` + `/dashboard/certificates`
 - [x] `shared/types/database.ts` updated with new BankAccount fields
-- [x] Schema migration: 5 new nullable columns on `bank_accounts` (credit_limit, billed_amount, unbilled_amount, interest_rate, maturity_date)
-- [x] CI passing (ruff + mypy clean after format fixes)
-
-### Remaining / In Progress
-- [ ] **End-to-end sync verification**: full live sync returning `transactions_scraped > 0` from production
-- [ ] Dashboard showing real NBE demand-deposit + CC + certificate data after successful live sync
-- [ ] NBE demand-deposit transaction table: AJAX loading from Oregon remains the last known pain point (multiple fixes deployed — status unconfirmed from latest build `e6a54fd`)
+- [x] Schema migration: 5 new nullable columns on `bank_accounts`
+- [x] DB live: 642 transactions, 5 bank accounts, last_synced_at = 2026-03-23 19:52:54 UTC
+- [x] UNS authdate propagation fix (`6e4468c`) — parent date fields merged into child statmentItems
+- [x] Diagnostic logging downgraded to DEBUG (`e22fabd`)
+- [x] CI passing (ruff + mypy clean)
 
 ---
 
 ## Current Focus
 
-**Verifying M9 end-to-end on production**: The last batch of commits (`e6a54fd` through `a2a6d32`) completed the CC + certificate scraping and dashboard rendering. The primary remaining task is confirming a full NBE sync succeeds end-to-end in production (demand-deposit transactions + CC + certificates all returning data). Once confirmed, M9 is done.
+**M9 is complete.** All NBE account types scraping and storing data correctly:
+- Demand deposits: transactions via AJAX intercept
+- Credit card: 622 statement + 74 UBT + 3 UNS = 625+ total CC transactions
+- Certificates: interest rate + maturity date
 
-**Next milestone candidate (M10)**: CIB live sync verification + multi-bank dashboard aggregation, or UX polish (loading states, error toasts, sync progress indicator).
+**Next milestone (M10): UX Polish & Multi-bank Expansion**
+Candidates:
+1. CIB live sync verification + multi-bank dashboard aggregation
+2. Loading states and sync progress indicators in the UI
+3. Credit limit discovery (NBE portal may not expose via API — needs investigation)
+4. Transaction categorization running on live data
 
 ---
 
 ## Blockers
 
-| Blocker | Impact | Resolution |
-|---------|--------|------------|
-| NBE demand-deposit transaction AJAX from Oregon | M9 last 8% | Multiple scraper fixes deployed. Trigger a live NBE sync from Settings to confirm. |
+None. System is fully operational.
+
+| Item | Notes |
+|------|-------|
+| `credit_limit=null` for NBE CC | NBE portal may not expose credit limit via any accessible API endpoint. Low priority — not blocking. |
 
 ---
 
-## Recent Changes (since last review 2026-03-17)
+## Recent Changes (since last review 2026-03-22)
 
 | Commit | Description |
 |--------|-------------|
-| `e6a54fd` | fix(api): ruff format upserter.py |
-| `a2a6d32` | feat(dashboard,scraper,pipeline): CC billing details + certificate metadata; Net Worth KPI; 600-txn fetch |
-| `5984e5e` | fix(scraper,tests): remove global fallback in CC/cert scrapers, update mock fixture |
-| `a1d2c44` | fix(scraper): navigate to fresh dashboard before demand-deposit loop |
-| `1737223` | fix(api): global scrape semaphore to prevent concurrent Playwright OOM |
-| `3c3aef4` | fix(scraper): scrape CC + certificates BEFORE demand-deposit loop |
-| `482e256` | fix(scraper): loggedInUser check + 120s CCA wait |
-| `6169f01` | fix(scraper): memory-reduction Chromium flags for Render free tier |
-| `5481e28` | feat(scraper): NBE CC unbilled/unsettled transaction scraping |
-| `e5ad10c` | fix(sync): keepalive fires immediately + handles server-restart 404 gracefully |
+| `e22fabd` | chore(scraper): downgrade diagnostic logging to DEBUG in NBE CC parser |
+| `6e4468c` | fix(scraper): propagate parent authdate into UNS statmentItems children — **KEY FIX** |
+| `5e34293` | fix(scraper): parse unsettled (UNS) transaction fields correctly |
+| `4c6522c` | fix(scraper): handle epoch-ms dates in UBT response parser |
+| `3f9cd47` | fix(scraper): add YYYYMMDD date format + promote date-skip log to INFO |
+| `e0807b2` | fix(scraper): poll for UBT paginator re-enable before checking pagination |
+| `bae4aba` | debug(scraper): log all UBT item fields + per-item skip reason |
+| `04ecf8b` | fix(scraper): parse UBT field names + extra paginator wait |
+| `d7815e1` | fix(scraper): wait for UBT API response before checking pagination |
+| `9a32fab` | fix(scraper): broaden UBT response capture to match by body content |
+| `eba3ec4` | fix(cc-ui): filter unbilled tab to current billing cycle only |
+| `562ad94` | feat(scraper): paginate NBE unbilled transactions tab across all pages |
 
 ---
 
@@ -211,9 +222,9 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 
 | Service | Status | URL | Notes |
 |---------|--------|-----|-------|
-| Supabase DB | LIVE | — | `bank_accounts` + 5 new CC/cert columns, RLS enabled |
-| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest: `e6a54fd` |
-| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Auto-deploys on push to main |
+| Supabase DB | LIVE | — | 7 tables, all RLS enabled; 642 txns, 5 accounts |
+| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest: `e22fabd`, not_suspended |
+| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Latest: `dpl_YhL3sfjd` on `e22fabd` — READY |
 | GitHub Actions CI | PASSING | — | ruff + mypy + pytest clean |
 
 ---
