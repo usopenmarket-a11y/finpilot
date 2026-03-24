@@ -53,7 +53,7 @@ def _get_client() -> Client:
 
 
 class SaveCredentialRequest(BaseModel):
-    """POST /api/v1/accounts/credentials — save or update credentials for a bank.
+    """POST /api/v1/accounts/credentials — save credentials for a bank.
 
     ``encrypted_username`` and ``encrypted_password`` must be AES-256-GCM
     tokens produced by the frontend.  Extra fields are rejected to prevent
@@ -65,12 +65,15 @@ class SaveCredentialRequest(BaseModel):
     bank: Literal["NBE", "CIB", "BDC", "UB"]
     encrypted_username: str
     encrypted_password: str
+    label: str | None = None
 
 
 class CredentialInfo(BaseModel):
     """Safe credential metadata — never contains secret fields."""
 
+    id: str
     bank: str
+    label: str | None
     is_active: bool
     last_synced_at: datetime | None
     created_at: datetime
@@ -110,37 +113,34 @@ def _parse_user_id(raw: str | None) -> UUID:
     "/accounts/credentials",
     response_model=CredentialInfo,
     status_code=status.HTTP_200_OK,
-    summary="Save or update encrypted bank credentials",
+    summary="Save encrypted bank credentials (always inserts a new row)",
 )
 async def save_credential(
     body: SaveCredentialRequest,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> CredentialInfo:
-    """Upsert encrypted credentials for the given bank.
+    """Insert a new set of encrypted credentials for the given bank.
 
-    The row is identified by the (user_id, bank) unique constraint.  If a
-    row already exists it is updated in place; otherwise a new row is inserted.
+    Multiple credentials per bank are allowed — each insert creates a
+    distinct row identified by its auto-generated UUID.
 
     The response returns only safe metadata — secret fields are never echoed.
     """
     user_id = _parse_user_id(x_user_id)
 
     client = _get_client()
+    payload: dict[str, object] = {
+        "user_id": str(user_id),
+        "bank": body.bank,
+        "encrypted_username": body.encrypted_username,
+        "encrypted_password": body.encrypted_password,
+        "is_active": True,
+    }
+    if body.label is not None:
+        payload["label"] = body.label
+
     try:
-        response = (
-            client.table("bank_credentials")
-            .upsert(
-                {
-                    "user_id": str(user_id),
-                    "bank": body.bank,
-                    "encrypted_username": body.encrypted_username,
-                    "encrypted_password": body.encrypted_password,
-                    "is_active": True,
-                },
-                on_conflict="user_id,bank",
-            )
-            .execute()
-        )
+        response = client.table("bank_credentials").insert(payload).execute()
     except Exception as exc:
         logger.error("Failed to save credentials for bank=%s: %s", body.bank, exc)
         raise HTTPException(
@@ -157,9 +157,11 @@ async def save_credential(
 
     row = rows[0]
     assert isinstance(row, dict)
-    logger.info("Credentials saved for bank=%s user_id=%s", body.bank, user_id)
+    logger.info("Credentials saved for bank=%s user_id=%s id=%s", body.bank, user_id, row["id"])
     return CredentialInfo(
+        id=row["id"],
         bank=row["bank"],
+        label=row.get("label"),
         is_active=row["is_active"],
         last_synced_at=row.get("last_synced_at"),
         created_at=row["created_at"],
@@ -187,7 +189,7 @@ async def list_credentials(
     try:
         response = (
             client.table("bank_credentials")
-            .select("bank, is_active, last_synced_at, created_at")
+            .select("id, bank, label, is_active, last_synced_at, created_at")
             .eq("user_id", str(user_id))
             .execute()
         )
@@ -203,7 +205,9 @@ async def list_credentials(
         assert isinstance(row, dict)
         result.append(
             CredentialInfo(
+                id=row["id"],
                 bank=row["bank"],
+                label=row.get("label"),
                 is_active=row["is_active"],
                 last_synced_at=row.get("last_synced_at"),
                 created_at=row["created_at"],
@@ -213,16 +217,17 @@ async def list_credentials(
 
 
 @router.delete(
-    "/accounts/credentials/{bank}",
+    "/accounts/credentials/id/{credential_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Remove credentials for a specific bank",
+    summary="Remove credentials by row ID",
 )
 async def delete_credential(
-    bank: Literal["NBE", "CIB", "BDC", "UB"],
+    credential_id: UUID,
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> None:
-    """Delete the stored credentials for the given bank.
+    """Delete the stored credential row identified by its UUID.
 
+    The user_id guard ensures a user cannot delete another user's row.
     If no matching row exists the operation is silently treated as a
     success (idempotent delete).
     """
@@ -230,14 +235,16 @@ async def delete_credential(
 
     client = _get_client()
     try:
-        client.table("bank_credentials").delete().eq("user_id", str(user_id)).eq(
-            "bank", bank
+        client.table("bank_credentials").delete().eq("id", str(credential_id)).eq(
+            "user_id", str(user_id)
         ).execute()
     except Exception as exc:
-        logger.error("Failed to delete credentials for bank=%s user_id=%s: %s", bank, user_id, exc)
+        logger.error(
+            "Failed to delete credentials id=%s user_id=%s: %s", credential_id, user_id, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete credentials",
         ) from exc
 
-    logger.info("Credentials deleted for bank=%s user_id=%s", bank, user_id)
+    logger.info("Credentials deleted id=%s user_id=%s", credential_id, user_id)

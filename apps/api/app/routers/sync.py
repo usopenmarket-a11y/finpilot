@@ -161,6 +161,7 @@ async def _background_sync_task(
     job_id: str,
     user_id: UUID,
     bank: Literal["NBE", "CIB", "BDC", "UB"],
+    credential_id: str | None = None,
 ) -> None:
     """Background task that performs the scrape + pipeline without blocking HTTP."""
     _JOBS[job_id]["status"] = "running"
@@ -174,15 +175,17 @@ async def _background_sync_task(
             settings.supabase_service_role_key.get_secret_value(),
         )
         try:
-            response = (
+            query = (
                 client.table("bank_credentials")
                 .select("encrypted_username, encrypted_password")
                 .eq("user_id", str(user_id))
-                .eq("bank", bank)
                 .eq("is_active", True)
-                .single()
-                .execute()
             )
+            if credential_id is not None:
+                query = query.eq("id", credential_id)
+            else:
+                query = query.eq("bank", bank)
+            response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
             _JOBS[job_id]["status"] = "failed"
@@ -194,7 +197,7 @@ async def _background_sync_task(
             _JOBS[job_id]["error"] = f"No active credentials found for bank {bank}"
             return
 
-        row = response.data
+        row = response.data[0]
         assert isinstance(row, dict)
         enc_username: str = row["encrypted_username"]
         enc_password: str = row["encrypted_password"]
@@ -300,9 +303,16 @@ async def _background_sync_task(
                 settings.supabase_url,
                 settings.supabase_service_role_key.get_secret_value(),
             )
-            update_client.table("bank_credentials").update({"last_synced_at": now_iso}).eq(
-                "user_id", str(user_id)
-            ).eq("bank", bank).execute()
+            upd = (
+                update_client.table("bank_credentials")
+                .update({"last_synced_at": now_iso})
+                .eq("user_id", str(user_id))
+            )
+            if credential_id is not None:
+                upd = upd.eq("id", credential_id)
+            else:
+                upd = upd.eq("bank", bank)
+            upd.execute()
         except Exception:
             pass  # non-fatal
 
@@ -348,6 +358,7 @@ async def _background_sync_accounts_task(
     job_id: str,
     user_id: UUID,
     bank: Literal["NBE", "CIB", "BDC", "UB"],
+    credential_id: str | None = None,
 ) -> None:
     """Background task: scrape demand-deposit accounts + transactions only."""
     _JOBS[job_id]["status"] = "running"
@@ -358,15 +369,17 @@ async def _background_sync_accounts_task(
             settings.supabase_service_role_key.get_secret_value(),
         )
         try:
-            response = (
+            query = (
                 client.table("bank_credentials")
                 .select("encrypted_username, encrypted_password")
                 .eq("user_id", str(user_id))
-                .eq("bank", bank)
                 .eq("is_active", True)
-                .single()
-                .execute()
             )
+            if credential_id is not None:
+                query = query.eq("id", credential_id)
+            else:
+                query = query.eq("bank", bank)
+            response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
             _JOBS[job_id]["status"] = "failed"
@@ -378,7 +391,7 @@ async def _background_sync_accounts_task(
             _JOBS[job_id]["error"] = f"No active credentials found for bank {bank}"
             return
 
-        row = response.data
+        row = response.data[0]
         assert isinstance(row, dict)
         enc_username: str = row["encrypted_username"]
         enc_password: str = row["encrypted_password"]
@@ -476,9 +489,16 @@ async def _background_sync_accounts_task(
                 settings.supabase_url,
                 settings.supabase_service_role_key.get_secret_value(),
             )
-            update_client.table("bank_credentials").update({"last_synced_at": now_iso}).eq(
-                "user_id", str(user_id)
-            ).eq("bank", bank).execute()
+            upd = (
+                update_client.table("bank_credentials")
+                .update({"last_synced_at": now_iso})
+                .eq("user_id", str(user_id))
+            )
+            if credential_id is not None:
+                upd = upd.eq("id", credential_id)
+            else:
+                upd = upd.eq("bank", bank)
+            upd.execute()
         except Exception:
             pass
 
@@ -516,6 +536,7 @@ async def _background_sync_cc_task(
     job_id: str,
     user_id: UUID,
     bank: Literal["NBE", "CIB", "BDC", "UB"],
+    credential_id: str | None = None,
 ) -> None:
     """Background task: scrape credit card accounts + statement transactions only."""
     _JOBS[job_id]["status"] = "running"
@@ -526,15 +547,17 @@ async def _background_sync_cc_task(
             settings.supabase_service_role_key.get_secret_value(),
         )
         try:
-            response = (
+            query = (
                 client.table("bank_credentials")
                 .select("encrypted_username, encrypted_password")
                 .eq("user_id", str(user_id))
-                .eq("bank", bank)
                 .eq("is_active", True)
-                .single()
-                .execute()
             )
+            if credential_id is not None:
+                query = query.eq("id", credential_id)
+            else:
+                query = query.eq("bank", bank)
+            response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
             _JOBS[job_id]["status"] = "failed"
@@ -546,7 +569,7 @@ async def _background_sync_cc_task(
             _JOBS[job_id]["error"] = f"No active credentials found for bank {bank}"
             return
 
-        row = response.data
+        row = response.data[0]
         assert isinstance(row, dict)
         enc_username = row["encrypted_username"]
         enc_password = row["encrypted_password"]
@@ -640,9 +663,16 @@ async def _background_sync_cc_task(
                 settings.supabase_url,
                 settings.supabase_service_role_key.get_secret_value(),
             )
-            update_client.table("bank_credentials").update({"last_synced_at": now_iso}).eq(
-                "user_id", str(user_id)
-            ).eq("bank", bank).execute()
+            upd = (
+                update_client.table("bank_credentials")
+                .update({"last_synced_at": now_iso})
+                .eq("user_id", str(user_id))
+            )
+            if credential_id is not None:
+                upd = upd.eq("id", credential_id)
+            else:
+                upd = upd.eq("bank", bank)
+            upd.execute()
         except Exception:
             pass
 
@@ -690,6 +720,7 @@ async def _background_sync_certificates_task(
     job_id: str,
     user_id: UUID,
     bank: Literal["NBE", "CIB", "BDC", "UB"],
+    credential_id: str | None = None,
 ) -> None:
     """Background task: scrape certificate/term-deposit accounts only."""
     _JOBS[job_id]["status"] = "running"
@@ -700,15 +731,17 @@ async def _background_sync_certificates_task(
             settings.supabase_service_role_key.get_secret_value(),
         )
         try:
-            response = (
+            query = (
                 client.table("bank_credentials")
                 .select("encrypted_username, encrypted_password")
                 .eq("user_id", str(user_id))
-                .eq("bank", bank)
                 .eq("is_active", True)
-                .single()
-                .execute()
             )
+            if credential_id is not None:
+                query = query.eq("id", credential_id)
+            else:
+                query = query.eq("bank", bank)
+            response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
             _JOBS[job_id]["status"] = "failed"
@@ -720,7 +753,7 @@ async def _background_sync_certificates_task(
             _JOBS[job_id]["error"] = f"No active credentials found for bank {bank}"
             return
 
-        row = response.data
+        row = response.data[0]
         assert isinstance(row, dict)
         enc_username = row["encrypted_username"]
         enc_password = row["encrypted_password"]
@@ -822,9 +855,16 @@ async def _background_sync_certificates_task(
                 settings.supabase_url,
                 settings.supabase_service_role_key.get_secret_value(),
             )
-            update_client.table("bank_credentials").update({"last_synced_at": now_iso}).eq(
-                "user_id", str(user_id)
-            ).eq("bank", bank).execute()
+            upd = (
+                update_client.table("bank_credentials")
+                .update({"last_synced_at": now_iso})
+                .eq("user_id", str(user_id))
+            )
+            if credential_id is not None:
+                upd = upd.eq("id", credential_id)
+            else:
+                upd = upd.eq("bank", bank)
+            upd.execute()
         except Exception:
             pass
 
@@ -882,6 +922,7 @@ async def _background_sync_certificates_task(
 async def start_sync_job(
     bank: Literal["NBE", "CIB", "BDC", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync job.
 
@@ -898,32 +939,7 @@ async def start_sync_job(
     user_id = _parse_user_id(x_user_id)
 
     # Validate that credentials exist (lightweight check before spawning task).
-    client = create_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key.get_secret_value(),
-    )
-    try:
-        response = (
-            client.table("bank_credentials")
-            .select("id")
-            .eq("user_id", str(user_id))
-            .eq("bank", bank)
-            .eq("is_active", True)
-            .single()
-            .execute()
-        )
-    except Exception as exc:
-        logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve stored credentials",
-        ) from exc
-
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No active credentials found for bank {bank}",
-        )
+    _validate_credentials_exist(user_id, bank, credential_id)
 
     # Reject if a scrape is already running — two concurrent Playwright
     # browsers exceed the Render free-tier 512 MB RAM limit and crash
@@ -942,10 +958,11 @@ async def start_sync_job(
         "error": None,
         "user_id": str(user_id),
         "bank": bank,
+        "credential_id": credential_id,
     }
 
     # Schedule the background task and a keepalive without awaiting them.
-    asyncio.create_task(_background_sync_task(job_id, user_id, bank))
+    asyncio.create_task(_background_sync_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")
@@ -987,8 +1004,12 @@ async def get_sync_status(job_id: str) -> SyncJobStatusResponse:
 def _validate_credentials_exist(
     user_id: UUID,
     bank: Literal["NBE", "CIB", "BDC", "UB"],
+    credential_id: str | None = None,
 ) -> None:
     """Raise HTTPException if no active credentials exist for the given user + bank.
+
+    If ``credential_id`` is provided the lookup is by row UUID instead of bank
+    code, supporting multiple credentials per bank.
 
     Shared pre-flight check used by all focused sync endpoints.
     """
@@ -997,15 +1018,17 @@ def _validate_credentials_exist(
         settings.supabase_service_role_key.get_secret_value(),
     )
     try:
-        response = (
+        query = (
             client.table("bank_credentials")
             .select("id")
             .eq("user_id", str(user_id))
-            .eq("bank", bank)
             .eq("is_active", True)
-            .single()
-            .execute()
         )
+        if credential_id is not None:
+            query = query.eq("id", credential_id)
+        else:
+            query = query.eq("bank", bank)
+        response = query.limit(1).execute()
     except Exception as exc:
         logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
         raise HTTPException(
@@ -1029,6 +1052,7 @@ def _validate_credentials_exist(
 async def start_sync_accounts_job(
     bank: Literal["NBE", "CIB", "BDC", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync that scrapes demand-deposit accounts and transactions only.
 
@@ -1044,7 +1068,7 @@ async def start_sync_accounts_job(
     * 500 — credential lookup failed.
     """
     user_id = _parse_user_id(x_user_id)
-    _validate_credentials_exist(user_id, bank)
+    _validate_credentials_exist(user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
         raise HTTPException(
@@ -1059,9 +1083,10 @@ async def start_sync_accounts_job(
         "error": None,
         "user_id": str(user_id),
         "bank": bank,
+        "credential_id": credential_id,
     }
 
-    asyncio.create_task(_background_sync_accounts_task(job_id, user_id, bank))
+    asyncio.create_task(_background_sync_accounts_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")
@@ -1076,6 +1101,7 @@ async def start_sync_accounts_job(
 async def start_sync_cc_job(
     bank: Literal["NBE", "CIB", "BDC", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync that scrapes credit card accounts and statement transactions only.
 
@@ -1090,7 +1116,7 @@ async def start_sync_cc_job(
     * 500 — credential lookup failed.
     """
     user_id = _parse_user_id(x_user_id)
-    _validate_credentials_exist(user_id, bank)
+    _validate_credentials_exist(user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
         raise HTTPException(
@@ -1105,9 +1131,10 @@ async def start_sync_cc_job(
         "error": None,
         "user_id": str(user_id),
         "bank": bank,
+        "credential_id": credential_id,
     }
 
-    asyncio.create_task(_background_sync_cc_task(job_id, user_id, bank))
+    asyncio.create_task(_background_sync_cc_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")
@@ -1122,6 +1149,7 @@ async def start_sync_cc_job(
 async def start_sync_certificates_job(
     bank: Literal["NBE", "CIB", "BDC", "UB"],
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync that scrapes certificate/term-deposit accounts only.
 
@@ -1136,7 +1164,7 @@ async def start_sync_certificates_job(
     * 500 — credential lookup failed.
     """
     user_id = _parse_user_id(x_user_id)
-    _validate_credentials_exist(user_id, bank)
+    _validate_credentials_exist(user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
         raise HTTPException(
@@ -1151,9 +1179,10 @@ async def start_sync_certificates_job(
         "error": None,
         "user_id": str(user_id),
         "bank": bank,
+        "credential_id": credential_id,
     }
 
-    asyncio.create_task(_background_sync_certificates_task(job_id, user_id, bank))
+    asyncio.create_task(_background_sync_certificates_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")

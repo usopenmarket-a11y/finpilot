@@ -63,11 +63,12 @@ export function BankAccountsSection() {
   const [selectedBank, setSelectedBank] = useState<string>('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [label, setLabel] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Per-bank sync state keyed by bank code
+  // Per-credential sync state keyed by credential id (or `${credId}_accounts` etc for NBE)
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({});
 
   // Elapsed seconds counter — increments every second for any key currently loading
@@ -93,8 +94,8 @@ export function BankAccountsSection() {
     return () => clearInterval(interval);
   }, [syncStates]);
 
-  // Per-bank remove state
-  const [removingBank, setRemovingBank] = useState<string | null>(null);
+  // Per-credential remove state keyed by credential id
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   // Fetch user id on mount
   useEffect(() => {
@@ -137,12 +138,19 @@ export function BankAccountsSection() {
         encryptValue(password),
       ]);
 
-      await saveCredential(userId, selectedBank, encUsername, encPassword);
+      await saveCredential(
+        userId,
+        selectedBank,
+        encUsername,
+        encPassword,
+        label.trim() || undefined,
+      );
 
       // Reset form
       setSelectedBank('');
       setUsername('');
       setPassword('');
+      setLabel('');
       setSaveSuccess(true);
 
       // Refresh list
@@ -155,34 +163,34 @@ export function BankAccountsSection() {
     }
   };
 
-  const handleRemove = async (bank: string) => {
-    if (!userId || !isValidBank(bank)) return;
-    setRemovingBank(bank);
+  const handleRemove = async (cred: CredentialInfo) => {
+    if (!userId) return;
+    setRemovingId(cred.id);
     try {
-      await deleteCredential(userId, bank);
-      setCredentials((prev) => prev.filter((c) => c.bank !== bank));
+      await deleteCredential(userId, cred.id);
+      setCredentials((prev) => prev.filter((c) => c.id !== cred.id));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to remove credentials';
       setListError(message);
     } finally {
-      setRemovingBank(null);
+      setRemovingId(null);
     }
   };
 
-  const handleSync = async (bank: string) => {
-    if (!userId || !isValidBank(bank)) return;
+  const handleSync = async (cred: CredentialInfo) => {
+    if (!userId || !isValidBank(cred.bank)) return;
+    const key = cred.id;
 
     setSyncStates((prev) => ({
       ...prev,
-      [bank]: { loading: true, error: null, lastResult: null, startedAt: Date.now() },
+      [key]: { loading: true, error: null, lastResult: null, startedAt: Date.now() },
     }));
 
     try {
-      // syncBank handles polling internally and can take 2-4 minutes
-      const result = await syncBank(userId, bank);
+      const result = await syncBank(userId, cred.bank as Bank, cred.id);
       setSyncStates((prev) => ({
         ...prev,
-        [bank]: {
+        [key]: {
           loading: false,
           error: null,
           lastResult: `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
@@ -195,22 +203,22 @@ export function BankAccountsSection() {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
         ...prev,
-        [bank]: { loading: false, error: message, lastResult: null, startedAt: null },
+        [key]: { loading: false, error: message, lastResult: null, startedAt: null },
       }));
     }
   };
 
   /**
    * Trigger a focused NBE sync domain (accounts | cc | certs).
-   * Uses composite key "<BANK>_<domain>" in syncStates so each button
+   * Uses composite key `${credId}_${domain}` in syncStates so each button
    * tracks its own loading/error/result independently.
    */
   const handleSyncDomain = async (
-    bank: string,
+    cred: CredentialInfo,
     domain: 'accounts' | 'cc' | 'certs',
   ) => {
-    if (!userId || !isValidBank(bank)) return;
-    const key = `${bank}_${domain}`;
+    if (!userId || !isValidBank(cred.bank)) return;
+    const key = `${cred.id}_${domain}`;
 
     setSyncStates((prev) => ({
       ...prev,
@@ -220,11 +228,11 @@ export function BankAccountsSection() {
     try {
       let result;
       if (domain === 'accounts') {
-        result = await syncBankAccounts(userId, bank);
+        result = await syncBankAccounts(userId, cred.bank as Bank, cred.id);
       } else if (domain === 'cc') {
-        result = await syncBankCreditCards(userId, bank);
+        result = await syncBankCreditCards(userId, cred.bank as Bank, cred.id);
       } else {
-        result = await syncBankCertificates(userId, bank);
+        result = await syncBankCertificates(userId, cred.bank as Bank, cred.id);
       }
 
       setSyncStates((prev) => ({
@@ -257,7 +265,7 @@ export function BankAccountsSection() {
         {/* Existing credentials list */}
         <div>
           {loadingList && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading accounts… (may take up to 30s if server is waking up)</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Loading accounts... (may take up to 30s if server is waking up)</p>
           )}
           {listError && (
             <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
@@ -291,15 +299,15 @@ export function BankAccountsSection() {
           {credentials.length > 0 && (
             <ul className="divide-y divide-gray-200 dark:divide-gray-800">
               {credentials.map((cred) => {
-                const syncState = syncStates[cred.bank];
+                const syncState = syncStates[cred.id];
                 const isSyncing = syncState?.loading ?? false;
-                const isRemoving = removingBank === cred.bank;
+                const isRemoving = removingId === cred.id;
 
                 // For NBE, track each domain independently via composite keys.
                 const isNBE = cred.bank === 'NBE';
-                const accountsState = syncStates[`${cred.bank}_accounts`];
-                const ccState = syncStates[`${cred.bank}_cc`];
-                const certsState = syncStates[`${cred.bank}_certs`];
+                const accountsState = syncStates[`${cred.id}_accounts`];
+                const ccState = syncStates[`${cred.id}_cc`];
+                const certsState = syncStates[`${cred.id}_certs`];
                 // Any focused sync running counts as "syncing" for Remove disabled state.
                 const isAnySyncing =
                   isSyncing ||
@@ -310,28 +318,28 @@ export function BankAccountsSection() {
                 // Collect inline feedback messages across all active domains.
                 const domainMessages: { key: string; text: string; isError: boolean }[] = [];
                 if (isNBE) {
-                  for (const [domainKey, label] of [
-                    [`${cred.bank}_accounts`, 'Accounts'],
-                    [`${cred.bank}_cc`, 'CC'],
-                    [`${cred.bank}_certs`, 'Certs'],
+                  for (const [domainKey, domainLabel] of [
+                    [`${cred.id}_accounts`, 'Accounts'],
+                    [`${cred.id}_cc`, 'CC'],
+                    [`${cred.id}_certs`, 'Certs'],
                   ] as [string, string][]) {
                     const ds = syncStates[domainKey];
                     if (ds?.error) {
-                      domainMessages.push({ key: domainKey, text: `${label}: ${ds.error}`, isError: true });
+                      domainMessages.push({ key: domainKey, text: `${domainLabel}: ${ds.error}`, isError: true });
                     } else if (ds?.lastResult) {
-                      domainMessages.push({ key: domainKey, text: `${label}: ${ds.lastResult}`, isError: false });
+                      domainMessages.push({ key: domainKey, text: `${domainLabel}: ${ds.lastResult}`, isError: false });
                     }
                   }
                 }
 
-                // Determine which keys are currently syncing for this bank
+                // Determine which keys are currently syncing for this credential
                 // so we can pick the largest elapsed time to display.
                 const activeSyncKeys: string[] = isNBE
-                  ? [`${cred.bank}_accounts`, `${cred.bank}_cc`, `${cred.bank}_certs`].filter(
+                  ? [`${cred.id}_accounts`, `${cred.id}_cc`, `${cred.id}_certs`].filter(
                       (k) => syncStates[k]?.loading,
                     )
                   : isSyncing
-                  ? [cred.bank]
+                  ? [cred.id]
                   : [];
                 const maxElapsed =
                   activeSyncKeys.length > 0
@@ -339,15 +347,15 @@ export function BankAccountsSection() {
                     : 0;
 
                 return (
-                  <li key={cred.bank} className="py-4 first:pt-0 last:pb-0">
+                  <li key={cred.id} className="py-4 first:pt-0 last:pb-0">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                       {/* Bank info */}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                          {BANK_LABELS[cred.bank as Bank] ?? cred.bank}
+                          {cred.label ?? (BANK_LABELS[cred.bank as Bank] ?? cred.bank)}
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          Last synced: {formatDate(cred.last_synced_at)}
+                          {BANK_LABELS[cred.bank as Bank] ?? cred.bank} &middot; Last synced: {formatDate(cred.last_synced_at)}
                         </p>
                         {/* Non-NBE single sync feedback */}
                         {!isNBE && syncState?.error && (
@@ -395,7 +403,7 @@ export function BankAccountsSection() {
                               variant="secondary"
                               loading={accountsState?.loading ?? false}
                               disabled={isAnySyncing || isRemoving}
-                              onClick={() => void handleSyncDomain(cred.bank, 'accounts')}
+                              onClick={() => void handleSyncDomain(cred, 'accounts')}
                             >
                               Accounts
                             </Button>
@@ -404,7 +412,7 @@ export function BankAccountsSection() {
                               variant="secondary"
                               loading={ccState?.loading ?? false}
                               disabled={isAnySyncing || isRemoving}
-                              onClick={() => void handleSyncDomain(cred.bank, 'cc')}
+                              onClick={() => void handleSyncDomain(cred, 'cc')}
                             >
                               CC
                             </Button>
@@ -413,7 +421,7 @@ export function BankAccountsSection() {
                               variant="secondary"
                               loading={certsState?.loading ?? false}
                               disabled={isAnySyncing || isRemoving}
-                              onClick={() => void handleSyncDomain(cred.bank, 'certs')}
+                              onClick={() => void handleSyncDomain(cred, 'certs')}
                             >
                               Certs
                             </Button>
@@ -424,7 +432,7 @@ export function BankAccountsSection() {
                             variant="secondary"
                             loading={isSyncing}
                             disabled={isSyncing || isRemoving}
-                            onClick={() => void handleSync(cred.bank)}
+                            onClick={() => void handleSync(cred)}
                           >
                             Sync Now
                           </Button>
@@ -434,7 +442,7 @@ export function BankAccountsSection() {
                           variant="danger"
                           loading={isRemoving}
                           disabled={isAnySyncing || isRemoving}
-                          onClick={() => void handleRemove(cred.bank)}
+                          onClick={() => void handleRemove(cred)}
                         >
                           Remove
                         </Button>
@@ -442,7 +450,7 @@ export function BankAccountsSection() {
                     </div>
                     {activeSyncKeys.length > 0 && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        Syncing... {maxElapsed}s — this can take 2–4 minutes
+                        Syncing... {maxElapsed}s — this can take 2-4 minutes
                       </p>
                     )}
                   </li>
@@ -468,6 +476,13 @@ export function BankAccountsSection() {
               value={selectedBank}
               onChange={(e) => setSelectedBank(e.target.value)}
               required
+            />
+            <Input
+              label="Label / Nickname (optional)"
+              placeholder="e.g. Personal NBE, Business CIB"
+              autoComplete="off"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
             />
             <Input
               label="Username / Customer ID"

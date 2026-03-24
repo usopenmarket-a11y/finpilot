@@ -14,7 +14,9 @@ const API_BASE =
 // ---------------------------------------------------------------------------
 
 export interface CredentialInfo {
+  id: string;
   bank: string;
+  label: string | null;
   is_active: boolean;
   last_synced_at: string | null;
   created_at: string;
@@ -110,6 +112,7 @@ export async function saveCredential(
   bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
   encryptedUsername: string,
   encryptedPassword: string,
+  label?: string,
 ): Promise<CredentialInfo> {
   return apiFetch<CredentialInfo>('/api/v1/accounts/credentials', {
     method: 'POST',
@@ -118,15 +121,16 @@ export async function saveCredential(
       bank,
       encrypted_username: encryptedUsername,
       encrypted_password: encryptedPassword,
+      ...(label !== undefined ? { label } : {}),
     }),
   });
 }
 
 export async function deleteCredential(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  credentialId: string,
 ): Promise<void> {
-  return apiFetch<void>(`/api/v1/accounts/credentials/${bank}`, {
+  return apiFetch<void>(`/api/v1/accounts/credentials/id/${credentialId}`, {
     method: 'DELETE',
     userId,
   });
@@ -201,9 +205,11 @@ async function _pollSyncJob(
 export async function syncBank(
   userId: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  credentialId?: string,
 ): Promise<SyncResult> {
+  const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
-    `/api/v1/accounts/sync/${bank}`,
+    `/api/v1/accounts/sync/${bank}${qs}`,
     { method: 'POST', userId }
   );
   const maxWaitMs = 20 * 60 * 1000; // full scrape (login + CC + certs + 4 accounts + re-login)
@@ -218,9 +224,11 @@ export async function syncBank(
 export async function syncBankAccounts(
   userId: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  credentialId?: string,
 ): Promise<SyncResult> {
+  const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
-    `/api/v1/accounts/sync/${bank}/accounts`,
+    `/api/v1/accounts/sync/${bank}/accounts${qs}`,
     { method: 'POST', userId }
   );
   const maxWaitMs = 10 * 60 * 1000;
@@ -235,9 +243,11 @@ export async function syncBankAccounts(
 export async function syncBankCreditCards(
   userId: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  credentialId?: string,
 ): Promise<SyncResult> {
+  const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
-    `/api/v1/accounts/sync/${bank}/credit-cards`,
+    `/api/v1/accounts/sync/${bank}/credit-cards${qs}`,
     { method: 'POST', userId }
   );
   const maxWaitMs = 8 * 60 * 1000;
@@ -252,9 +262,11 @@ export async function syncBankCreditCards(
 export async function syncBankCertificates(
   userId: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  credentialId?: string,
 ): Promise<SyncResult> {
+  const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
-    `/api/v1/accounts/sync/${bank}/certificates`,
+    `/api/v1/accounts/sync/${bank}/certificates${qs}`,
     { method: 'POST', userId }
   );
   const maxWaitMs = 4 * 60 * 1000;
