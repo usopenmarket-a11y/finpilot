@@ -719,18 +719,44 @@ class BDCRetailScraper(BankScraper):
         if "already logged in" not in low and "session active" not in low:
             return False
 
-        logger.info("BDC_RETAIL: session conflict dialog — clearing cookies and reloading")
+        # Extract form state and submit Yes via fetch() in the page's own JS context.
+        # This runs with all cookies and session state intact — identical to what the
+        # browser would send if the Yes button were clickable.
+        logger.info("BDC_RETAIL: submitting Yes via fetch POST in page context")
         try:
-            # Clear all cookies so the server sees a completely fresh browser session
+            result = await page.evaluate("""
+                async () => {
+                    try {
+                        const form = document.querySelector('form');
+                        if (!form) return {ok: false, reason: 'no form'};
+                        const data = new FormData(form);
+                        // Signal the Yes button click (FormButton 3)
+                        data.set('CLICKED_BUTTON', 'C2__C1____3E1B4F4A03039BB6 FormButton 3');
+                        // Convert to URL-encoded for T24 servlet
+                        const params = new URLSearchParams();
+                        for (const [k, v] of data.entries()) { params.append(k, v); }
+                        const resp = await fetch(window.location.href, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                            body: params.toString(),
+                            credentials: 'include'
+                        });
+                        const text = await resp.text();
+                        // Replace page content with response
+                        document.open(); document.write(text); document.close();
+                        return {ok: true, status: resp.status};
+                    } catch(e) { return {ok: false, reason: e.toString()}; }
+                }
+            """)
+            logger.info("BDC_RETAIL: fetch POST result = %s", result)
+            await self._random_delay(3.0, 5.0)
+            return False  # Page was updated in-place, no re-login needed
+        except Exception as e:
+            logger.warning("BDC_RETAIL: fetch POST failed: %s — falling back to reload", e)
             await page.context.clear_cookies()
-            logger.info("BDC_RETAIL: cookies cleared")
             await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
             await self._random_delay(3.0, 5.0)
-            logger.info("BDC_RETAIL: page reloaded with fresh cookies — no session conflict expected")
             return True
-        except Exception as e:
-            logger.warning("BDC_RETAIL: reload after session dialog failed: %s", e)
-            return False
 
     async def _wait_for_post_login(self, page: Page) -> None:
         """Confirm successful authentication by inspecting post-login DOM state.
