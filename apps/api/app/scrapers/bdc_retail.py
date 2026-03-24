@@ -617,9 +617,11 @@ class BDCRetailScraper(BankScraper):
             await self._type_human(page, _SEL_USERNAME, username)
             await self._random_delay(0.8, 1.5)
 
-            # Fill the password field (type=text, name-based stable selector)
-            await page.wait_for_selector(_SEL_PASSWORD, timeout=_WAIT_TIMEOUT_MS)
-            await self._type_human(page, _SEL_PASSWORD, password)
+            # Fill the password field (type=text, name-based stable selector).
+            # The T24 portal keeps this field hidden until after username interaction —
+            # wait for DOM attachment only, then force-fill bypassing visibility check.
+            await page.wait_for_selector(_SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS)
+            await page.fill(_SEL_PASSWORD, password, force=True)
             await self._random_delay(1.0, 2.0)
 
             # Click Sign In — find the visible image button (ID suffix changes)
