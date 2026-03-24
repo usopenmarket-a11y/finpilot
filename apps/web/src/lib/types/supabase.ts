@@ -38,6 +38,10 @@ export type Database = {
           last_synced_at: string | null
           /** Certificate/deposit maturity date (ISO 8601 date string) — certificate/deposit accounts only */
           maturity_date: string | null
+          /** Date the certificate/deposit was opened (ISO 8601) — certificate/deposit accounts only */
+          opened_date: string | null
+          /** Bank product name (e.g. 'شهادة بلاتينية') — certificate/deposit accounts only */
+          product_name: string | null
           /** Pending/unbilled transactions — credit_card accounts only */
           unbilled_amount: number | null
           updated_at: string
@@ -57,6 +61,8 @@ export type Database = {
           is_active?: boolean
           last_synced_at?: string | null
           maturity_date?: string | null
+          opened_date?: string | null
+          product_name?: string | null
           unbilled_amount?: number | null
           updated_at?: string
           user_id: string
@@ -75,6 +81,8 @@ export type Database = {
           is_active?: boolean
           last_synced_at?: string | null
           maturity_date?: string | null
+          opened_date?: string | null
+          product_name?: string | null
           unbilled_amount?: number | null
           updated_at?: string
           user_id?: string

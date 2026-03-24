@@ -83,6 +83,8 @@ async def upsert_account(
         "maturity_date": account.maturity_date.isoformat()
         if account.maturity_date is not None
         else None,
+        "opened_date": account.opened_date.isoformat() if account.opened_date is not None else None,
+        "product_name": account.product_name if account.product_name is not None else None,
     }
 
     response = await supabase_client.table("bank_accounts").upsert(account_data).execute()

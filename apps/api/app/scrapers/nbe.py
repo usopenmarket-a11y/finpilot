@@ -2848,9 +2848,19 @@ class NBEScraper(BankScraper):
             if maturity_match:
                 cert_maturity_date = _parse_nbe_date(maturity_match.group(1).strip())
 
+            cert_opened_date: date | None = None
+            opened_match = re.search(
+                r"Opened\s+Date\s+(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})", row_full_text, re.I
+            )
+            if opened_match:
+                cert_opened_date = _parse_nbe_date(opened_match.group(1).strip())
+
+            # Product name: use raw_name if non-empty, else fall back to account_type label
+            cert_product_name: str | None = raw_name if raw_name else None
+
             logger.debug(
                 "NBE: certificate row %d → masked=%s name=%r currency=%s balance=%s "
-                "interest_rate=%s maturity_date=%s",
+                "interest_rate=%s maturity_date=%s opened_date=%s",
                 row_idx,
                 masked,
                 raw_name,
@@ -2858,6 +2868,7 @@ class NBEScraper(BankScraper):
                 balance,
                 cert_interest_rate,
                 cert_maturity_date,
+                cert_opened_date,
             )
 
             accounts.append(
@@ -2873,6 +2884,8 @@ class NBEScraper(BankScraper):
                     last_synced_at=now,
                     interest_rate=cert_interest_rate,
                     maturity_date=cert_maturity_date,
+                    opened_date=cert_opened_date,
+                    product_name=cert_product_name,
                     created_at=now,
                     updated_at=now,
                 )

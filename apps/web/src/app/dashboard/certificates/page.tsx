@@ -42,64 +42,128 @@ function typeBadgeVariant(type: string): 'danger' | 'info' | 'warning' {
 // Certificate account row
 // ---------------------------------------------------------------------------
 
+function daysUntil(dateStr: string): number {
+  const target = new Date(dateStr);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('en-EG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function durationLabel(openedStr: string, maturityStr: string): string {
+  const opened = new Date(openedStr);
+  const maturity = new Date(maturityStr);
+  const totalDays = Math.round((maturity.getTime() - opened.getTime()) / (1000 * 60 * 60 * 24));
+  const months = Math.round(totalDays / 30.44);
+  if (months >= 12 && months % 12 === 0) return `${months / 12} year${months / 12 > 1 ? 's' : ''}`;
+  if (months >= 12) return `${Math.floor(months / 12)}y ${months % 12}m`;
+  return `${months} month${months !== 1 ? 's' : ''}`;
+}
+
 function CertificateRow({ account }: { account: BankAccountRow }) {
   const balance = parseFloat(String(account.balance));
   const interestRate = account.interest_rate != null ? parseFloat(String(account.interest_rate)) : null;
   const maturityDate = account.maturity_date ?? null;
+  const openedDate = account.opened_date ?? null;
+  const productName = account.product_name ?? null;
+  const remainingDays = maturityDate ? daysUntil(maturityDate) : null;
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-      <div className="flex items-center gap-4">
-        {/* Icon */}
-        <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-          <svg
-            className="h-5 w-5 text-amber-600 dark:text-amber-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.75}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-          </svg>
-        </div>
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+      {/* Main row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4">
+        <div className="flex items-center gap-4">
+          {/* Icon */}
+          <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+            <svg
+              className="h-5 w-5 text-amber-600 dark:text-amber-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.75}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+            </svg>
+          </div>
 
-        <div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            {account.bank_name}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
-            {account.account_number_masked}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-        <Badge variant={typeBadgeVariant(account.account_type)}>
-          {typeLabel(account.account_type)}
-        </Badge>
-        {interestRate != null && (
-          <div className="text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Interest Rate</p>
-            <p className="text-sm font-bold text-amber-600 dark:text-amber-400 tabular-nums">
-              {interestRate.toFixed(2)}%
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              {productName ?? account.bank_name}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {account.bank_name} · <span className="font-mono">{account.account_number_masked}</span>
             </p>
           </div>
-        )}
-        {maturityDate && (
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+          <Badge variant={typeBadgeVariant(account.account_type)}>
+            {typeLabel(account.account_type)}
+          </Badge>
+          {interestRate != null && (
+            <div className="text-right">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Interest Rate</p>
+              <p className="text-sm font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                {(interestRate * 100).toFixed(2)}%
+              </p>
+            </div>
+          )}
           <div className="text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Matures</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Principal</p>
             <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
-              {maturityDate}
+              {formatCurrency(balance, account.currency)}
             </p>
           </div>
-        )}
-        <div className="text-right">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Principal</p>
-          <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
-            {formatCurrency(balance, account.currency)}
-          </p>
         </div>
       </div>
+
+      {/* Detail row */}
+      {(openedDate || maturityDate) && (
+        <div className="flex flex-wrap gap-x-6 gap-y-2 px-5 py-3 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400">
+          {openedDate && (
+            <span>
+              Opened: <span className="font-medium text-gray-700 dark:text-gray-200">{formatDate(openedDate)}</span>
+            </span>
+          )}
+          {openedDate && maturityDate && (
+            <span>
+              Duration: <span className="font-medium text-gray-700 dark:text-gray-200">{durationLabel(openedDate, maturityDate)}</span>
+            </span>
+          )}
+          {maturityDate && (
+            <span>
+              Matures: <span className="font-medium text-gray-700 dark:text-gray-200">{formatDate(maturityDate)}</span>
+            </span>
+          )}
+          {remainingDays != null && remainingDays > 0 && (
+            <span>
+              Remaining: <span className={`font-medium ${remainingDays <= 30 ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'}`}>
+                {remainingDays} day{remainingDays !== 1 ? 's' : ''}
+              </span>
+            </span>
+          )}
+          {remainingDays != null && remainingDays <= 0 && (
+            <span className="font-medium text-green-600 dark:text-green-400">Matured</span>
+          )}
+          {interestRate != null && maturityDate && openedDate && (
+            <span>
+              Est. profit: <span className="font-medium text-amber-600 dark:text-amber-400 tabular-nums">
+                {formatCurrency(
+                  balance * interestRate * (Math.round((new Date(maturityDate).getTime() - new Date(openedDate).getTime()) / (1000 * 60 * 60 * 24)) / 365),
+                  account.currency
+                )}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

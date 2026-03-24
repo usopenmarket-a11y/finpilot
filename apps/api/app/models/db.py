@@ -93,6 +93,14 @@ class BankAccount(BaseModel):
         default=None,
         description="Date the certificate or deposit matures (DATE) — certificate/deposit accounts only",
     )
+    opened_date: date | None = Field(
+        default=None,
+        description="Date the certificate or deposit was opened (DATE) — certificate/deposit accounts only",
+    )
+    product_name: str | None = Field(
+        default=None,
+        description="Bank product name for the certificate/deposit (e.g. 'شهادة بلاتينية') — certificate/deposit accounts only",
+    )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
 
