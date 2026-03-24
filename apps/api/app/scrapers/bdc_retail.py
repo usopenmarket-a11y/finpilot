@@ -691,8 +691,8 @@ class BDCRetailScraper(BankScraper):
                     continue
 
         if yes_btn is not None:
-            await yes_btn.click()
-            logger.info("BDC_RETAIL: clicked Yes — waiting 8s for dashboard to load")
+            await yes_btn.click(force=True)
+            logger.info("BDC_RETAIL: clicked Yes (force) — waiting 8s for dashboard to load")
             await self._random_delay(7.0, 9.0)
         else:
             logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
