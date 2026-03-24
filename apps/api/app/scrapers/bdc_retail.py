@@ -93,8 +93,9 @@ logger = logging.getLogger(__name__)
 
 _LOGIN_URL = "https://www.bdconline.com.eg/BDCRetail/servletcontroller"
 
-_WAIT_TIMEOUT_MS = 40_000  # slightly longer — T24 portals can be slow
-_POST_LOGIN_TIMEOUT_MS = 45_000
+_WAIT_TIMEOUT_MS = 90_000  # BDC portal is very slow — needs extended timeout
+_POST_LOGIN_TIMEOUT_MS = 90_000
+_NAV_TIMEOUT_MS = 120_000  # initial page load can take >60s
 
 _MAX_TRANSACTIONS = 30
 
@@ -511,7 +512,7 @@ class BDCRetailScraper(BankScraper):
         """Load the BDC Retail login page and verify the username field is visible."""
         logger.debug("BDC_RETAIL: navigating to %s", _LOGIN_URL)
         try:
-            await page.goto(_LOGIN_URL, wait_until="domcontentloaded", timeout=_WAIT_TIMEOUT_MS)
+            await page.goto(_LOGIN_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise ScraperTimeoutError(
                 "BDC_RETAIL: login page did not load within timeout",
