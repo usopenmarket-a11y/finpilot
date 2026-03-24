@@ -703,15 +703,23 @@ class BDCRetailScraper(BankScraper):
             page_text = await page.evaluate("document.body.innerText || ''")
             if "already logged in" in page_text.lower() or "session active" in page_text.lower():
                 logger.info("BDC_RETAIL: session conflict dialog detected — clicking Yes")
-                # Yes button: first image button on the page that's not the Sign In button
-                # The C1__ (not C2__) prefix indicates the session dialog layer
-                yes_btn = await page.query_selector("input[type='image'][id^='C1__BUT_']")
+                # Yes is an <a> link with onclick buttonClicked — confirmed from page dump
+                yes_btn = await page.query_selector("a[onclick*='FormButton 3']")
+                if yes_btn is None:
+                    # Fallback: any link whose visible text is exactly "Yes"
+                    for el in await page.query_selector_all("a"):
+                        try:
+                            txt = (await el.inner_text()).strip()
+                            if txt.lower() == "yes":
+                                yes_btn = el
+                                break
+                        except Exception:
+                            continue
                 if yes_btn is not None:
                     await yes_btn.click()
-                    logger.info("BDC_RETAIL: clicked Yes on session dialog, waiting...")
-                    await self._random_delay(3.0, 5.0)
+                    logger.info("BDC_RETAIL: clicked Yes on session dialog, waiting for reload")
+                    await self._random_delay(4.0, 6.0)
                 else:
-                    # Fallback: look for button containing "yes" text nearby
                     logger.warning("BDC_RETAIL: could not find Yes button for session dialog")
         except Exception as sess_exc:
             logger.warning("BDC_RETAIL: error handling session dialog: %s", sess_exc)
