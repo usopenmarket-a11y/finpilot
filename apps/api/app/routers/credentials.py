@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -129,7 +129,7 @@ async def save_credential(
     user_id = _parse_user_id(x_user_id)
 
     client = _get_client()
-    payload: dict[str, object] = {
+    payload: dict[str, Any] = {
         "user_id": str(user_id),
         "bank": body.bank,
         "encrypted_username": body.encrypted_username,

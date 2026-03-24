@@ -68,6 +68,7 @@ import logging
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from typing import ClassVar
 from uuid import UUID
 
 from bs4 import BeautifulSoup
@@ -367,7 +368,7 @@ class BDCRetailScraper(BankScraper):
     Portal: https://www.bdconline.com.eg/BDCRetail/servletcontroller
     """
 
-    bank_name: str = "BDC_RETAIL"
+    bank_name: ClassVar[str] = "BDC_RETAIL"
 
     async def scrape(self) -> ScraperResult:
         """Execute the full BDC Retail scrape cycle.
