@@ -719,11 +719,14 @@ class BDCRetailScraper(BankScraper):
         if "already logged in" not in low and "session active" not in low:
             return False
 
-        logger.info("BDC_RETAIL: session conflict dialog — reloading for a fresh session")
+        logger.info("BDC_RETAIL: session conflict dialog — clearing cookies and reloading")
         try:
+            # Clear all cookies so the server sees a completely fresh browser session
+            await page.context.clear_cookies()
+            logger.info("BDC_RETAIL: cookies cleared")
             await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
-            await self._random_delay(2.0, 3.0)
-            logger.info("BDC_RETAIL: page reloaded — fresh session started")
+            await self._random_delay(3.0, 5.0)
+            logger.info("BDC_RETAIL: page reloaded with fresh cookies — no session conflict expected")
             return True
         except Exception as e:
             logger.warning("BDC_RETAIL: reload after session dialog failed: %s", e)
