@@ -102,14 +102,15 @@ _MAX_TRANSACTIONS = 30
 # Selector catalogue (confirmed via Puppeteer inspection 2026-03-24)
 # ---------------------------------------------------------------------------
 
-# Username field — stable ID
+# Username field — stable ID (type=search on this portal)
 _SEL_USERNAME = "#C2__C1__USER_NAME"
 
-# Visible password field — ID is randomised per page load; match by type
-_SEL_PASSWORD = "input[type='password']"
+# Password field — name is stable; ID changes per session; type is "text" (not "password")
+_SEL_PASSWORD = "input[name='C2__C1__LOGIN[1].PASSWORD']"
 
-# Sign In button — stable ID; onclick triggers encrypt() + form submit
-_SEL_LOGIN_BTN = "#C2__C1__BUT_9BD7C5B3E72A5180154807"
+# Sign In button — try stable name-based selector first, then visible image inputs
+# The ID suffix changes; the name pattern is stable across sessions
+_SEL_LOGIN_BTN = "input[type='image'][id*='BUT_']"
 
 # Post-login presence indicators (try several patterns; log which matched)
 _SEL_POST_LOGIN_CANDIDATES = [
@@ -615,12 +616,20 @@ class BDCRetailScraper(BankScraper):
             await self._type_human(page, _SEL_USERNAME, username)
             await self._random_delay(0.8, 1.5)
 
-            # Fill the visible (randomised-ID) password field by type
+            # Fill the password field (type=text, name-based stable selector)
+            await page.wait_for_selector(_SEL_PASSWORD, timeout=_WAIT_TIMEOUT_MS)
             await self._type_human(page, _SEL_PASSWORD, password)
             await self._random_delay(1.0, 2.0)
 
-            # Click Sign In — the JS encrypt() runs, then the form submits
-            login_btn = await page.query_selector(_SEL_LOGIN_BTN)
+            # Click Sign In — find the visible image button (ID suffix changes)
+            # Prefer a button whose ID contains the LOGIN context ("C2__C1__BUT_")
+            login_btn = await page.query_selector("input[type='image'][id^='C2__C1__BUT_']")
+            if login_btn is None:
+                # Fallback: any visible image input
+                for el in await page.query_selector_all(_SEL_LOGIN_BTN):
+                    if await el.is_visible():
+                        login_btn = el
+                        break
             if login_btn is None:
                 raise ScraperParseError(
                     "BDC_RETAIL: Sign In button not found", bank_code="BDC_RETAIL"
