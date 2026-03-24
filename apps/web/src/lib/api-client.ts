@@ -109,7 +109,7 @@ export async function listCredentials(userId: string): Promise<CredentialInfo[]>
 
 export async function saveCredential(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   encryptedUsername: string,
   encryptedPassword: string,
   label?: string,
@@ -204,7 +204,7 @@ async function _pollSyncJob(
  */
 export async function syncBank(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
@@ -223,7 +223,7 @@ export async function syncBank(
  */
 export async function syncBankAccounts(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
@@ -242,7 +242,7 @@ export async function syncBankAccounts(
  */
 export async function syncBankCreditCards(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
@@ -261,7 +261,7 @@ export async function syncBankCreditCards(
  */
 export async function syncBankCertificates(
   userId: string,
-  bank: 'NBE' | 'CIB' | 'BDC' | 'UB',
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
