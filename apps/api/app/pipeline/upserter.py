@@ -25,7 +25,10 @@ async def upsert_account(
     """Upsert a bank account record into the database.
 
     Uses an ON CONFLICT strategy to handle the case where the account
-    already exists (identified by user_id + bank_name + account_number_masked).
+    already exists (identified by deterministic UUID derived from
+    user_id + bank_name + account_number_masked, plus account_type for
+    certificate/deposit accounts to avoid collision with demand-deposit
+    accounts sharing the same masked number).
     Updates balance, last_synced_at, and updated_at on conflict.
 
     Args:
@@ -42,9 +45,15 @@ async def upsert_account(
     # Generate a deterministic UUID so that re-syncing the same account always
     # produces the same primary key, allowing PK-based upsert without needing
     # a separate composite unique constraint in the database.
+    #
+    # Certificate/deposit accounts are disambiguated by including the account_type
+    # in the key, because they may share the same masked number as a demand-deposit
+    # account (e.g. both payroll and its associated certificate end in ****0013).
+    SPECIAL_TYPES = {"certificate", "deposit", "term_deposit"}
+    type_suffix = f":{account.account_type}" if account.account_type in SPECIAL_TYPES else ""
     deterministic_id = uuid.uuid5(
         uuid.NAMESPACE_OID,
-        f"{user_id}:{account.bank_name}:{account.account_number_masked}",
+        f"{user_id}:{account.bank_name}:{account.account_number_masked}{type_suffix}",
     )
 
     account_data = {
