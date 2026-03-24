@@ -1,9 +1,9 @@
-"""Integration tests for the M9 credentials router.
+"""Integration tests for the credentials router.
 
-Covers all three endpoints under /api/v1/accounts/credentials:
+Covers all endpoints under /api/v1/accounts/credentials:
   POST   /api/v1/accounts/credentials
   GET    /api/v1/accounts/credentials
-  DELETE /api/v1/accounts/credentials/{bank}
+  DELETE /api/v1/accounts/credentials/id/{credential_id}
 
 Supabase calls are fully intercepted via unittest.mock.patch — no real DB
 connections or network I/O occur.  Each test patches
@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 VALID_USER_ID = str(uuid4())
 FAKE_CREATED_AT = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC).isoformat()
+FAKE_CRED_ID = str(uuid4())
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +46,7 @@ def _make_supabase_mock(return_rows: list[dict[str, Any]]) -> MagicMock:
     """Build a MagicMock chain that mimics the supabase-py fluent API.
 
     The mock satisfies:
-      client.table(...).upsert(...).execute()              → APIResponse(data=rows)
+      client.table(...).insert(...).execute()              → APIResponse(data=rows)
       client.table(...).select(...).eq(...).execute()      → APIResponse(data=rows)
       client.table(...).delete().eq(...).eq(...).execute() → APIResponse(data=[])
       client.table(...).update(...).eq(...).eq(...).execute()
@@ -62,6 +63,7 @@ def _make_supabase_mock(return_rows: list[dict[str, Any]]) -> MagicMock:
 
     chain = MagicMock()
     chain.execute.return_value = execute_result
+    chain.insert.return_value = chain
     chain.upsert.return_value = chain
     chain.select.return_value = chain
     chain.delete.return_value = chain
@@ -74,6 +76,18 @@ def _make_supabase_mock(return_rows: list[dict[str, Any]]) -> MagicMock:
     return fake_client
 
 
+def _fake_post_row(bank: str = "NBE") -> dict[str, Any]:
+    """Return a fake DB row as returned by insert() for POST tests."""
+    return {
+        "id": FAKE_CRED_ID,
+        "bank": bank,
+        "label": None,
+        "is_active": True,
+        "last_synced_at": None,
+        "created_at": FAKE_CREATED_AT,
+    }
+
+
 # ---------------------------------------------------------------------------
 # POST /api/v1/accounts/credentials
 # ---------------------------------------------------------------------------
@@ -81,13 +95,7 @@ def _make_supabase_mock(return_rows: list[dict[str, Any]]) -> MagicMock:
 
 def test_save_credential_returns_200(client: TestClient) -> None:
     """Happy path: valid request with x-user-id returns 200 and safe metadata."""
-    fake_row = {
-        "bank": "NBE",
-        "is_active": True,
-        "last_synced_at": None,
-        "created_at": FAKE_CREATED_AT,
-    }
-    fake_supabase = _make_supabase_mock([fake_row])
+    fake_supabase = _make_supabase_mock([_fake_post_row("NBE")])
 
     with patch("app.routers.credentials.create_client", return_value=fake_supabase):
         response = client.post(
@@ -105,13 +113,7 @@ def test_save_credential_returns_200(client: TestClient) -> None:
 
 def test_save_credential_response_shape(client: TestClient) -> None:
     """Response contains exactly the expected safe fields."""
-    fake_row = {
-        "bank": "CIB",
-        "is_active": True,
-        "last_synced_at": None,
-        "created_at": FAKE_CREATED_AT,
-    }
-    fake_supabase = _make_supabase_mock([fake_row])
+    fake_supabase = _make_supabase_mock([_fake_post_row("CIB")])
 
     with patch("app.routers.credentials.create_client", return_value=fake_supabase):
         response = client.post(
@@ -125,18 +127,12 @@ def test_save_credential_response_shape(client: TestClient) -> None:
         )
 
     data = response.json()
-    assert set(data.keys()) == {"bank", "is_active", "last_synced_at", "created_at"}
+    assert set(data.keys()) == {"id", "bank", "label", "is_active", "last_synced_at", "created_at"}
 
 
 def test_save_credential_response_never_returns_secrets(client: TestClient) -> None:
     """Security: response must NOT contain encrypted_username or encrypted_password."""
-    fake_row = {
-        "bank": "BDC",
-        "is_active": True,
-        "last_synced_at": None,
-        "created_at": FAKE_CREATED_AT,
-    }
-    fake_supabase = _make_supabase_mock([fake_row])
+    fake_supabase = _make_supabase_mock([_fake_post_row("BDC")])
 
     with patch("app.routers.credentials.create_client", return_value=fake_supabase):
         response = client.post(
@@ -245,13 +241,17 @@ def test_list_credentials_returns_stored_entries(client: TestClient) -> None:
     """Rows returned by Supabase are reflected in the response."""
     rows = [
         {
+            "id": str(uuid4()),
             "bank": "NBE",
+            "label": None,
             "is_active": True,
             "last_synced_at": None,
             "created_at": FAKE_CREATED_AT,
         },
         {
+            "id": str(uuid4()),
             "bank": "CIB",
+            "label": "Work account",
             "is_active": False,
             "last_synced_at": FAKE_CREATED_AT,
             "created_at": FAKE_CREATED_AT,
@@ -275,7 +275,9 @@ def test_list_credentials_never_returns_secrets(client: TestClient) -> None:
     """Security: list response items must never include secret fields."""
     rows = [
         {
+            "id": str(uuid4()),
             "bank": "UB",
+            "label": None,
             "is_active": True,
             "last_synced_at": None,
             "created_at": FAKE_CREATED_AT,
@@ -310,17 +312,17 @@ def test_list_credentials_malformed_user_id_returns_400(client: TestClient) -> N
 
 
 # ---------------------------------------------------------------------------
-# DELETE /api/v1/accounts/credentials/{bank}
+# DELETE /api/v1/accounts/credentials/id/{credential_id}
 # ---------------------------------------------------------------------------
 
 
 def test_delete_credential_returns_204(client: TestClient) -> None:
-    """Happy path: DELETE with valid inputs returns 204 No Content."""
+    """Happy path: DELETE with valid credential UUID returns 204 No Content."""
     fake_supabase = _make_supabase_mock([])
 
     with patch("app.routers.credentials.create_client", return_value=fake_supabase):
         response = client.delete(
-            "/api/v1/accounts/credentials/NBE",
+            f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
             headers={"x-user-id": VALID_USER_ID},
         )
 
@@ -330,14 +332,15 @@ def test_delete_credential_returns_204(client: TestClient) -> None:
 def test_delete_credential_idempotent(client: TestClient) -> None:
     """Deleting a non-existent credential still returns 204 (idempotent)."""
     fake_supabase = _make_supabase_mock([])
+    cred_id = str(uuid4())
 
     with patch("app.routers.credentials.create_client", return_value=fake_supabase):
         r1 = client.delete(
-            "/api/v1/accounts/credentials/CIB",
+            f"/api/v1/accounts/credentials/id/{cred_id}",
             headers={"x-user-id": VALID_USER_ID},
         )
         r2 = client.delete(
-            "/api/v1/accounts/credentials/CIB",
+            f"/api/v1/accounts/credentials/id/{cred_id}",
             headers={"x-user-id": VALID_USER_ID},
         )
 
@@ -347,23 +350,23 @@ def test_delete_credential_idempotent(client: TestClient) -> None:
 
 def test_delete_credential_missing_user_id_returns_400(client: TestClient) -> None:
     """Security: DELETE without x-user-id header must return 400."""
-    response = client.delete("/api/v1/accounts/credentials/NBE")
+    response = client.delete(f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}")
     assert response.status_code == 400
 
 
 def test_delete_credential_malformed_user_id_returns_400(client: TestClient) -> None:
     """Security: DELETE with non-UUID x-user-id must return 400."""
     response = client.delete(
-        "/api/v1/accounts/credentials/NBE",
+        f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
         headers={"x-user-id": "oops"},
     )
     assert response.status_code == 400
 
 
-def test_delete_credential_invalid_bank_returns_422(client: TestClient) -> None:
-    """Validation: an unsupported bank code in the path must return 422."""
+def test_delete_credential_invalid_uuid_returns_422(client: TestClient) -> None:
+    """Validation: a non-UUID credential_id in the path must return 422."""
     response = client.delete(
-        "/api/v1/accounts/credentials/FAKEBANK",
+        "/api/v1/accounts/credentials/id/not-a-uuid",
         headers={"x-user-id": VALID_USER_ID},
     )
     assert response.status_code == 422
