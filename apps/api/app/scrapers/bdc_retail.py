@@ -643,23 +643,59 @@ class BDCRetailScraper(BankScraper):
                 )
             logger.info("BDC_RETAIL: clicking Sign In button")
             await login_btn.click()
-            # T24 uses in-page AJAX — no full navigation fires after Sign In.
-            # Wait for either: (a) the username field to become hidden/detached,
-            # (b) a new DOM section to appear, or (c) a fixed delay as fallback.
-            logger.info("BDC_RETAIL: waiting for post-login DOM change (up to 30s)")
-            try:
-                await page.wait_for_selector(
-                    _SEL_USERNAME, state="hidden", timeout=30_000
-                )
-                logger.info("BDC_RETAIL: username field hidden — login transition detected")
-            except PlaywrightTimeoutError:
-                # Portal may keep the field in DOM — fall through to fixed wait
-                logger.info("BDC_RETAIL: username field still in DOM, using fixed wait")
-                await self._random_delay(4.0, 6.0)
+            # T24 uses in-page AJAX — wait for a DOM change then handle session dialog.
+            logger.info("BDC_RETAIL: waiting 8s for AJAX response after Sign In")
+            await self._random_delay(7.0, 9.0)
+
+            # Handle "Session Active" dialog inline — must be done before _wait_for_post_login
+            # so the scraper proceeds to the real dashboard.
+            await self._handle_session_dialog(page)
 
         finally:
             del username
             del password
+
+    async def _handle_session_dialog(self, page: Page) -> None:
+        """Detect and dismiss the T24 'Session Active' conflict dialog.
+
+        When a previous session was not properly closed, BDC shows:
+          'Session Active — You have already logged in another system.
+           Do you want to continue with this? Yes No'
+
+        The Yes option is an <a onclick> link. Click it and wait for the
+        dashboard to load.
+        """
+        try:
+            html = await page.content()
+        except Exception:
+            return
+
+        low = html.lower()
+        if "already logged in" not in low and "session active" not in low:
+            return
+
+        logger.info("BDC_RETAIL: session conflict dialog detected — clicking Yes")
+        yes_btn = None
+
+        # Primary: <a> with onclick containing 'FormButton 3'
+        yes_btn = await page.query_selector("a[onclick*='FormButton 3']")
+
+        if yes_btn is None:
+            # Fallback: find <a> tag whose text is "Yes"
+            for el in await page.query_selector_all("a"):
+                try:
+                    if (await el.inner_text()).strip().lower() == "yes":
+                        yes_btn = el
+                        break
+                except Exception:
+                    continue
+
+        if yes_btn is not None:
+            await yes_btn.click()
+            logger.info("BDC_RETAIL: clicked Yes — waiting 8s for dashboard to load")
+            await self._random_delay(7.0, 9.0)
+        else:
+            logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
 
     async def _wait_for_post_login(self, page: Page) -> None:
         """Confirm successful authentication by inspecting post-login DOM state.
@@ -694,35 +730,6 @@ class BDCRetailScraper(BankScraper):
             raise ScraperLoginError(
                 "BDC_RETAIL: portal rejected credentials", bank_code="BDC_RETAIL"
             )
-
-        # 2b. Check for "Session Active — already logged in another system" dialog
-        # T24 shows this when a previous session was not properly closed.
-        # The dialog text contains "already logged in" or "Session Active".
-        # Click "Yes" to continue and terminate the old session.
-        try:
-            page_text = await page.evaluate("document.body.innerText || ''")
-            if "already logged in" in page_text.lower() or "session active" in page_text.lower():
-                logger.info("BDC_RETAIL: session conflict dialog detected — clicking Yes")
-                # Yes is an <a> link with onclick buttonClicked — confirmed from page dump
-                yes_btn = await page.query_selector("a[onclick*='FormButton 3']")
-                if yes_btn is None:
-                    # Fallback: any link whose visible text is exactly "Yes"
-                    for el in await page.query_selector_all("a"):
-                        try:
-                            txt = (await el.inner_text()).strip()
-                            if txt.lower() == "yes":
-                                yes_btn = el
-                                break
-                        except Exception:
-                            continue
-                if yes_btn is not None:
-                    await yes_btn.click()
-                    logger.info("BDC_RETAIL: clicked Yes on session dialog, waiting for reload")
-                    await self._random_delay(4.0, 6.0)
-                else:
-                    logger.warning("BDC_RETAIL: could not find Yes button for session dialog")
-        except Exception as sess_exc:
-            logger.warning("BDC_RETAIL: error handling session dialog: %s", sess_exc)
 
         # 3. Look for positive post-login indicators
         # Check absence of username field as primary indicator (most reliable)
