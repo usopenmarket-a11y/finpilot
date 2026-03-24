@@ -714,35 +714,30 @@ class BDCRetailScraper(BankScraper):
                     continue
 
         if yes_btn is not None:
-            # Use Playwright locator with force to click hidden element,
-            # or dispatch click event directly via JS evaluate on the element
-            logger.info("BDC_RETAIL: dispatching click on Yes button via JS")
+            # T24 session dialog: extract the full onclick and call it via page.evaluate
+            # so it runs in the page's own JS context with all globals available.
+            logger.info("BDC_RETAIL: invoking Yes onclick in page context")
             try:
-                await page.evaluate(
-                    """el => {
-                        // Try onclick handler first (T24 uses inline onclick)
-                        if (typeof el.onclick === 'function') { el.onclick(); return; }
-                        // Parse and call buttonClicked from the onclick attribute
-                        var m = (el.getAttribute('onclick') || '').match(/buttonClicked\\('([^']+)'/);
-                        if (m && typeof buttonClicked === 'function') { buttonClicked(m[1], false, null, '', false); return; }
-                        // Fallback: DOM click event
-                        el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));
-                    }""",
-                    yes_btn,
+                onclick_attr = await page.evaluate(
+                    "el => el.getAttribute('onclick') || ''", yes_btn
                 )
-                logger.info("BDC_RETAIL: Yes dispatched — waiting for AJAX to reload dashboard")
-                # Wait for Loading... to appear then disappear (AJAX cycle)
+                logger.info("BDC_RETAIL: Yes onclick = %r", onclick_attr[:100])
+                # Strip the "return " prefix and trailing comma if present, then eval
+                call_expr = onclick_attr.strip().lstrip("return ").rstrip(",")
+                await page.evaluate(call_expr)
+                logger.info("BDC_RETAIL: Yes onclick evaluated — waiting for dashboard")
+                await self._random_delay(5.0, 8.0)
+                # Wait for Loading to clear
                 try:
                     await page.wait_for_function(
-                        "() => !document.body.innerText.includes('Loading...')",
-                        timeout=60_000,
+                        "() => document.body && !document.body.innerHTML.includes('Loading...')",
+                        timeout=30_000,
                     )
+                    logger.info("BDC_RETAIL: post-Yes loading complete")
                 except PlaywrightTimeoutError:
-                    pass
-                await self._random_delay(2.0, 3.0)
-                logger.info("BDC_RETAIL: post-Yes-click AJAX complete")
+                    logger.info("BDC_RETAIL: Loading still present — proceeding")
             except Exception as e:
-                logger.warning("BDC_RETAIL: Yes dispatch failed: %s", e)
+                logger.warning("BDC_RETAIL: Yes onclick eval failed: %s", e)
         else:
             logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
 
