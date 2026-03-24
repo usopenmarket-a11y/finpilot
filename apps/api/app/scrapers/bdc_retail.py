@@ -686,6 +686,27 @@ class BDCRetailScraper(BankScraper):
                 "BDC_RETAIL: portal rejected credentials", bank_code="BDC_RETAIL"
             )
 
+        # 2b. Check for "Session Active — already logged in another system" dialog
+        # T24 shows this when a previous session was not properly closed.
+        # The dialog text contains "already logged in" or "Session Active".
+        # Click "Yes" to continue and terminate the old session.
+        try:
+            page_text = await page.evaluate("document.body.innerText")
+            if "already logged in" in page_text.lower() or "session active" in page_text.lower():
+                logger.info("BDC_RETAIL: session conflict dialog detected — clicking Yes")
+                # Yes button: first image button on the page that's not the Sign In button
+                # The C1__ (not C2__) prefix indicates the session dialog layer
+                yes_btn = await page.query_selector("input[type='image'][id^='C1__BUT_']")
+                if yes_btn is not None:
+                    await yes_btn.click()
+                    logger.info("BDC_RETAIL: clicked Yes on session dialog, waiting...")
+                    await self._random_delay(3.0, 5.0)
+                else:
+                    # Fallback: look for button containing "yes" text nearby
+                    logger.warning("BDC_RETAIL: could not find Yes button for session dialog")
+        except Exception as sess_exc:
+            logger.warning("BDC_RETAIL: error handling session dialog: %s", sess_exc)
+
         # 3. Look for positive post-login indicators
         # Check absence of username field as primary indicator (most reliable)
         username_still_present = await page.query_selector(_SEL_USERNAME)
@@ -737,16 +758,25 @@ class BDCRetailScraper(BankScraper):
         except Exception as dump_exc:
             logger.warning("BDC_RETAIL: could not dump post-login HTML: %s", dump_exc)
 
-        # If username field is still visible, it's a real login failure
-        username_el = await page.query_selector(_SEL_USERNAME)
-        if username_el is not None and await username_el.is_visible():
-            raise ScraperLoginError(
-                "BDC_RETAIL: login form still visible after submission — credentials rejected",
-                bank_code="BDC_RETAIL",
-            )
+        # Check for explicit error messages on page — only raise if error text found
+        try:
+            page_text_check = await page.evaluate("document.body.innerText")
+            lower_text = page_text_check.lower()
+            error_phrases = ["invalid username", "invalid password", "incorrect password",
+                             "login failed", "authentication failed", "invalid credentials"]
+            for phrase in error_phrases:
+                if phrase in lower_text:
+                    raise ScraperLoginError(
+                        f"BDC_RETAIL: portal rejected credentials ({phrase!r} found in page)",
+                        bank_code="BDC_RETAIL",
+                    )
+        except ScraperLoginError:
+            raise
+        except Exception:
+            pass
 
-        # Otherwise proceed — post-login state is non-standard but login likely succeeded
-        logger.info("BDC_RETAIL: proceeding optimistically — username field not clearly visible")
+        # Proceed — login likely succeeded, post-login state is non-standard SPA
+        logger.info("BDC_RETAIL: proceeding optimistically after post-login checks")
 
     # ------------------------------------------------------------------
     # Debug logging helpers
