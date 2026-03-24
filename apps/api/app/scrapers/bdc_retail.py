@@ -642,11 +642,14 @@ class BDCRetailScraper(BankScraper):
                     "BDC_RETAIL: Sign In button not found", bank_code="BDC_RETAIL"
                 )
             logger.info("BDC_RETAIL: clicking Sign In button")
-            await login_btn.click()
-
-            # Wait for the page to change (either navigation or DOM mutation)
-            logger.info("BDC_RETAIL: waiting for post-login page")
-            await self._random_delay(2.5, 4.0)
+            # Wait for navigation triggered by the Sign In click.
+            # The T24 form POSTs and reloads — use expect_navigation to catch it.
+            async with page.expect_navigation(
+                wait_until="domcontentloaded", timeout=_POST_LOGIN_TIMEOUT_MS
+            ):
+                await login_btn.click()
+            logger.info("BDC_RETAIL: navigation after Sign In complete, URL=%s", page.url)
+            await self._random_delay(2.0, 3.0)
 
         finally:
             del username
@@ -691,7 +694,7 @@ class BDCRetailScraper(BankScraper):
         # The dialog text contains "already logged in" or "Session Active".
         # Click "Yes" to continue and terminate the old session.
         try:
-            page_text = await page.evaluate("document.body.innerText")
+            page_text = await page.evaluate("document.body.innerText || ''")
             if "already logged in" in page_text.lower() or "session active" in page_text.lower():
                 logger.info("BDC_RETAIL: session conflict dialog detected — clicking Yes")
                 # Yes button: first image button on the page that's not the Sign In button
@@ -760,7 +763,7 @@ class BDCRetailScraper(BankScraper):
 
         # Check for explicit error messages on page — only raise if error text found
         try:
-            page_text_check = await page.evaluate("document.body.innerText")
+            page_text_check = await page.evaluate("document.body.innerText || ''")
             lower_text = page_text_check.lower()
             error_phrases = ["invalid username", "invalid password", "incorrect password",
                              "login failed", "authentication failed", "invalid credentials"]
