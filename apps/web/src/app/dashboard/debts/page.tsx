@@ -15,20 +15,28 @@ type ActiveTab = 'borrowing' | 'lending';
 export default function DebtsPage() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('lending');
   const [showAddForm, setShowAddForm] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Debt | null>(null);
 
   const fetchDebts = useCallback(async () => {
+    setFetchError(null);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('debts')
       .select('*')
       .eq('user_id', user.id)
       .neq('status', 'settled')
       .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[DebtsPage] fetchDebts error:', error);
+      setFetchError(error.message);
+      setLoading(false);
+      return;
+    }
     setDebts((data ?? []) as Debt[]);
     setLoading(false);
   }, []);
@@ -74,6 +82,13 @@ export default function DebtsPage() {
           Add Debt
         </Button>
       </div>
+
+      {fetchError && (
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3">
+          <p className="text-sm text-red-700 dark:text-red-400 font-medium">Failed to load debts</p>
+          <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">{fetchError}</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

@@ -109,39 +109,35 @@ function CreditCardRow({
 export function CreditCardSelector({ cards }: CreditCardSelectorProps) {
   const [selectedId, setSelectedId] = useState<string>(cards[0]?.id ?? '');
 
-  const selectedCard = cards.find((c) => c.id === selectedId) ?? cards[0];
-
   return (
     <div className="space-y-3">
-      {/* Card list — each is a clickable row */}
-      <div className="space-y-3">
-        {cards.map((card) => (
+      {cards.map((card) => (
+        <div key={card.id}>
           <CreditCardRow
-            key={card.id}
             card={card}
             selected={card.id === selectedId}
-            onClick={() => setSelectedId(card.id)}
+            onClick={() => setSelectedId(card.id === selectedId ? '' : card.id)}
           />
-        ))}
-      </div>
-
-      {/* Tabs for the selected card */}
-      {selectedCard && (
-        <CreditCardTabs
-          last6MonthsData={selectedCard.last6MonthsData}
-          unbilledTx={selectedCard.unbilledTx}
-          unsettledTx={selectedCard.unsettledTx}
-          billedAmount={selectedCard.billed_amount}
-          creditLimit={selectedCard.credit_limit}
-          minimumPayment={selectedCard.minimum_payment}
-          paymentDueDate={selectedCard.payment_due_date}
-          cardAccountNumber={selectedCard.account_number_masked}
-          cardIsActive={selectedCard.is_active}
-          cardBankName={selectedCard.bank_name}
-          cardBalance={selectedCard.balance}
-          unbilledAmount={selectedCard.unbilled_amount}
-        />
-      )}
+          {card.id === selectedId && (
+            <div className="mt-2">
+              <CreditCardTabs
+                last6MonthsData={card.last6MonthsData}
+                unbilledTx={card.unbilledTx}
+                unsettledTx={card.unsettledTx}
+                billedAmount={card.billed_amount}
+                creditLimit={card.credit_limit}
+                minimumPayment={card.minimum_payment}
+                paymentDueDate={card.payment_due_date}
+                cardAccountNumber={card.account_number_masked}
+                cardIsActive={card.is_active}
+                cardBankName={card.bank_name}
+                cardBalance={card.balance}
+                unbilledAmount={card.unbilled_amount}
+              />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

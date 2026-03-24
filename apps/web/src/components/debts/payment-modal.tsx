@@ -99,7 +99,10 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
         .select()
         .single();
 
-      if (paymentError) throw new Error(paymentError.message);
+      if (paymentError) {
+        console.error('[PaymentModal] Insert debt_payments error:', paymentError);
+        throw new Error(paymentError.message);
+      }
 
       // Update debt outstanding_balance and status
       const newBalance = Math.max(0, debt.outstanding_balance - amount);
@@ -120,7 +123,10 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
         })
         .eq('id', debt.id);
 
-      if (debtError) throw new Error(debtError.message);
+      if (debtError) {
+        console.error('[PaymentModal] Update debts error:', debtError);
+        throw new Error(debtError.message);
+      }
 
       onSuccess(payment as DebtPayment);
       handleClose();

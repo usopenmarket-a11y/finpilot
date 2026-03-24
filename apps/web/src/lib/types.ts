@@ -1,5 +1,6 @@
 export interface Debt {
   id: string;
+  user_id: string;
   debt_type: 'lent' | 'borrowed';
   counterparty_name: string;
   outstanding_balance: number;

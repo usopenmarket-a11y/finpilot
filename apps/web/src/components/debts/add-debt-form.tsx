@@ -105,7 +105,10 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
         .select()
         .single();
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        console.error('[AddDebtForm] Supabase insert error:', error);
+        throw new Error(error.message);
+      }
       onSuccess(data as Debt);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');

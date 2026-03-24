@@ -50,6 +50,7 @@ interface SyncState {
   loading: boolean;
   error: string | null;
   lastResult: string | null;
+  startedAt: number | null;
 }
 
 export function BankAccountsSection() {
@@ -68,6 +69,29 @@ export function BankAccountsSection() {
 
   // Per-bank sync state keyed by bank code
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({});
+
+  // Elapsed seconds counter — increments every second for any key currently loading
+  const [elapsedSeconds, setElapsedSeconds] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const anyLoading = Object.values(syncStates).some((s) => s.loading);
+    if (!anyLoading) return;
+
+    const interval = setInterval(() => {
+      setElapsedSeconds(() => {
+        const now = Date.now();
+        const next: Record<string, number> = {};
+        for (const [key, state] of Object.entries(syncStates)) {
+          if (state.loading && state.startedAt !== null) {
+            next[key] = Math.floor((now - state.startedAt) / 1000);
+          }
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [syncStates]);
 
   // Per-bank remove state
   const [removingBank, setRemovingBank] = useState<string | null>(null);
@@ -150,7 +174,7 @@ export function BankAccountsSection() {
 
     setSyncStates((prev) => ({
       ...prev,
-      [bank]: { loading: true, error: null, lastResult: null },
+      [bank]: { loading: true, error: null, lastResult: null, startedAt: Date.now() },
     }));
 
     try {
@@ -162,6 +186,7 @@ export function BankAccountsSection() {
           loading: false,
           error: null,
           lastResult: `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
+          startedAt: null,
         },
       }));
       // Refresh list to update last_synced_at
@@ -170,7 +195,7 @@ export function BankAccountsSection() {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
         ...prev,
-        [bank]: { loading: false, error: message, lastResult: null },
+        [bank]: { loading: false, error: message, lastResult: null, startedAt: null },
       }));
     }
   };
@@ -189,7 +214,7 @@ export function BankAccountsSection() {
 
     setSyncStates((prev) => ({
       ...prev,
-      [key]: { loading: true, error: null, lastResult: null },
+      [key]: { loading: true, error: null, lastResult: null, startedAt: Date.now() },
     }));
 
     try {
@@ -208,6 +233,7 @@ export function BankAccountsSection() {
           loading: false,
           error: null,
           lastResult: `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
+          startedAt: null,
         },
       }));
       await fetchCredentials(userId);
@@ -215,7 +241,7 @@ export function BankAccountsSection() {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
         ...prev,
-        [key]: { loading: false, error: message, lastResult: null },
+        [key]: { loading: false, error: message, lastResult: null, startedAt: null },
       }));
     }
   };
@@ -297,6 +323,20 @@ export function BankAccountsSection() {
                     }
                   }
                 }
+
+                // Determine which keys are currently syncing for this bank
+                // so we can pick the largest elapsed time to display.
+                const activeSyncKeys: string[] = isNBE
+                  ? [`${cred.bank}_accounts`, `${cred.bank}_cc`, `${cred.bank}_certs`].filter(
+                      (k) => syncStates[k]?.loading,
+                    )
+                  : isSyncing
+                  ? [cred.bank]
+                  : [];
+                const maxElapsed =
+                  activeSyncKeys.length > 0
+                    ? Math.max(...activeSyncKeys.map((k) => elapsedSeconds[k] ?? 0))
+                    : 0;
 
                 return (
                   <li key={cred.bank} className="py-4 first:pt-0 last:pb-0">
@@ -400,6 +440,11 @@ export function BankAccountsSection() {
                         </Button>
                       </div>
                     </div>
+                    {activeSyncKeys.length > 0 && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                        Syncing... {maxElapsed}s — this can take 2–4 minutes
+                      </p>
+                    )}
                   </li>
                 );
               })}
