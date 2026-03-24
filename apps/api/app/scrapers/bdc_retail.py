@@ -642,14 +642,20 @@ class BDCRetailScraper(BankScraper):
                     "BDC_RETAIL: Sign In button not found", bank_code="BDC_RETAIL"
                 )
             logger.info("BDC_RETAIL: clicking Sign In button")
-            # Wait for navigation triggered by the Sign In click.
-            # The T24 form POSTs and reloads — use expect_navigation to catch it.
-            async with page.expect_navigation(
-                wait_until="domcontentloaded", timeout=_POST_LOGIN_TIMEOUT_MS
-            ):
-                await login_btn.click()
-            logger.info("BDC_RETAIL: navigation after Sign In complete, URL=%s", page.url)
-            await self._random_delay(2.0, 3.0)
+            await login_btn.click()
+            # T24 uses in-page AJAX — no full navigation fires after Sign In.
+            # Wait for either: (a) the username field to become hidden/detached,
+            # (b) a new DOM section to appear, or (c) a fixed delay as fallback.
+            logger.info("BDC_RETAIL: waiting for post-login DOM change (up to 30s)")
+            try:
+                await page.wait_for_selector(
+                    _SEL_USERNAME, state="hidden", timeout=30_000
+                )
+                logger.info("BDC_RETAIL: username field hidden — login transition detected")
+            except PlaywrightTimeoutError:
+                # Portal may keep the field in DOM — fall through to fixed wait
+                logger.info("BDC_RETAIL: username field still in DOM, using fixed wait")
+                await self._random_delay(4.0, 6.0)
 
         finally:
             del username
