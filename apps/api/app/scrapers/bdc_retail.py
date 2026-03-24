@@ -670,76 +670,64 @@ class BDCRetailScraper(BankScraper):
                 logger.info("BDC_RETAIL: Loading still present after 60s — proceeding anyway")
             await self._random_delay(1.0, 2.0)
 
-            # Handle "Session Active" dialog inline — must be done before _wait_for_post_login
-            # so the scraper proceeds to the real dashboard.
-            await self._handle_session_dialog(page)
+            # Handle "Session Active" dialog — reloads page and re-submits login if needed
+            session_cleared = await self._handle_session_dialog(page)
+            if session_cleared:
+                # Page was reloaded for a fresh session — re-fill and submit login form
+                logger.info("BDC_RETAIL: re-filling login form after session reload")
+                await page.wait_for_selector(_SEL_USERNAME, timeout=_WAIT_TIMEOUT_MS)
+                await self._type_human(page, _SEL_USERNAME, username)
+                await self._random_delay(0.8, 1.5)
+                await page.wait_for_selector(_SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS)
+                await page.fill(_SEL_PASSWORD, password, force=True)
+                await self._random_delay(1.0, 2.0)
+                login_btn2 = await page.query_selector("input[type='image'][id^='C2__C1__BUT_']")
+                if login_btn2:
+                    await login_btn2.click()
+                    logger.info("BDC_RETAIL: re-submitted login form")
+                    try:
+                        await page.wait_for_function(
+                            "() => !document.body.innerText.includes('Loading...')",
+                            timeout=60_000,
+                        )
+                    except PlaywrightTimeoutError:
+                        pass
+                    await self._random_delay(2.0, 4.0)
 
         finally:
             del username
             del password
 
-    async def _handle_session_dialog(self, page: Page) -> None:
-        """Detect and dismiss the T24 'Session Active' conflict dialog.
+    async def _handle_session_dialog(self, page: Page) -> bool:
+        """Detect the T24 'Session Active' conflict dialog and clear it.
 
-        When a previous session was not properly closed, BDC shows:
-          'Session Active — You have already logged in another system.
-           Do you want to continue with this? Yes No'
+        T24's buttonClicked() requires server-side session state that the
+        headless browser cannot satisfy after a stale session. The reliable
+        fix is to reload the login page which creates a fresh session token.
 
-        The Yes option is an <a onclick> link. Click it and wait for the
-        dashboard to load.
+        Returns:
+            True if the dialog was detected and the page was reloaded
+            (caller should re-submit the login form).
+            False if no dialog was present.
         """
         try:
             html = await page.content()
         except Exception:
-            return
+            return False
 
         low = html.lower()
         if "already logged in" not in low and "session active" not in low:
-            return
+            return False
 
-        logger.info("BDC_RETAIL: session conflict dialog detected — clicking Yes")
-        yes_btn = None
-
-        # Primary: <a> with onclick containing 'FormButton 3'
-        yes_btn = await page.query_selector("a[onclick*='FormButton 3']")
-
-        if yes_btn is None:
-            # Fallback: find <a> tag whose text is "Yes"
-            for el in await page.query_selector_all("a"):
-                try:
-                    if (await el.inner_text()).strip().lower() == "yes":
-                        yes_btn = el
-                        break
-                except Exception:
-                    continue
-
-        if yes_btn is not None:
-            # T24 session dialog: extract the full onclick and call it via page.evaluate
-            # so it runs in the page's own JS context with all globals available.
-            logger.info("BDC_RETAIL: invoking Yes onclick in page context")
-            try:
-                onclick_attr = await page.evaluate(
-                    "el => el.getAttribute('onclick') || ''", yes_btn
-                )
-                logger.info("BDC_RETAIL: Yes onclick = %r", onclick_attr[:100])
-                # Strip the "return " prefix and trailing comma if present, then eval
-                call_expr = onclick_attr.strip().lstrip("return ").rstrip(",")
-                await page.evaluate(call_expr)
-                logger.info("BDC_RETAIL: Yes onclick evaluated — waiting for dashboard")
-                await self._random_delay(5.0, 8.0)
-                # Wait for Loading to clear
-                try:
-                    await page.wait_for_function(
-                        "() => document.body && !document.body.innerHTML.includes('Loading...')",
-                        timeout=30_000,
-                    )
-                    logger.info("BDC_RETAIL: post-Yes loading complete")
-                except PlaywrightTimeoutError:
-                    logger.info("BDC_RETAIL: Loading still present — proceeding")
-            except Exception as e:
-                logger.warning("BDC_RETAIL: Yes onclick eval failed: %s", e)
-        else:
-            logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
+        logger.info("BDC_RETAIL: session conflict dialog — reloading for a fresh session")
+        try:
+            await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
+            await self._random_delay(2.0, 3.0)
+            logger.info("BDC_RETAIL: page reloaded — fresh session started")
+            return True
+        except Exception as e:
+            logger.warning("BDC_RETAIL: reload after session dialog failed: %s", e)
+            return False
 
     async def _wait_for_post_login(self, page: Page) -> None:
         """Confirm successful authentication by inspecting post-login DOM state.
@@ -762,20 +750,6 @@ class BDCRetailScraper(BankScraper):
                     bank_code="BDC_RETAIL",
                     session_token="bdc_retail_otp_pending",
                 )
-
-        # 1b. Check for T24 "Access violation" error — session was corrupted by dialog handling
-        try:
-            page_text_quick = await page.evaluate("document.body.innerText || ''")
-            if "access violation" in page_text_quick.lower():
-                logger.warning("BDC_RETAIL: access violation error detected — raising ScraperLoginError to trigger re-login")
-                raise ScraperLoginError(
-                    "BDC_RETAIL: T24 access violation after session dialog — re-login required",
-                    bank_code="BDC_RETAIL",
-                )
-        except ScraperLoginError:
-            raise
-        except Exception:
-            pass
 
         # 2. Check for login error message
         error_el = await page.query_selector(_SEL_LOGIN_ERROR_CSS)
