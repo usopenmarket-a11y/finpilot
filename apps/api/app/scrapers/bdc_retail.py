@@ -691,8 +691,22 @@ class BDCRetailScraper(BankScraper):
                     continue
 
         if yes_btn is not None:
-            await yes_btn.click(force=True)
-            logger.info("BDC_RETAIL: clicked Yes (force) — waiting 8s for dashboard to load")
+            # Element is hidden in the SPA — use JS to fire the onclick directly
+            try:
+                await page.evaluate(
+                    "el => el.onclick ? el.onclick() : el.dispatchEvent(new MouseEvent('click', {bubbles:true}))",
+                    yes_btn,
+                )
+                logger.info("BDC_RETAIL: JS-clicked Yes — waiting 8s for dashboard to load")
+            except Exception as click_exc:
+                logger.warning("BDC_RETAIL: JS element click failed (%s), calling buttonClicked directly", click_exc)
+                try:
+                    await page.evaluate(
+                        "buttonClicked('C2__C1____3E1B4F4A03039BB6 FormButton 3', false, null, '', false)"
+                    )
+                    logger.info("BDC_RETAIL: called buttonClicked JS directly")
+                except Exception as js_exc:
+                    logger.warning("BDC_RETAIL: buttonClicked JS also failed: %s", js_exc)
             await self._random_delay(7.0, 9.0)
         else:
             logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
