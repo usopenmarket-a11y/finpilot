@@ -16,6 +16,7 @@ interface EditDebtFormProps {
 interface FormValues {
   counterparty_name: string;
   debt_type: 'lent' | 'borrowed';
+  original_amount: string;
   currency: string;
   due_date: string;
   notes: string;
@@ -23,6 +24,7 @@ interface FormValues {
 
 interface FormErrors {
   counterparty_name?: string;
+  original_amount?: string;
 }
 
 const DEBT_TYPE_OPTIONS = [
@@ -41,6 +43,10 @@ function validate(values: FormValues): FormErrors {
   if (!values.counterparty_name.trim()) {
     errors.counterparty_name = 'Name is required';
   }
+  const amount = parseFloat(values.original_amount);
+  if (isNaN(amount) || amount <= 0) {
+    errors.original_amount = 'Amount must be greater than 0';
+  }
   return errors;
 }
 
@@ -48,6 +54,7 @@ export function EditDebtForm({ debt, onSuccess, onCancel }: EditDebtFormProps) {
   const [values, setValues] = useState<FormValues>({
     counterparty_name: debt.counterparty_name,
     debt_type: debt.debt_type,
+    original_amount: String(debt.original_amount),
     currency: debt.currency,
     due_date: debt.due_date ?? '',
     notes: debt.notes ?? '',
@@ -62,6 +69,9 @@ export function EditDebtForm({ debt, onSuccess, onCancel }: EditDebtFormProps) {
     setValues((prev) => ({ ...prev, [field]: e.target.value }));
     if (field === 'counterparty_name' && errors.counterparty_name) {
       setErrors((prev) => ({ ...prev, counterparty_name: undefined }));
+    }
+    if (field === 'original_amount' && errors.original_amount) {
+      setErrors((prev) => ({ ...prev, original_amount: undefined }));
     }
   };
 
@@ -78,11 +88,26 @@ export function EditDebtForm({ debt, onSuccess, onCancel }: EditDebtFormProps) {
 
     try {
       const supabase = createClient();
+      const newAmount = parseFloat(values.original_amount);
+      const newOutstanding = Math.max(
+        0,
+        debt.outstanding_balance + (newAmount - debt.original_amount),
+      );
+      const newStatus: Debt['status'] =
+        newOutstanding === 0
+          ? 'settled'
+          : newOutstanding < newAmount
+          ? 'partial'
+          : 'active';
+
       const { data, error } = await (supabase as any)
         .from('debts')
         .update({
           counterparty_name: values.counterparty_name.trim(),
           debt_type: values.debt_type,
+          original_amount: newAmount,
+          outstanding_balance: newOutstanding,
+          status: newStatus,
           currency: values.currency,
           due_date: values.due_date || null,
           notes: values.notes.trim() || null,
@@ -121,13 +146,17 @@ export function EditDebtForm({ debt, onSuccess, onCancel }: EditDebtFormProps) {
         onChange={set('debt_type')}
       />
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Original Amount</p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
-            {debt.currency} {new Intl.NumberFormat('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(debt.original_amount)}
-          </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Cannot be changed</p>
-        </div>
+        <Input
+          label="Original Amount"
+          type="number"
+          min="0.01"
+          step="0.01"
+          placeholder="0.00"
+          value={values.original_amount}
+          onChange={set('original_amount')}
+          error={errors.original_amount}
+          required
+        />
         <Select
           label="Currency"
           options={CURRENCY_OPTIONS}

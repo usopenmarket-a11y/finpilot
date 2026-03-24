@@ -12,6 +12,7 @@ interface DebtListProps {
   onRecordPayment: (debt: Debt) => void;
   onEditDebt: (debt: Debt) => void;
   onDeleteDebt: (debtId: string) => void;
+  onManagePayments: (debt: Debt) => void;
 }
 
 function formatEGP(amount: number): string {
@@ -43,7 +44,7 @@ function isOverdue(dueDate: string | null): boolean {
   return new Date(dueDate) < new Date();
 }
 
-export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDeleteDebt }: DebtListProps) {
+export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDeleteDebt, onManagePayments }: DebtListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   if (debts.length === 0) {
@@ -214,16 +215,26 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
             )}
 
             {/* Actions */}
-            {debt.status !== 'settled' && (
+            <div className="flex gap-2">
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => onRecordPayment(debt)}
-                className="w-full"
+                onClick={() => onManagePayments(debt)}
+                className="flex-1"
               >
-                Record Payment
+                Payments
               </Button>
-            )}
+              {debt.status !== 'settled' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onRecordPayment(debt)}
+                  className="flex-1"
+                >
+                  Record Payment
+                </Button>
+              )}
+            </div>
           </div>
         );
       })}

@@ -6,6 +6,7 @@ import { DebtList } from '@/components/debts/debt-list';
 import { AddDebtForm } from '@/components/debts/add-debt-form';
 import { EditDebtForm } from '@/components/debts/edit-debt-form';
 import { PaymentModal } from '@/components/debts/payment-modal';
+import { PaymentsManager } from '@/components/debts/payments-manager';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,7 @@ export default function DebtsPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Debt | null>(null);
   const [editTarget, setEditTarget] = useState<Debt | null>(null);
+  const [paymentsTarget, setPaymentsTarget] = useState<Debt | null>(null);
 
   const fetchDebts = useCallback(async () => {
     setFetchError(null);
@@ -169,6 +171,7 @@ export default function DebtsPage() {
             onRecordPayment={(debt) => setPaymentTarget(debt)}
             onEditDebt={handleEditDebt}
             onDeleteDebt={(debtId) => { void handleDeleteDebt(debtId); }}
+            onManagePayments={(debt) => setPaymentsTarget(debt)}
           />
         </>
       )}
@@ -207,6 +210,21 @@ export default function DebtsPage() {
         onClose={() => setPaymentTarget(null)}
         onSuccess={handlePaymentRecorded}
       />
+
+      {/* Payments manager modal */}
+      <Modal
+        open={paymentsTarget !== null}
+        onClose={() => setPaymentsTarget(null)}
+        title="Payment History"
+      >
+        {paymentsTarget && (
+          <PaymentsManager
+            debt={paymentsTarget}
+            onClose={() => setPaymentsTarget(null)}
+            onChanged={() => { void fetchDebts(); }}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
