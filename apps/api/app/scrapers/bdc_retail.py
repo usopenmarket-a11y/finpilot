@@ -511,6 +511,19 @@ class BDCRetailScraper(BankScraper):
 
     async def _navigate_to_login(self, page: Page) -> None:
         """Load the BDC Retail login page and verify the username field is visible."""
+        # Clear any stale server-side session first by hitting the logout endpoint.
+        # This prevents the "Session Active" dialog from appearing on the next login.
+        logger.info("BDC_RETAIL: clearing stale session via logout endpoint")
+        try:
+            await page.goto(
+                _LOGIN_URL + "?action=logout",
+                wait_until="commit",
+                timeout=15_000,
+            )
+            await self._random_delay(1.0, 2.0)
+        except Exception:
+            pass  # Logout may fail or redirect — ignore and proceed to login
+
         logger.info("BDC_RETAIL: navigating to %s", _LOGIN_URL)
         try:
             await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
@@ -691,23 +704,19 @@ class BDCRetailScraper(BankScraper):
                     continue
 
         if yes_btn is not None:
-            # Element is hidden in the SPA — use JS to fire the onclick directly
+            # Wait for the Yes element to become visible (dialog fades in after AJAX)
+            logger.info("BDC_RETAIL: waiting for Yes button to become visible (up to 20s)")
             try:
-                await page.evaluate(
-                    "el => el.onclick ? el.onclick() : el.dispatchEvent(new MouseEvent('click', {bubbles:true}))",
-                    yes_btn,
+                await page.wait_for_selector(
+                    "a[onclick*='FormButton 3']", state="visible", timeout=20_000
                 )
-                logger.info("BDC_RETAIL: JS-clicked Yes — waiting 8s for dashboard to load")
-            except Exception as click_exc:
-                logger.warning("BDC_RETAIL: JS element click failed (%s), calling buttonClicked directly", click_exc)
-                try:
-                    await page.evaluate(
-                        "buttonClicked('C2__C1____3E1B4F4A03039BB6 FormButton 3', false, null, '', false)"
-                    )
-                    logger.info("BDC_RETAIL: called buttonClicked JS directly")
-                except Exception as js_exc:
-                    logger.warning("BDC_RETAIL: buttonClicked JS also failed: %s", js_exc)
-            await self._random_delay(7.0, 9.0)
+                yes_visible = await page.query_selector("a[onclick*='FormButton 3']")
+                if yes_visible:
+                    await yes_visible.click()
+                    logger.info("BDC_RETAIL: clicked visible Yes button — waiting for dashboard")
+                    await self._random_delay(7.0, 9.0)
+            except PlaywrightTimeoutError:
+                logger.warning("BDC_RETAIL: Yes button never became visible — skipping dialog")
         else:
             logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
 
@@ -732,6 +741,20 @@ class BDCRetailScraper(BankScraper):
                     bank_code="BDC_RETAIL",
                     session_token="bdc_retail_otp_pending",
                 )
+
+        # 1b. Check for T24 "Access violation" error — session was corrupted by dialog handling
+        try:
+            page_text_quick = await page.evaluate("document.body.innerText || ''")
+            if "access violation" in page_text_quick.lower():
+                logger.warning("BDC_RETAIL: access violation error detected — raising ScraperLoginError to trigger re-login")
+                raise ScraperLoginError(
+                    "BDC_RETAIL: T24 access violation after session dialog — re-login required",
+                    bank_code="BDC_RETAIL",
+                )
+        except ScraperLoginError:
+            raise
+        except Exception:
+            pass
 
         # 2. Check for login error message
         error_el = await page.query_selector(_SEL_LOGIN_ERROR_CSS)
