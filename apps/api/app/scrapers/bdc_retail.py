@@ -67,6 +67,7 @@ import hashlib
 import logging
 import re
 from datetime import UTC, date, datetime
+from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from typing import ClassVar
 from uuid import UUID
@@ -510,15 +511,16 @@ class BDCRetailScraper(BankScraper):
 
     async def _navigate_to_login(self, page: Page) -> None:
         """Load the BDC Retail login page and verify the username field is visible."""
-        logger.debug("BDC_RETAIL: navigating to %s", _LOGIN_URL)
+        logger.info("BDC_RETAIL: navigating to %s", _LOGIN_URL)
         try:
-            await page.goto(_LOGIN_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
             raise ScraperTimeoutError(
                 "BDC_RETAIL: login page did not load within timeout",
                 bank_code="BDC_RETAIL",
             ) from exc
 
+        logger.info("BDC_RETAIL: first byte received, waiting for username field")
         # Confirm the username field is present before attempting to fill it.
         try:
             await page.wait_for_selector(_SEL_USERNAME, timeout=_WAIT_TIMEOUT_MS)
@@ -529,7 +531,7 @@ class BDCRetailScraper(BankScraper):
                 bank_code="BDC_RETAIL",
             ) from exc
 
-        logger.debug("BDC_RETAIL: login page loaded, username field present")
+        logger.info("BDC_RETAIL: login page loaded, username field present")
 
     async def _navigate_to_statement(self, page: Page) -> None:
         """Attempt to navigate to the account statement / transaction history view.
@@ -611,16 +613,18 @@ class BDCRetailScraper(BankScraper):
         username = self._username
         password = self._password
         try:
-            logger.debug("BDC_RETAIL: filling login form for user=***")
+            logger.info("BDC_RETAIL: filling login form")
 
             # Fill username by stable ID
             await self._type_human(page, _SEL_USERNAME, username)
+            logger.info("BDC_RETAIL: username filled, waiting for password field")
             await self._random_delay(0.8, 1.5)
 
             # Fill the password field (type=text, name-based stable selector).
             # The T24 portal keeps this field hidden until after username interaction —
             # wait for DOM attachment only, then force-fill bypassing visibility check.
             await page.wait_for_selector(_SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS)
+            logger.info("BDC_RETAIL: password field found (attached), filling")
             await page.fill(_SEL_PASSWORD, password, force=True)
             await self._random_delay(1.0, 2.0)
 
@@ -637,9 +641,11 @@ class BDCRetailScraper(BankScraper):
                 raise ScraperParseError(
                     "BDC_RETAIL: Sign In button not found", bank_code="BDC_RETAIL"
                 )
+            logger.info("BDC_RETAIL: clicking Sign In button")
             await login_btn.click()
 
             # Wait for the page to change (either navigation or DOM mutation)
+            logger.info("BDC_RETAIL: waiting for post-login page")
             await self._random_delay(2.5, 4.0)
 
         finally:
@@ -706,12 +712,41 @@ class BDCRetailScraper(BankScraper):
         except PlaywrightTimeoutError:
             pass
 
-        # If we reach here, we cannot confirm login state — log and raise
-        await self._safe_screenshot(page, "post_login_ambiguous")
-        raise ScraperTimeoutError(
-            "BDC_RETAIL: could not confirm successful login within timeout",
-            bank_code="BDC_RETAIL",
-        )
+        # Could not confirm via standard checks — dump page HTML for inspection
+        # and proceed optimistically (the page may have loaded with non-standard DOM)
+        try:
+            html_dump = await page.content()
+            dump_path = Path("/tmp/finpilot_debug/bdc_post_login_dump.html")
+            dump_path.parent.mkdir(parents=True, exist_ok=True)
+            dump_path.write_text(html_dump, encoding="utf-8")
+            logger.info(
+                "BDC_RETAIL: post-login HTML dumped to %s (%d bytes)",
+                dump_path,
+                len(html_dump),
+            )
+            # Log first 3000 chars of visible text
+            soup = BeautifulSoup(html_dump, "lxml")
+            text = soup.get_text(separator=" ", strip=True)
+            logger.info("BDC_RETAIL: post-login page text (first 3000): %s", text[:3000])
+            # Log current URL
+            logger.info("BDC_RETAIL: current URL = %s", page.url)
+            # Log all input IDs/names on page
+            inputs = soup.find_all("input")
+            input_info = [(el.get("id"), el.get("name"), el.get("type")) for el in inputs[:30]]
+            logger.info("BDC_RETAIL: inputs on page: %s", input_info)
+        except Exception as dump_exc:
+            logger.warning("BDC_RETAIL: could not dump post-login HTML: %s", dump_exc)
+
+        # If username field is still visible, it's a real login failure
+        username_el = await page.query_selector(_SEL_USERNAME)
+        if username_el is not None and await username_el.is_visible():
+            raise ScraperLoginError(
+                "BDC_RETAIL: login form still visible after submission — credentials rejected",
+                bank_code="BDC_RETAIL",
+            )
+
+        # Otherwise proceed — post-login state is non-standard but login likely succeeded
+        logger.info("BDC_RETAIL: proceeding optimistically — username field not clearly visible")
 
     # ------------------------------------------------------------------
     # Debug logging helpers
