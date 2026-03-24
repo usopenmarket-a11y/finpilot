@@ -87,7 +87,6 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
       const amount = parseFloat(values.amount);
 
       // Insert payment record
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: payment, error: paymentError } = await (supabase as any)
         .from('debt_payments')
         .insert({
@@ -113,7 +112,6 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
           ? 'partial'
           : debt.status;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error: debtError } = await (supabase as any)
         .from('debts')
         .update({

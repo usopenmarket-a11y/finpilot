@@ -88,7 +88,6 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
       if (!user) throw new Error('Not authenticated');
 
       const amount = parseFloat(values.amount);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
         .from('debts')
         .insert({
