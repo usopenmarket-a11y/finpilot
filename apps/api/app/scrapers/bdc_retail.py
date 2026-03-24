@@ -656,9 +656,19 @@ class BDCRetailScraper(BankScraper):
                 )
             logger.info("BDC_RETAIL: clicking Sign In button")
             await login_btn.click()
-            # T24 uses in-page AJAX — wait for a DOM change then handle session dialog.
-            logger.info("BDC_RETAIL: waiting 8s for AJAX response after Sign In")
-            await self._random_delay(7.0, 9.0)
+            # T24 uses in-page AJAX — wait for the Loading indicator to disappear,
+            # which signals the AJAX response has been processed.
+            logger.info("BDC_RETAIL: waiting for AJAX to complete (Loading... to disappear)")
+            try:
+                # Wait up to 60s for "Loading..." text to disappear from the page
+                await page.wait_for_function(
+                    "() => !document.body.innerText.includes('Loading...')",
+                    timeout=60_000,
+                )
+                logger.info("BDC_RETAIL: Loading indicator gone — AJAX complete")
+            except PlaywrightTimeoutError:
+                logger.info("BDC_RETAIL: Loading still present after 60s — proceeding anyway")
+            await self._random_delay(1.0, 2.0)
 
             # Handle "Session Active" dialog inline — must be done before _wait_for_post_login
             # so the scraper proceeds to the real dashboard.
@@ -704,19 +714,35 @@ class BDCRetailScraper(BankScraper):
                     continue
 
         if yes_btn is not None:
-            # Wait for the Yes element to become visible (dialog fades in after AJAX)
-            logger.info("BDC_RETAIL: waiting for Yes button to become visible (up to 20s)")
+            # Use Playwright locator with force to click hidden element,
+            # or dispatch click event directly via JS evaluate on the element
+            logger.info("BDC_RETAIL: dispatching click on Yes button via JS")
             try:
-                await page.wait_for_selector(
-                    "a[onclick*='FormButton 3']", state="visible", timeout=20_000
+                await page.evaluate(
+                    """el => {
+                        // Try onclick handler first (T24 uses inline onclick)
+                        if (typeof el.onclick === 'function') { el.onclick(); return; }
+                        // Parse and call buttonClicked from the onclick attribute
+                        var m = (el.getAttribute('onclick') || '').match(/buttonClicked\\('([^']+)'/);
+                        if (m && typeof buttonClicked === 'function') { buttonClicked(m[1], false, null, '', false); return; }
+                        // Fallback: DOM click event
+                        el.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));
+                    }""",
+                    yes_btn,
                 )
-                yes_visible = await page.query_selector("a[onclick*='FormButton 3']")
-                if yes_visible:
-                    await yes_visible.click()
-                    logger.info("BDC_RETAIL: clicked visible Yes button — waiting for dashboard")
-                    await self._random_delay(7.0, 9.0)
-            except PlaywrightTimeoutError:
-                logger.warning("BDC_RETAIL: Yes button never became visible — skipping dialog")
+                logger.info("BDC_RETAIL: Yes dispatched — waiting for AJAX to reload dashboard")
+                # Wait for Loading... to appear then disappear (AJAX cycle)
+                try:
+                    await page.wait_for_function(
+                        "() => !document.body.innerText.includes('Loading...')",
+                        timeout=60_000,
+                    )
+                except PlaywrightTimeoutError:
+                    pass
+                await self._random_delay(2.0, 3.0)
+                logger.info("BDC_RETAIL: post-Yes-click AJAX complete")
+            except Exception as e:
+                logger.warning("BDC_RETAIL: Yes dispatch failed: %s", e)
         else:
             logger.warning("BDC_RETAIL: session dialog present but Yes button not found")
 
