@@ -726,17 +726,24 @@ class BDCRetailScraper(BankScraper):
             logger.info("BDC_RETAIL: Yes click result = %s", clicked)
 
             if clicked.get("ok"):
-                # T24's buttonClicked() triggers a full-page navigation, which means
-                # document.body becomes null immediately after the click. We must wait
-                # for the page to finish loading, not poll body.innerText.
+                # T24's buttonClicked() triggers a full-page navigation. Wait for
+                # domcontentloaded, then use evaluate (not page.content()) to check
+                # whether the session dialog is still present — page.content() can
+                # raise "page is navigating" even after load_state resolves.
                 try:
                     await page.wait_for_load_state(
                         "domcontentloaded", timeout=_POST_LOGIN_TIMEOUT_MS
                     )
-                    # Check if the dialog is gone (page navigated to dashboard)
-                    html_after = await page.content()
-                    low_after = html_after.lower()
-                    if "already logged in" not in low_after and "session active" not in low_after:
+                    await page.wait_for_load_state("load", timeout=_POST_LOGIN_TIMEOUT_MS)
+                    # Use evaluate to safely read page text after load
+                    dialog_gone = await page.evaluate(
+                        """() => {
+                            const t = (document.body || document.documentElement).innerText || '';
+                            return !t.toLowerCase().includes('already logged in') &&
+                                   !t.toLowerCase().includes('session active');
+                        }"""
+                    )
+                    if dialog_gone:
                         logger.info("BDC_RETAIL: session dialog cleared via Yes click — proceeding")
                         await self._random_delay(2.0, 3.0)
                         return False  # No re-login needed
