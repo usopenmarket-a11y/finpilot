@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardBody } from '@/components/ui/card';
 import { AccountSubTabs } from './account-sub-tabs';
 import { hideAccount } from '@/lib/api-client';
 import { createClient } from '@/lib/supabase/client';
@@ -29,7 +28,6 @@ function accountTypeBadgeVariant(
     case 'savings': return 'success';
     case 'current': return 'default';
     case 'payroll': return 'info';
-    case 'credit_card': return 'warning';
     case 'certificate':
     case 'deposit': return 'danger';
     default: return 'default';
@@ -41,10 +39,20 @@ function accountTypeLabel(type: string): string {
     case 'savings': return 'Savings';
     case 'current': return 'Current';
     case 'payroll': return 'Payroll';
-    case 'credit_card': return 'Credit Card';
     case 'certificate': return 'Certificate';
     case 'deposit': return 'Deposit';
     default: return type;
+  }
+}
+
+function accountGradient(type: string): string {
+  switch (type) {
+    case 'savings': return 'from-emerald-500 to-teal-600';
+    case 'current': return 'from-blue-500 to-blue-600';
+    case 'payroll': return 'from-violet-500 to-purple-600';
+    case 'certificate':
+    case 'deposit': return 'from-amber-500 to-orange-500';
+    default: return 'from-gray-400 to-gray-500';
   }
 }
 
@@ -118,47 +126,48 @@ interface AccordionItemProps {
 
 function AccordionItem({ account, transactions, isOpen, onToggle, onHide }: AccordionItemProps) {
   const balance = parseFloat(String(account.balance));
-  const isCreditCard = account.account_type === 'credit_card';
 
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-      {/* Header — clickable to toggle */}
+    <div>
       <button
+        type="button"
         onClick={onToggle}
-        className="w-full px-4 py-3 flex items-center justify-between bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors text-left"
+        className={`w-full flex items-center justify-between px-5 py-4 rounded-xl border transition-colors text-left ${
+          isOpen
+            ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-500'
+            : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-700'
+        }`}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-              {account.bank_name}
-            </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-4">
+          <div className={`h-10 w-16 rounded-md bg-gradient-to-br ${accountGradient(account.account_type)} flex items-center justify-center flex-shrink-0`}>
+            <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">{account.bank_name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
               {account.account_number_masked}
-            </span>
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Balance</p>
+            <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+              {account.currency} {formatEGP(balance)}
+            </p>
           </div>
           <Badge variant={accountTypeBadgeVariant(account.account_type)}>
             {accountTypeLabel(account.account_type)}
           </Badge>
-        </div>
-
-        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-          <span
-            className={`text-sm font-semibold tabular-nums ${
-              isCreditCard
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-gray-900 dark:text-white'
-            }`}
-          >
-            {account.currency} {formatEGP(balance)}
-          </span>
           <HideButton accountId={account.id} onHide={onHide} />
           <ChevronIcon open={isOpen} />
         </div>
       </button>
 
-      {/* Body — sub-tabs */}
       {isOpen && (
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+        <div className="mt-2 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
           <AccountSubTabs account={account} transactions={transactions} />
         </div>
       )}
@@ -172,7 +181,6 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide }: Acco
 
 const GROUP_CONFIGS: { label: string; types: string[] }[] = [
   { label: 'Savings, Current & Payroll', types: ['savings', 'current', 'payroll'] },
-  { label: 'Credit Cards', types: ['credit_card'] },
   { label: 'Certificates & Deposits', types: ['certificate', 'deposit'] },
 ];
 
@@ -187,8 +195,7 @@ interface AccountAccordionProps {
 
 export function AccountAccordion({ accounts: initialAccounts, transactions }: AccountAccordionProps) {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  // Open the first account by default
-  const [openId, setOpenId] = useState<string | null>(initialAccounts[0]?.id ?? null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const visibleAccounts = initialAccounts.filter((a) => !hiddenIds.has(a.id));
 
@@ -221,7 +228,7 @@ export function AccountAccordion({ accounts: initialAccounts, transactions }: Ac
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
             {group.label}
           </h3>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {group.accounts.map((account) => (
               <AccordionItem
                 key={account.id}

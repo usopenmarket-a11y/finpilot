@@ -107,7 +107,7 @@ function CreditCardRow({
 // ---------------------------------------------------------------------------
 
 export function CreditCardSelector({ cards }: CreditCardSelectorProps) {
-  const [selectedId, setSelectedId] = useState<string>(cards[0]?.id ?? '');
+  const [selectedId, setSelectedId] = useState<string>('');
 
   return (
     <div className="space-y-3">
