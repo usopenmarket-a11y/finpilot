@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardBody } from '@/components/ui/card';
+
+export const dynamic = 'force-dynamic';
 import { CreditCardSelector } from '@/components/credit-cards/credit-card-selector';
 import type { CreditCardData } from '@/components/credit-cards/credit-card-selector';
 import type { MonthlySpend, CreditCardTransaction } from '@/components/credit-cards/credit-card-tabs';

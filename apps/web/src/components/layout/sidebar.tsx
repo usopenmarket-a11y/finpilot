@@ -60,6 +60,14 @@ function CreditCardIcon() {
   );
 }
 
+function AccountsIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  );
+}
+
 function CertificateIcon() {
   return (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -70,6 +78,7 @@ function CertificateIcon() {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+  { href: '/dashboard/accounts', label: 'Accounts', icon: <AccountsIcon /> },
   { href: '/dashboard/transactions', label: 'Transactions', icon: <TransactionsIcon /> },
   { href: '/dashboard/credit-cards', label: 'Credit Cards', icon: <CreditCardIcon /> },
   { href: '/dashboard/certificates', label: 'Certificates & Deposits', icon: <CertificateIcon /> },

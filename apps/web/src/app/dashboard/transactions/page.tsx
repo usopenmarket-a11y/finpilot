@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { TransactionTable } from '@/components/transactions/transaction-table';
+
+export const dynamic = 'force-dynamic';
 import type { Transaction } from '@/lib/types';
 import type { Database } from '@finpilot/shared';
 

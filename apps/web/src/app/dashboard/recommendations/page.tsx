@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { MonthlyPlanCard } from '@/components/recommendations/monthly-plan-card';
 import { SavingsOpportunities } from '@/components/recommendations/savings-opportunities';
 import { ForecastChart } from '@/components/recommendations/forecast-chart';

@@ -67,8 +67,8 @@ import hashlib
 import logging
 import re
 from datetime import UTC, date, datetime
-from pathlib import Path
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import ClassVar
 from uuid import UUID
 
@@ -399,36 +399,14 @@ class BDCRetailScraper(BankScraper):
             raw_html["dashboard"] = dashboard_html
             await self._log_page_structure(page, dashboard_html, "dashboard")
 
-            account = await self._extract_account(page)
+            result = await self._extract_card_data(page, raw_html)
             logger.info(
-                "BDC_RETAIL: account extracted — masked=%s balance=%s %s",
-                account.account_number_masked,
-                account.balance,
-                account.currency,
+                "BDC_RETAIL: card data extracted — accounts=%d transactions=%d",
+                len(result.accounts),
+                len(result.transactions),
             )
-
-            # Attempt transaction extraction — non-fatal if the portal
-            # does not present a transaction view on the first landing page.
-            transactions: list[Transaction] = []
-            try:
-                await self._navigate_to_statement(page)
-                stmt_html = await page.content()
-                raw_html["transactions"] = stmt_html
-                await self._log_page_structure(page, stmt_html, "statement")
-                transactions = await self._extract_transactions(page, account)
-                logger.info("BDC_RETAIL: extracted %d transactions", len(transactions))
-            except (ScraperTimeoutError, ScraperParseError) as exc:
-                logger.warning(
-                    "BDC_RETAIL: transaction extraction skipped — %s: %s",
-                    type(exc).__name__,
-                    exc,
-                )
-
-            return ScraperResult(
-                accounts=[account],
-                transactions=transactions,
-                raw_html=raw_html,
-            )
+            result.raw_html.update(raw_html)
+            return result
 
         except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
             raise
@@ -472,19 +450,15 @@ class BDCRetailScraper(BankScraper):
             raw_html["dashboard"] = dashboard_html
             await self._log_page_structure(page, dashboard_html, "dashboard")
 
-            account = await self._extract_account(page)
+            result = await self._extract_card_data(page, raw_html, transactions_only=False)
             logger.info(
                 "BDC_RETAIL: accounts-only — masked=%s balance=%s %s",
-                account.account_number_masked,
-                account.balance,
-                account.currency,
+                result.accounts[0].account_number_masked if result.accounts else "?",
+                result.accounts[0].balance if result.accounts else "?",
+                result.accounts[0].currency if result.accounts else "?",
             )
-
-            return ScraperResult(
-                accounts=[account],
-                transactions=[],
-                raw_html=raw_html,
-            )
+            result.raw_html.update(raw_html)
+            return result
 
         except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
             raise
@@ -936,7 +910,731 @@ class BDCRetailScraper(BankScraper):
         logger.info("BDC_RETAIL [%s]: T24 element IDs: %s", label, id_list)
 
     # ------------------------------------------------------------------
-    # Data extraction — account
+    # Credit card extraction — top-level orchestrator
+    # ------------------------------------------------------------------
+
+    async def _extract_card_data(
+        self,
+        page: Page,
+        raw_html: dict[str, str],
+        *,
+        transactions_only: bool = True,
+    ) -> ScraperResult:
+        """Orchestrate credit card data extraction after login.
+
+        Sequence:
+        1. Dump all visible links/buttons at INFO level so we can discover
+           the correct card-navigation selector from Render logs.
+        2. Attempt to navigate to the card detail view.
+        3. Parse card summary fields (balance, credit limit, billed/unbilled
+           amounts, minimum payment, due date).
+        4. If ``transactions_only`` is True, also navigate to the card
+           statement / transaction table and parse rows.
+
+        Args:
+            page: The active, post-login Playwright page.
+            raw_html: Mutable dict; card detail and statement HTML are added
+                under the keys ``"card_detail"`` and ``"card_transactions"``.
+            transactions_only: Pass ``False`` to skip transaction extraction
+                (used by ``scrape_accounts()``).
+
+        Returns:
+            A ``ScraperResult`` with one ``BankAccount`` (account_type
+            ``"credit_card"``) and any extracted transactions.
+        """
+        now = datetime.now(UTC)
+
+        # Step 1 — dump all interactive elements visible on the dashboard so
+        # we can identify the card-navigation selector from logs.
+        await self._log_card_navigation_candidates(page)
+
+        # Step 2 — attempt to navigate to the card detail view.
+        card_detail_html: str = ""
+        navigated = False
+        try:
+            await self._navigate_to_card_view(page)
+            card_detail_html = await page.content()
+            raw_html["card_detail"] = card_detail_html
+            await self._log_page_structure(page, card_detail_html, "card_detail")
+            navigated = True
+        except (ScraperParseError, ScraperTimeoutError) as exc:
+            logger.warning(
+                "BDC_RETAIL: card view navigation failed (%s: %s) — "
+                "falling back to dashboard HTML for field extraction",
+                type(exc).__name__,
+                exc,
+            )
+            # Fall back to the current page (dashboard) for extraction
+            try:
+                card_detail_html = await page.content()
+            except Exception:
+                card_detail_html = ""
+
+        # Step 3 — parse card summary fields.
+        account = self._parse_card_summary(card_detail_html, now)
+        logger.info(
+            "BDC_RETAIL: credit card — masked=%s balance=%s %s credit_limit=%s "
+            "billed=%s unbilled=%s min_payment=%s due_date=%s",
+            account.account_number_masked,
+            account.balance,
+            account.currency,
+            account.credit_limit,
+            account.billed_amount,
+            account.unbilled_amount,
+            account.minimum_payment,
+            account.payment_due_date,
+        )
+
+        # Step 4 — transaction extraction (best-effort, non-fatal).
+        transactions: list[Transaction] = []
+        if transactions_only:
+            try:
+                txn_html = await self._navigate_to_card_transactions(
+                    page, card_detail_html, navigated
+                )
+                raw_html["card_transactions"] = txn_html
+                await self._log_page_structure(page, txn_html, "card_transactions")
+                transactions = self._parse_card_transactions(txn_html, account, now)
+                logger.info("BDC_RETAIL: extracted %d card transactions", len(transactions))
+            except (ScraperParseError, ScraperTimeoutError, PlaywrightTimeoutError) as exc:
+                logger.warning(
+                    "BDC_RETAIL: card transaction extraction skipped — %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+
+        return ScraperResult(
+            accounts=[account],
+            transactions=transactions,
+            raw_html={},  # caller merges into its own raw_html dict
+        )
+
+    async def _log_card_navigation_candidates(self, page: Page) -> None:
+        """Log every link, button, and onclick element visible after login.
+
+        This is the discovery step: because we cannot inspect the portal
+        interactively, we dump all navigation candidates so the correct
+        "View Card" selector can be identified from Render logs.
+
+        All output is at INFO level so it appears in production logs.
+        """
+        try:
+            html = await page.content()
+        except Exception as exc:
+            logger.warning("BDC_RETAIL: could not get page content for nav discovery: %s", exc)
+            return
+
+        soup = BeautifulSoup(html, "lxml")
+
+        # All <a> tags — both href and onclick
+        all_links = soup.find_all("a")
+        link_summaries = []
+        for a in all_links[:60]:
+            text = a.get_text(strip=True)[:60]
+            href = str(a.get("href", ""))[:80]
+            onclick = str(a.get("onclick", ""))[:100]
+            link_summaries.append(f"text={text!r} href={href!r} onclick={onclick!r}")
+        logger.info("BDC_RETAIL [nav_discovery]: all <a> elements: %s", link_summaries)
+
+        # All <input type="image"> and <input type="button"> and <button>
+        buttons = soup.find_all(["input", "button"])
+        btn_summaries = []
+        for el in buttons[:40]:
+            tag = el.name
+            el_type = el.get("type", "")
+            el_id = el.get("id", "")[:60]
+            el_value = el.get("value", el.get_text(strip=True))[:60]
+            el_onclick = str(el.get("onclick", ""))[:100]
+            btn_summaries.append(
+                f"{tag}[type={el_type!r}] id={el_id!r} value={el_value!r} "
+                f"onclick={el_onclick!r}"
+            )
+        logger.info("BDC_RETAIL [nav_discovery]: buttons/inputs: %s", btn_summaries)
+
+        # T24 component IDs — these are often the most reliable selectors
+        t24_els = soup.find_all(id=re.compile(r"C2__", re.I))
+        t24_summaries = [
+            f"{el.name}#{el.get('id', '')[:60]} "
+            f"class={str(el.get('class', ''))[:40]} "
+            f"text={el.get_text(strip=True)[:40]!r}"
+            for el in t24_els[:60]
+        ]
+        logger.info("BDC_RETAIL [nav_discovery]: T24 C2__ elements: %s", t24_summaries)
+
+        # Log page title and URL for orientation
+        try:
+            logger.info(
+                "BDC_RETAIL [nav_discovery]: page title=%r url=%r",
+                await page.title(),
+                page.url,
+            )
+        except Exception:
+            pass
+
+    async def _navigate_to_card_view(self, page: Page) -> None:
+        """Attempt to navigate to the credit card detail view.
+
+        Tries multiple selector strategies in order from most to least
+        specific.  Logs which strategy succeeds.  Raises ``ScraperParseError``
+        if no card navigation element can be located.
+        """
+        await self._random_delay(1.5, 3.0)
+        logger.info("BDC_RETAIL: searching for card view navigation element")
+
+        # CSS selectors — ordered from most specific to broadest
+        card_css_selectors = [
+            # T24 goNavItem calls that mention card/cc/visa/mastercard
+            "a[onclick*='goNavItem'][onclick*='ard']",
+            "a[onclick*='goNavItem'][onclick*='CC']",
+            "a[onclick*='goNavItem'][onclick*='VISA']",
+            "a[onclick*='goNavItem'][onclick*='MASTER']",
+            "a[onclick*='goNavItem'][onclick*='Credit']",
+            # href-based card links
+            "a[href*='card' i]",
+            "a[href*='credit' i]",
+            "a[href*='CC' ]",
+            # image buttons with card-related IDs
+            "input[type='image'][id*='CARD']",
+            "input[type='image'][id*='CC']",
+            # generic "View" / "My Account" image button on card portals
+            "input[type='image'][id*='VIEW']",
+        ]
+
+        # XPath for text-content matching (English + Arabic)
+        card_xpath = (
+            "//a[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+            "'abcdefghijklmnopqrstuvwxyz'),'card') or "
+            "contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+            "'abcdefghijklmnopqrstuvwxyz'),'credit') or "
+            "contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+            "'abcdefghijklmnopqrstuvwxyz'),'view card') or "
+            "contains(text(),'بطاقة') or "
+            "contains(text(),'كارت') or "
+            "contains(text(),'ائتمان')]"
+        )
+
+        link = None
+        matched_selector = ""
+        for sel in card_css_selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el is not None and await el.is_visible():
+                    link = el
+                    matched_selector = sel
+                    break
+            except Exception:
+                continue
+
+        if link is None:
+            try:
+                el = await page.query_selector(f"xpath={card_xpath}")
+                if el is not None:
+                    link = el
+                    matched_selector = "xpath (text-content)"
+            except Exception:
+                pass
+
+        if link is None:
+            # Last resort: any goNavItem link on the page — the portal may
+            # have only one nav item which IS the card view.
+            try:
+                all_nav = await page.query_selector_all("a[onclick*='goNavItem']")
+                if len(all_nav) == 1:
+                    link = all_nav[0]
+                    matched_selector = "sole goNavItem link (fallback)"
+                    logger.info(
+                        "BDC_RETAIL: only one goNavItem link found — treating as card view"
+                    )
+                elif all_nav:
+                    # Log all nav items so we can pick the right one next time
+                    for i, nav_el in enumerate(all_nav):
+                        try:
+                            txt = await nav_el.inner_text()
+                            onclick_val = await nav_el.get_attribute("onclick") or ""
+                            logger.info(
+                                "BDC_RETAIL: goNavItem[%d] text=%r onclick=%r",
+                                i,
+                                txt[:80],
+                                onclick_val[:120],
+                            )
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        if link is None:
+            await self._safe_screenshot(page, "card_nav_missing")
+            raise ScraperParseError(
+                "BDC_RETAIL: could not find card view navigation element on dashboard",
+                bank_code="BDC_RETAIL",
+            )
+
+        logger.info("BDC_RETAIL: found card nav element via %r — clicking", matched_selector)
+        await link.click()
+        await self._random_delay(2.0, 4.0)
+
+        # Wait for any table or card-related element to appear
+        try:
+            await page.wait_for_selector(
+                "table, [id*='BALANCE' i], [id*='LIMIT' i], [id*='CARD' i]",
+                timeout=_WAIT_TIMEOUT_MS,
+            )
+            logger.info("BDC_RETAIL: card view loaded (table or card element visible)")
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "BDC_RETAIL: no table/card element appeared after clicking card nav — "
+                "proceeding with current page"
+            )
+
+    async def _navigate_to_card_transactions(
+        self, page: Page, card_detail_html: str, already_on_card_view: bool
+    ) -> str:
+        """Navigate to the card statement / transaction table.
+
+        Tries links within the card detail page first, then falls back to
+        the statement navigation logic used for deposit accounts.
+
+        Args:
+            page: The active Playwright page.
+            card_detail_html: HTML of the card detail page (used for
+                offline link discovery before any live DOM query).
+            already_on_card_view: True if we successfully navigated to the
+                card detail view; False means we are still on the dashboard.
+
+        Returns:
+            The full HTML string of the transaction page.
+
+        Raises:
+            ScraperParseError: If no transaction link can be found.
+            ScraperTimeoutError: If the transaction table does not load.
+        """
+        await self._random_delay(1.5, 3.0)
+        logger.info("BDC_RETAIL: searching for card transaction / statement link")
+
+        # Selectors for card statement navigation
+        txn_css_selectors = [
+            "a[onclick*='goNavItem'][onclick*='tatement']",
+            "a[onclick*='goNavItem'][onclick*='Transaction']",
+            "a[onclick*='goNavItem'][onclick*='History']",
+            "a[onclick*='goNavItem'][onclick*='TRANS']",
+            "a[href*='statement' i]",
+            "a[href*='transaction' i]",
+            "a[href*='history' i]",
+            "input[type='image'][id*='STATEMENT']",
+            "input[type='image'][id*='TRANS']",
+        ]
+
+        txn_xpath = (
+            "//a[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+            "'abcdefghijklmnopqrstuvwxyz'),'statement') or "
+            "contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+            "'abcdefghijklmnopqrstuvwxyz'),'transaction') or "
+            "contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+            "'abcdefghijklmnopqrstuvwxyz'),'history') or "
+            "contains(text(),'كشف') or contains(text(),'حركات') or "
+            "contains(text(),'معاملات')]"
+        )
+
+        link = None
+        matched_sel = ""
+        for sel in txn_css_selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el is not None and await el.is_visible():
+                    link = el
+                    matched_sel = sel
+                    break
+            except Exception:
+                continue
+
+        if link is None:
+            try:
+                el = await page.query_selector(f"xpath={txn_xpath}")
+                if el is not None:
+                    link = el
+                    matched_sel = "xpath (text-content)"
+            except Exception:
+                pass
+
+        if link is None:
+            # If the transaction table is already on the current page (some
+            # T24 portals show statement inline), return current HTML.
+            try:
+                tbl_el = await page.query_selector("table")
+                if tbl_el is not None:
+                    current_html = await page.content()
+                    soup_check = BeautifulSoup(current_html, "lxml")
+                    raw_text_lower = soup_check.get_text(separator=" ").lower()
+                    if ("debit" in raw_text_lower or "مدين" in raw_text_lower) and (
+                        "credit" in raw_text_lower or "دائن" in raw_text_lower
+                    ):
+                        logger.info(
+                            "BDC_RETAIL: transaction table already on current page — "
+                            "skipping navigation"
+                        )
+                        return current_html
+            except Exception:
+                pass
+
+            await self._safe_screenshot(page, "card_txn_link_missing")
+            raise ScraperParseError(
+                "BDC_RETAIL: could not find card statement/transaction link",
+                bank_code="BDC_RETAIL",
+            )
+
+        logger.info("BDC_RETAIL: found card transaction link via %r — clicking", matched_sel)
+        await link.click()
+        await self._random_delay(2.0, 4.0)
+
+        try:
+            await page.wait_for_selector("table", timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "card_txn_table_missing")
+            raise ScraperTimeoutError(
+                "BDC_RETAIL: no table appeared after clicking card transaction link",
+                bank_code="BDC_RETAIL",
+            ) from exc
+
+        return await page.content()
+
+    def _parse_card_summary(self, html: str, now: datetime) -> BankAccount:
+        """Parse credit card summary fields from the card detail page HTML.
+
+        Extraction strategy (in order):
+        1. T24 component IDs whose names contain card-specific keywords
+           (BALANCE, CREDITLIMIT, BILLED, UNBILLED, MINPAYMENT, DUEDATE, etc.)
+        2. Table-row label scanning: look for label/value pairs in two-column
+           tables (e.g. "Outstanding Balance" → "12,500.00").
+        3. Text-pattern scan: regex match for labelled amounts in visible text.
+
+        All parsing is wrapped in per-field try/except so a failure on one
+        field does not block the others.
+
+        Returns:
+            A ``BankAccount`` with ``account_type="credit_card"`` and sentinel
+            UUIDs (the pipeline layer replaces these).
+        """
+        soup = BeautifulSoup(html, "lxml")
+
+        raw_balance = ""
+        raw_credit_limit = ""
+        raw_billed = ""
+        raw_unbilled = ""
+        raw_min_payment = ""
+        raw_due_date = ""
+        raw_account_number = ""
+        raw_currency = ""
+
+        # --- Strategy 1: T24 component IDs ---
+        # Balance / outstanding amount
+        for pattern in (
+            r"OUTSTANDING|CURRENTBAL|CURRENT_BAL|WORKINGBAL|BALANCE|AMTDUE|AMT_DUE",
+        ):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_balance = el.get_text(strip=True)
+                logger.debug(
+                    "BDC_RETAIL: card balance via T24 ID (pattern=%r): %r", pattern, raw_balance
+                )
+                break
+
+        for pattern in (r"CREDITLIMIT|CREDIT_LIMIT|CARDLIMIT|CARD_LIMIT|LIMIT",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_credit_limit = el.get_text(strip=True)
+                logger.debug(
+                    "BDC_RETAIL: credit limit via T24 ID: %r", raw_credit_limit
+                )
+                break
+
+        for pattern in (r"BILLEDAMT|BILLED_AMT|STMT_BAL|STATEMENTBAL|BILL_AMOUNT",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_billed = el.get_text(strip=True)
+                logger.debug("BDC_RETAIL: billed amount via T24 ID: %r", raw_billed)
+                break
+
+        for pattern in (r"UNBILLEDAMT|UNBILLED_AMT|PENDING_AMT|PENDINGAMT",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_unbilled = el.get_text(strip=True)
+                logger.debug("BDC_RETAIL: unbilled amount via T24 ID: %r", raw_unbilled)
+                break
+
+        for pattern in (r"MINPAY|MIN_PAY|MINPAYMENT|MINIMUM_PAYMENT|MINAMT|MIN_AMT",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_min_payment = el.get_text(strip=True)
+                logger.debug(
+                    "BDC_RETAIL: min payment via T24 ID: %r", raw_min_payment
+                )
+                break
+
+        for pattern in (r"DUEDATE|DUE_DATE|PAYMENTDUE|PAYMENT_DUE",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_due_date = el.get_text(strip=True)
+                logger.debug("BDC_RETAIL: due date via T24 ID: %r", raw_due_date)
+                break
+
+        for pattern in (r"CARDNO|CARD_NO|ACCOUNTNO|ACCTNO|ACCOUNT_NO|PAN",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_account_number = el.get_text(strip=True)
+                logger.debug(
+                    "BDC_RETAIL: card/account number via T24 ID: %r", raw_account_number
+                )
+                break
+
+        for pattern in (r"CURRENCY|CCY",):
+            el = soup.find(id=re.compile(pattern, re.I))
+            if el:
+                raw_currency = el.get_text(strip=True)
+                break
+
+        # --- Strategy 2: label/value table scan ---
+        # Look for two-column tables where the first column is a text label
+        # and the second column is an amount or date.
+        if not (raw_balance or raw_credit_limit):
+            for table in soup.find_all("table"):
+                for row in table.find_all("tr"):
+                    cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+                    if len(cells) < 2:
+                        continue
+                    label = cells[0].lower()
+                    value = cells[-1]  # rightmost cell as value
+
+                    if not raw_balance and re.search(
+                        r"outstanding|current\s*bal|amount\s*due|total\s*due|balance", label
+                    ):
+                        raw_balance = value
+                        logger.debug(
+                            "BDC_RETAIL: card balance via table label %r: %r", cells[0], value
+                        )
+
+                    if not raw_credit_limit and re.search(
+                        r"credit\s*limit|card\s*limit|limit", label
+                    ):
+                        raw_credit_limit = value
+                        logger.debug(
+                            "BDC_RETAIL: credit limit via table label %r: %r", cells[0], value
+                        )
+
+                    if not raw_billed and re.search(
+                        r"billed|statement\s*bal|bill\s*amount", label
+                    ):
+                        raw_billed = value
+                        logger.debug(
+                            "BDC_RETAIL: billed amount via table label %r: %r", cells[0], value
+                        )
+
+                    if not raw_unbilled and re.search(r"unbilled|pending", label):
+                        raw_unbilled = value
+                        logger.debug(
+                            "BDC_RETAIL: unbilled amount via table label %r: %r", cells[0], value
+                        )
+
+                    if not raw_min_payment and re.search(
+                        r"minimum|min\.?\s*pay|min\s*amount", label
+                    ):
+                        raw_min_payment = value
+                        logger.debug(
+                            "BDC_RETAIL: min payment via table label %r: %r", cells[0], value
+                        )
+
+                    if not raw_due_date and re.search(r"due\s*date|payment\s*date", label):
+                        raw_due_date = value
+                        logger.debug(
+                            "BDC_RETAIL: due date via table label %r: %r", cells[0], value
+                        )
+
+                    if not raw_account_number and re.search(
+                        r"card\s*no|account\s*no|card\s*number|account\s*number", label
+                    ):
+                        raw_account_number = value
+                        logger.debug(
+                            "BDC_RETAIL: card number via table label %r: %r", cells[0], value
+                        )
+
+        # --- Strategy 3: text-pattern scan ---
+        if not (raw_balance or raw_credit_limit):
+            full_text = soup.get_text(separator="\n", strip=True)
+            # Pattern: "Label: 12,345.67" or "Label  12,345.67"
+            _label_amount = re.compile(
+                r"(outstanding|current\s*bal|amount\s*due|total\s*due|balance)"
+                r"[:\s]+([0-9,]+\.?\d*)",
+                re.I,
+            )
+            m = _label_amount.search(full_text)
+            if m and not raw_balance:
+                raw_balance = m.group(2)
+                logger.debug(
+                    "BDC_RETAIL: card balance via text scan (label=%r): %r",
+                    m.group(1),
+                    raw_balance,
+                )
+
+            _limit_pattern = re.compile(
+                r"(credit\s*limit|card\s*limit)[:\s]+([0-9,]+\.?\d*)", re.I
+            )
+            m2 = _limit_pattern.search(full_text)
+            if m2 and not raw_credit_limit:
+                raw_credit_limit = m2.group(2)
+                logger.debug(
+                    "BDC_RETAIL: credit limit via text scan (label=%r): %r",
+                    m2.group(1),
+                    raw_credit_limit,
+                )
+
+            # Card/account number: 16-digit string (possibly spaced/dashed)
+            if not raw_account_number:
+                m3 = re.search(r"\b(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4})\b", full_text)
+                if m3:
+                    raw_account_number = m3.group(1)
+                    logger.debug(
+                        "BDC_RETAIL: card number via 16-digit text scan: %r", raw_account_number
+                    )
+
+        # --- Normalise and log all raw values ---
+        logger.info(
+            "BDC_RETAIL: raw card fields — balance=%r limit=%r billed=%r "
+            "unbilled=%r min_pay=%r due_date=%r acct_no=%r currency=%r",
+            raw_balance,
+            raw_credit_limit,
+            raw_billed,
+            raw_unbilled,
+            raw_min_payment,
+            raw_due_date,
+            raw_account_number,
+            raw_currency,
+        )
+
+        # --- Parse amounts and dates ---
+        balance = _parse_amount(raw_balance) if raw_balance else None
+        if balance is None:
+            logger.warning(
+                "BDC_RETAIL: could not parse card balance from %r — defaulting to 0.00",
+                raw_balance,
+            )
+            balance = Decimal("0.00")
+
+        credit_limit = _parse_amount(raw_credit_limit) if raw_credit_limit else None
+        billed_amount = _parse_amount(raw_billed) if raw_billed else None
+        unbilled_amount = _parse_amount(raw_unbilled) if raw_unbilled else None
+        minimum_payment = _parse_amount(raw_min_payment) if raw_min_payment else None
+        payment_due_date = _parse_t24_date(raw_due_date) if raw_due_date else None
+        currency = _normalise_currency(raw_currency) if raw_currency else "EGP"
+
+        # Masked account identifier
+        if raw_account_number:
+            # Strip non-digit characters for masking
+            digits = re.sub(r"\D", "", raw_account_number)
+            masked = self._mask_account_number(digits) if digits else "****BDCR"
+        else:
+            logger.warning(
+                "BDC_RETAIL: could not extract card number — using placeholder ****BDCR"
+            )
+            masked = "****BDCR"
+
+        return BankAccount(
+            id=_ZERO_UUID,
+            user_id=_ZERO_UUID,
+            bank_name=self.bank_name,
+            account_number_masked=masked,
+            account_type="credit_card",
+            currency=currency,
+            balance=balance,
+            is_active=True,
+            last_synced_at=now,
+            credit_limit=credit_limit,
+            billed_amount=billed_amount,
+            unbilled_amount=unbilled_amount,
+            minimum_payment=minimum_payment,
+            payment_due_date=payment_due_date,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _parse_card_transactions(
+        self, html: str, account: BankAccount, now: datetime
+    ) -> list[Transaction]:
+        """Parse credit card transaction rows from the statement HTML.
+
+        Delegates to the existing table-parsing helpers (``_resolve_txn_columns``
+        and ``_parse_transaction_row``).  Table-discovery strategies mirror
+        ``_extract_transactions``.
+
+        Returns up to ``_MAX_TRANSACTIONS`` transactions.
+        """
+        soup = BeautifulSoup(html, "lxml")
+
+        # Strategy 1: T24 CSS class
+        table = soup.find("table", class_=re.compile(r"tc-table|tc_table", re.I))
+
+        # Strategy 2: ID patterns
+        if table is None:
+            table = soup.find(
+                "table", id=re.compile(r"STATEMENT|TRANS|ACTIVITY|CARD", re.I)
+            )
+
+        # Strategy 3: table with debit+credit headers
+        if table is None:
+            for t in soup.find_all("table"):
+                raw_text = t.get_text(separator=" ").lower()
+                if ("debit" in raw_text or "مدين" in raw_text) and (
+                    "credit" in raw_text or "دائن" in raw_text
+                ):
+                    table = t
+                    break
+
+        # Strategy 4: largest table
+        if table is None:
+            all_tables = soup.find_all("table")
+            if all_tables:
+                table = max(all_tables, key=lambda t: len(t.find_all("tr")))
+                logger.debug(
+                    "BDC_RETAIL: using largest table (%d rows) as card transaction table",
+                    len(table.find_all("tr")),
+                )
+
+        if table is None:
+            logger.info(
+                "BDC_RETAIL: no transaction table found in card statement page — "
+                "returning empty transaction list"
+            )
+            return []
+
+        header_row = table.find("tr")
+        if header_row is None:
+            logger.info("BDC_RETAIL: card transaction table has no rows")
+            return []
+
+        headers = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])]
+        logger.info("BDC_RETAIL: card transaction table headers: %r", headers)
+        col = _resolve_txn_columns(headers)
+        logger.info("BDC_RETAIL: card transaction column map: %r", col)
+
+        transactions: list[Transaction] = []
+        data_rows = [r for r in table.find_all("tr") if r.find("td")]
+        for row_idx, row in enumerate(data_rows[:_MAX_TRANSACTIONS]):
+            cells = [td.get_text(strip=True) for td in row.find_all("td")]
+            if not cells or len(cells) < 3:
+                continue
+            logger.debug("BDC_RETAIL: card txn row[%d] cells: %r", row_idx, cells)
+            try:
+                txn = _parse_transaction_row(cells, col, account, now)
+            except Exception as exc:
+                logger.debug(
+                    "BDC_RETAIL: skipping card txn row %d: %s", row_idx, exc
+                )
+                continue
+            if txn is not None:
+                transactions.append(txn)
+
+        return transactions
+
+    # ------------------------------------------------------------------
+    # Data extraction — account (kept for backward compatibility / reuse)
     # ------------------------------------------------------------------
 
     async def _extract_account(self, page: Page) -> BankAccount:

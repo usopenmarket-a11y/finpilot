@@ -1,6 +1,6 @@
 # FinPilot — Project Status
 
-**Last reviewed:** 2026-03-24
+**Last reviewed:** 2026-03-25
 
 ---
 
@@ -17,7 +17,7 @@
 | M7 | Frontend Dashboard | COMPLETE | 100% |
 | M8 | Production Deploy & Monitoring | COMPLETE | 100% |
 | M9 | Real Data Integration (Live Sync) | COMPLETE | 100% |
-| M10 | UX Polish & Multi-bank Expansion | NOT STARTED | 0% |
+| M10 | UX Polish & Multi-bank Expansion | IN PROGRESS | 30% |
 
 ---
 
@@ -166,55 +166,87 @@ Real-data integration: stored encrypted credentials → live bank sync → dashb
 - [x] Frontend pages: `/dashboard/credit-cards` + `/dashboard/certificates`
 - [x] `shared/types/database.ts` updated with new BankAccount fields
 - [x] Schema migration: 5 new nullable columns on `bank_accounts`
-- [x] DB live: 642 transactions, 5 bank accounts, last_synced_at = 2026-03-23 19:52:54 UTC
+- [x] DB live: 742 transactions, 10 bank accounts (as of 2026-03-25)
 - [x] UNS authdate propagation fix (`6e4468c`) — parent date fields merged into child statmentItems
 - [x] Diagnostic logging downgraded to DEBUG (`e22fabd`)
 - [x] CI passing (ruff + mypy clean)
 
 ---
 
+## M10 Detailed Breakdown (30% — IN PROGRESS)
+
+### What M10 covers
+UX polish, multi-bank expansion, and live sync reliability.
+
+### Done
+- [x] `apps/api/app/scrapers/bdc_retail.py` — BDC Retail scraper (Temenos T24 / EdgeConnect portal at bdconline.com.eg); RSA-encrypted login via JS `encrypt()` function; session conflict dialog handling
+- [x] Multi-credential support: dropped `(user_id, bank)` unique constraint; credentials now identified by UUID `id`; optional `label`/nickname field per credential
+- [x] Backend updated: `POST /credentials` always inserts; `DELETE /credentials/id/{id}`; sync endpoints accept `credential_id` query param
+- [x] Frontend updated: `BDC_RETAIL` added to bank dropdown; all sync/remove keyed by `cred.id`; label field in add form
+- [x] Settings UI: elapsed-seconds sync timer; debt tracker error visibility
+- [x] CC page: accordion tabs per card (inline expand)
+- [x] Debt tracker: editable original_amount; full payment history manager with inline edit/delete
+- [x] Certificates page: `opened_date` + `product_name` scraped and displayed; duration, days-remaining, estimated profit at maturity
+- [x] Pipeline: certificate accounts disambiguated from demand-deposits in upsert key (avoid overwrites)
+- [x] BDC Retail login: multiple fix iterations for hidden password field, session dialog, T24 AJAX navigation, slow portal timeouts
+
+### Remaining / Next
+- [ ] BDC Retail scraper: login flow still being stabilised (most recent commit `2010169` — session dialog Yes via fetch POST in JS context)
+- [ ] BDC Retail: balance + transaction extraction (not yet implemented — currently logs portal structure)
+- [ ] CIB live sync verification with real credentials
+- [ ] Transaction categorization running on live data (hook analytics categorizer into pipeline)
+- [ ] Loading states / sync progress indicators beyond elapsed timer
+- [ ] Credit limit discovery for NBE CC
+
+---
+
 ## Current Focus
 
-**M9 is complete.** All NBE account types scraping and storing data correctly:
-- Demand deposits: transactions via AJAX intercept
-- Credit card: 622 statement + 74 UBT + 3 UNS = 625+ total CC transactions
-- Certificates: interest rate + maturity date
+**M10: UX Polish & Multi-bank Expansion — active work on BDC Retail scraper**
 
-**Next milestone (M10): UX Polish & Multi-bank Expansion**
-Candidates:
-1. CIB live sync verification + multi-bank dashboard aggregation
-2. Loading states and sync progress indicators in the UI
-3. Credit limit discovery (NBE portal may not expose via API — needs investigation)
-4. Transaction categorization running on live data
+The BDC Retail scraper (`bdc_retail.py`) login flow has seen 15+ fix commits in the past 2 days. The Temenos T24 portal is difficult: RSA-encrypted login, session conflict dialogs, very slow page loads, hidden form fields, AJAX-based navigation. The latest attempt (`2010169`) submits the session dialog via a `fetch` POST in the page JS context. Status of login success is still being determined from Render logs.
+
+**Once BDC Retail login is stable**, next steps:
+1. Extract balance + transactions from the T24 portal
+2. CIB live sync test with real credentials
+3. Wire categorizer into the ETL pipeline
 
 ---
 
 ## Blockers
 
-None. System is fully operational.
-
 | Item | Notes |
 |------|-------|
+| BDC Retail login instability | 15+ commits in 2 days — T24 portal is very slow and has a tricky session-conflict dialog. Need to confirm successful login from Render logs before proceeding to data extraction. |
 | `credit_limit=null` for NBE CC | NBE portal may not expose credit limit via any accessible API endpoint. Low priority — not blocking. |
+| Render workspace not auto-selected | Must call `mcp__render__select_workspace` with `ownerID=tea-d6ruibsr85hc73ekv47g` at start of each session before using Render MCP tools. |
 
 ---
 
-## Recent Changes (since last review 2026-03-22)
+## Recent Changes (since last review 2026-03-24)
 
 | Commit | Description |
 |--------|-------------|
-| `e22fabd` | chore(scraper): downgrade diagnostic logging to DEBUG in NBE CC parser |
-| `6e4468c` | fix(scraper): propagate parent authdate into UNS statmentItems children — **KEY FIX** |
-| `5e34293` | fix(scraper): parse unsettled (UNS) transaction fields correctly |
-| `4c6522c` | fix(scraper): handle epoch-ms dates in UBT response parser |
-| `3f9cd47` | fix(scraper): add YYYYMMDD date format + promote date-skip log to INFO |
-| `e0807b2` | fix(scraper): poll for UBT paginator re-enable before checking pagination |
-| `bae4aba` | debug(scraper): log all UBT item fields + per-item skip reason |
-| `04ecf8b` | fix(scraper): parse UBT field names + extra paginator wait |
-| `d7815e1` | fix(scraper): wait for UBT API response before checking pagination |
-| `9a32fab` | fix(scraper): broaden UBT response capture to match by body content |
-| `eba3ec4` | fix(cc-ui): filter unbilled tab to current billing cycle only |
-| `562ad94` | feat(scraper): paginate NBE unbilled transactions tab across all pages |
+| `2010169` | fix(scraper): submit BDC session dialog Yes via fetch POST in page JS context |
+| `3a6428f` | fix(scraper): clear browser cookies before session dialog reload on BDC |
+| `663a1f5` | fix(scraper): reload page to clear BDC session dialog + retry login |
+| `d0c5349` | fix(scraper): eval Yes onclick attribute directly in page JS context |
+| `ff6bdc7` | fix(scraper): wait for Loading indicator to clear before handling BDC session dialog |
+| `81b618c` | fix(scraper): clear stale BDC session before login + wait for visible Yes button |
+| `6843a20` | fix(scraper): JS-invoke Yes onclick on hidden BDC session dialog element |
+| `52ca2f2` | fix(scraper): force-click Yes on BDC session dialog (element not visible) |
+| `636b3d0` | fix(scraper): move session dialog handling to _login + add _handle_session_dialog |
+| `db1469a` | fix(scraper): click Yes <a> link on BDC session conflict dialog |
+| `0e50478` | fix(scraper): remove expect_navigation for BDC — T24 uses in-page AJAX |
+| `5d02b1e` | fix(scraper): wait for navigation after BDC Sign In click |
+| `2e411e4` | fix(scraper): handle BDC session conflict dialog + fix post-login detection |
+| `75a5be3` | fix(scraper): improve BDC post-login detection + dump HTML on ambiguous state |
+| `accade7` | fix(scraper): force-fill hidden password field on BDC Retail T24 portal |
+| `2c655e7` | test(api): update credential tests for multi-credential API shape |
+| `cb8f142` | fix(api): fix mypy errors in credentials router and BDC Retail scraper |
+| (earlier) | feat(scraper): add BDC Retail scraper + multi-credential support |
+| (earlier) | feat(web): debt tracker editable amount + payment history manager |
+| (earlier) | feat(certs): scrape and display opened_date and product_name for certificates |
 
 ---
 
@@ -222,9 +254,9 @@ None. System is fully operational.
 
 | Service | Status | URL | Notes |
 |---------|--------|-----|-------|
-| Supabase DB | LIVE | — | 7 tables, all RLS enabled; 642 txns, 5 accounts |
-| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest: `e22fabd`, not_suspended |
-| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Latest: `dpl_YhL3sfjd` on `e22fabd` — READY |
+| Supabase DB | LIVE | — | 7 tables, all RLS enabled; 742 txns, 10 accounts (as of 2026-03-25) |
+| Render (backend) | LIVE | `https://finpilot-api-lrfg.onrender.com` | Latest deploy: `2010169` — auto-deploys on push to `main` |
+| Vercel (frontend) | LIVE | `https://finpilot-api.vercel.app` | Latest: `dpl_Gu45k6ovNcfEbvxSjsbaCQY6XVwA` on `accade7` — READY |
 | GitHub Actions CI | PASSING | — | ruff + mypy + pytest clean |
 
 ---

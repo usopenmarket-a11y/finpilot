@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+
+export const dynamic = 'force-dynamic';
 import type { Database } from '@finpilot/shared';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
