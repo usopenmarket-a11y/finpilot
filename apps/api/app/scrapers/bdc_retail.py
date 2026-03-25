@@ -693,44 +693,57 @@ class BDCRetailScraper(BankScraper):
         if "already logged in" not in low and "session active" not in low:
             return False
 
-        # Extract form state and submit Yes via fetch() in the page's own JS context.
-        # This runs with all cookies and session state intact — identical to what the
-        # browser would send if the Yes button were clickable.
-        logger.info("BDC_RETAIL: submitting Yes via fetch POST in page context")
+        # The Yes button's onclick calls T24's buttonClicked() JS function directly.
+        # From logs: onclick="return buttonClicked('C2__C1____3E1B4F4A03039BB6 FormButton 3', ...)"
+        # We find the Yes <a> by text and call its onclick handler via JS, then wait
+        # for the resulting navigation (T24 submits the form via JS after buttonClicked).
+        logger.info("BDC_RETAIL: invoking Yes buttonClicked() via JS onclick")
         try:
-            result = await page.evaluate("""
-                async () => {
+            # Find the Yes link and extract its full onclick handler, then call it
+            clicked = await page.evaluate("""
+                () => {
+                    // Find Yes anchor by text content
+                    const links = Array.from(document.querySelectorAll('a'));
+                    const yes = links.find(a => a.textContent.trim() === 'Yes');
+                    if (!yes) return {ok: false, reason: 'Yes link not found'};
+                    const onclick = yes.getAttribute('onclick') || '';
+                    if (!onclick) return {ok: false, reason: 'Yes link has no onclick'};
+                    // Execute the onclick inline — this calls buttonClicked() with all
+                    // required T24 arguments and triggers the form submission
                     try {
-                        const form = document.querySelector('form');
-                        if (!form) return {ok: false, reason: 'no form'};
-                        const data = new FormData(form);
-                        // Signal the Yes button click (FormButton 3)
-                        data.set('CLICKED_BUTTON', 'C2__C1____3E1B4F4A03039BB6 FormButton 3');
-                        // Convert to URL-encoded for T24 servlet
-                        const params = new URLSearchParams();
-                        for (const [k, v] of data.entries()) { params.append(k, v); }
-                        const resp = await fetch(window.location.href, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                            body: params.toString(),
-                            credentials: 'include'
-                        });
-                        const text = await resp.text();
-                        // Replace page content with response
-                        document.open(); document.write(text); document.close();
-                        return {ok: true, status: resp.status};
-                    } catch(e) { return {ok: false, reason: e.toString()}; }
+                        yes.click();
+                        return {ok: true, onclick: onclick.slice(0, 120)};
+                    } catch(e) {
+                        return {ok: false, reason: e.toString()};
+                    }
                 }
             """)
-            logger.info("BDC_RETAIL: fetch POST result = %s", result)
-            await self._random_delay(3.0, 5.0)
-            return False  # Page was updated in-place, no re-login needed
+            logger.info("BDC_RETAIL: Yes click result = %s", clicked)
+
+            if clicked.get("ok"):
+                # Wait for T24 to navigate away from the session dialog
+                try:
+                    await page.wait_for_function(
+                        """() => !document.body.innerText.includes('already logged in') &&
+                                !document.body.innerText.includes('Session Active')""",
+                        timeout=_WAIT_TIMEOUT_MS,
+                    )
+                    logger.info("BDC_RETAIL: session dialog cleared — proceeding")
+                    await self._random_delay(2.0, 3.0)
+                    return False  # No re-login needed
+                except PlaywrightTimeoutError:
+                    logger.warning("BDC_RETAIL: session dialog still visible after Yes click — falling back to reload")
+            else:
+                logger.warning("BDC_RETAIL: Yes click failed: %s — falling back to reload", clicked.get("reason"))
+
         except Exception as e:
-            logger.warning("BDC_RETAIL: fetch POST failed: %s — falling back to reload", e)
-            await page.context.clear_cookies()
-            await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
-            await self._random_delay(3.0, 5.0)
-            return True
+            logger.warning("BDC_RETAIL: Yes JS click failed: %s — falling back to reload", e)
+
+        # Fallback: clear cookies and reload for a fresh session
+        await page.context.clear_cookies()
+        await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
+        await self._random_delay(3.0, 5.0)
+        return True
 
     async def _wait_for_post_login(self, page: Page) -> None:
         """Confirm successful authentication by inspecting post-login DOM state.
