@@ -7,7 +7,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import analytics, credentials, debts, health, recommendations, scrape, sync, utils
+from app.routers import (
+    analytics,
+    credentials,
+    debts,
+    health,
+    installments,
+    recommendations,
+    scrape,
+    sync,
+    utils,
+)
+from app.scheduler import create_scheduler
 
 # ---------------------------------------------------------------------------
 # Root logging configuration
@@ -56,7 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Playwright Chromium is installed at build time via:
     #   PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/src/.playwright-browsers playwright install chromium
     # No runtime installation needed.
-    yield
+    scheduler = create_scheduler()
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
 
 
 def create_app() -> FastAPI:
@@ -90,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(recommendations.router, prefix="/api/v1")
     app.include_router(utils.router, prefix="/api/v1")
     app.include_router(sync.router, prefix="/api/v1")
+    app.include_router(installments.router, prefix="/api/v1")
 
     return app
 

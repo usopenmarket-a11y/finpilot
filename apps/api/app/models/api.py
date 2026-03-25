@@ -12,9 +12,13 @@ Naming convention:
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
-from app.models.db import UserProfile
+from app.models.db import InstallmentDB, UserProfile
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -134,6 +138,67 @@ class DebtPaymentCreate(BaseModel):
     amount: float = Field(gt=0, description="Payment amount — must be positive")
     payment_date: str = Field(description="ISO 8601 date string (YYYY-MM-DD)")
     notes: str | None = Field(default=None, description="Optional payment memo")
+
+
+# ---------------------------------------------------------------------------
+# Installment API schemas
+# ---------------------------------------------------------------------------
+
+
+class InstallmentCreate(BaseModel):
+    """Body for POST /installments — create a new instalment plan."""
+
+    name: str = Field(description="Human-readable label (e.g. 'iPhone 15 BNPL')")
+    category: Literal["bnpl", "property", "vehicle", "other"] = Field(
+        description="Plan type — one of: bnpl, property, vehicle, other"
+    )
+    total_amount: Decimal = Field(gt=0, description="Full purchase/contract price — must be positive")
+    down_payment: Decimal = Field(default=Decimal("0"), ge=0, description="Upfront payment at inception")
+    monthly_amount: Decimal = Field(gt=0, description="Fixed monthly instalment — must be positive")
+    billing_day: int | None = Field(
+        default=None, ge=1, le=31, description="Day of month the instalment is charged (1–31)"
+    )
+    start_date: date = Field(description="Date the first instalment was (or will be) charged")
+    total_months: int = Field(gt=0, description="Total number of monthly instalments")
+    notes: str | None = Field(default=None, description="Free-text context (e.g. merchant, contract ref)")
+
+
+class InstallmentUpdate(BaseModel):
+    """Body for PATCH /installments/{id} — all fields optional."""
+
+    name: str | None = None
+    category: Literal["bnpl", "property", "vehicle", "other"] | None = None
+    total_amount: Decimal | None = None
+    down_payment: Decimal | None = None
+    monthly_amount: Decimal | None = None
+    billing_day: int | None = None
+    start_date: date | None = None
+    total_months: int | None = None
+    notes: str | None = None
+    is_active: bool | None = None
+
+
+class InstallmentResponse(InstallmentDB):
+    """Outbound payload for instalment endpoints — extends the DB model with computed fields.
+
+    Computed fields are derived from start_date + total_months relative to the
+    current date and must be populated by the router layer before returning the
+    response.
+    """
+
+    months_elapsed: int = Field(
+        description="Number of monthly instalments that have passed since start_date"
+    )
+    months_remaining: int = Field(
+        description="Number of monthly instalments still outstanding"
+    )
+    next_payment_date: date | None = Field(
+        default=None,
+        description="Calendar date of the next scheduled instalment; NULL when fully paid off",
+    )
+    is_paid_off: bool = Field(
+        description="True when months_elapsed >= total_months"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -285,3 +285,49 @@ class BankCredential(BaseModel):
     )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
+
+
+# ---------------------------------------------------------------------------
+# Installment (BNPL / structured payment plan tracker)
+# ---------------------------------------------------------------------------
+
+INSTALLMENT_CATEGORIES = ("bnpl", "property", "vehicle", "other")
+INSTALLMENT_CATEGORY_LITERAL = Literal["bnpl", "property", "vehicle", "other"]
+
+
+class InstallmentDB(BaseModel):
+    """Mirrors public.installments — user-managed tracker for structured payment plans.
+
+    Covers BNPL (buy-now-pay-later), property instalments, vehicle finance, and
+    any other fixed-schedule recurring payment the user wants to track.
+
+    Computed fields (months_elapsed, months_remaining, next_payment_date,
+    is_paid_off) are NOT stored in the database — they are calculated by the
+    API response layer and live in InstallmentResponse (api.py).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(description="Primary key — gen_random_uuid()")
+    user_id: UUID = Field(description="FK to auth.users(id) — cascade-deleted with the user")
+    name: str = Field(description="Human-readable label for the instalment plan (e.g. 'iPhone 15 BNPL')")
+    category: INSTALLMENT_CATEGORY_LITERAL = Field(
+        description="Plan type — one of: bnpl, property, vehicle, other"
+    )
+    total_amount: Decimal = Field(description="Full purchase/contract price (NUMERIC 15,2)")
+    down_payment: Decimal = Field(
+        default=Decimal("0"), description="Upfront payment made at inception (NUMERIC 15,2)"
+    )
+    monthly_amount: Decimal = Field(description="Fixed monthly instalment (NUMERIC 15,2)")
+    billing_day: int | None = Field(
+        default=None,
+        description="Day of month the instalment is charged (1–31); NULL if unknown",
+    )
+    start_date: date = Field(description="Date the first instalment was (or will be) charged")
+    total_months: int = Field(description="Total number of monthly instalments in the plan")
+    notes: str | None = Field(default=None, description="Free-text context (e.g. merchant, contract ref)")
+    is_active: bool = Field(
+        default=True, description="False once the plan is fully paid off or cancelled"
+    )
+    created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
+    updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")

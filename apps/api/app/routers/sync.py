@@ -159,6 +159,19 @@ def _parse_user_id(raw: str | None) -> UUID:
         )
 
 
+def _set_job_terminal(
+    job_id: str,
+    terminal_status: Literal["complete", "failed"],
+    result: SyncResponse | None = None,
+    error: str | None = None,
+) -> None:
+    """Set a job to a terminal state and record finish time for later purging."""
+    _JOBS[job_id]["status"] = terminal_status
+    _JOBS[job_id]["result"] = result
+    _JOBS[job_id]["error"] = error
+    _JOBS[job_id]["finished_at"] = datetime.now(UTC)
+
+
 async def _background_sync_task(
     job_id: str,
     user_id: UUID,
@@ -944,7 +957,9 @@ async def start_sync_job(
     user_id = _parse_user_id(x_user_id)
 
     # Validate that credentials exist (lightweight check before spawning task).
-    _validate_credentials_exist(user_id, bank, credential_id)
+    # Wrapped in to_thread so the blocking supabase-py sync call doesn't stall
+    # the event loop.
+    await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     # Reject if a scrape is already running — two concurrent Playwright
     # browsers exceed the Render free-tier 512 MB RAM limit and crash
@@ -955,12 +970,16 @@ async def start_sync_job(
             detail="A sync is already in progress. Please wait and retry.",
         )
 
+    # Purge old completed/failed jobs to keep the in-memory dict bounded.
+    _purge_old_jobs()
+
     # Create job and spawn background task.
     job_id = str(uuid4())
     _JOBS[job_id] = {
         "status": "pending",
         "result": None,
         "error": None,
+        "finished_at": None,
         "user_id": str(user_id),
         "bank": bank,
         "credential_id": credential_id,
@@ -1017,6 +1036,7 @@ def _validate_credentials_exist(
     code, supporting multiple credentials per bank.
 
     Shared pre-flight check used by all focused sync endpoints.
+    NOTE: This is a synchronous function; call via asyncio.to_thread() from async handlers.
     """
     client = create_client(
         settings.supabase_url,
@@ -1048,6 +1068,22 @@ def _validate_credentials_exist(
         )
 
 
+def _purge_old_jobs(max_age_seconds: int = 3600) -> None:
+    """Remove completed/failed jobs older than max_age_seconds from _JOBS.
+
+    Called opportunistically on each new sync start to prevent unbounded growth.
+    """
+    now = datetime.now(UTC)
+    to_delete = [
+        job_id
+        for job_id, job in _JOBS.items()
+        if job["status"] in ("complete", "failed")
+        and (now - job.get("finished_at", now)).total_seconds() > max_age_seconds
+    ]
+    for job_id in to_delete:
+        del _JOBS[job_id]
+
+
 @router.post(
     "/accounts/sync/{bank}/accounts",
     response_model=SyncJobStartResponse,
@@ -1073,7 +1109,7 @@ async def start_sync_accounts_job(
     * 500 — credential lookup failed.
     """
     user_id = _parse_user_id(x_user_id)
-    _validate_credentials_exist(user_id, bank, credential_id)
+    await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
         raise HTTPException(
@@ -1081,11 +1117,14 @@ async def start_sync_accounts_job(
             detail="A sync is already in progress. Please wait and retry.",
         )
 
+    _purge_old_jobs()
+
     job_id = str(uuid4())
     _JOBS[job_id] = {
         "status": "pending",
         "result": None,
         "error": None,
+        "finished_at": None,
         "user_id": str(user_id),
         "bank": bank,
         "credential_id": credential_id,
@@ -1121,7 +1160,7 @@ async def start_sync_cc_job(
     * 500 — credential lookup failed.
     """
     user_id = _parse_user_id(x_user_id)
-    _validate_credentials_exist(user_id, bank, credential_id)
+    await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
         raise HTTPException(
@@ -1129,11 +1168,14 @@ async def start_sync_cc_job(
             detail="A sync is already in progress. Please wait and retry.",
         )
 
+    _purge_old_jobs()
+
     job_id = str(uuid4())
     _JOBS[job_id] = {
         "status": "pending",
         "result": None,
         "error": None,
+        "finished_at": None,
         "user_id": str(user_id),
         "bank": bank,
         "credential_id": credential_id,
@@ -1169,7 +1211,7 @@ async def start_sync_certificates_job(
     * 500 — credential lookup failed.
     """
     user_id = _parse_user_id(x_user_id)
-    _validate_credentials_exist(user_id, bank, credential_id)
+    await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
         raise HTTPException(
@@ -1177,11 +1219,14 @@ async def start_sync_certificates_job(
             detail="A sync is already in progress. Please wait and retry.",
         )
 
+    _purge_old_jobs()
+
     job_id = str(uuid4())
     _JOBS[job_id] = {
         "status": "pending",
         "result": None,
         "error": None,
+        "finished_at": None,
         "user_id": str(user_id),
         "bank": bank,
         "credential_id": credential_id,
@@ -1191,3 +1236,56 @@ async def start_sync_certificates_job(
     asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")
+
+
+# ---------------------------------------------------------------------------
+# Account management
+# ---------------------------------------------------------------------------
+
+
+@router.patch(
+    "/accounts/{account_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Hide a bank account (sets is_active=false)",
+)
+async def hide_account(
+    account_id: str,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> None:
+    """Set is_active=false for the given account.
+
+    The account will reappear automatically on the next sync — the pipeline
+    upserter always writes is_active=True from freshly scraped data.
+
+    The .eq("user_id") filter ensures users can only hide their own accounts
+    (defence-in-depth alongside Supabase RLS).
+    """
+    user_id = _parse_user_id(x_user_id)
+
+    def _do_hide() -> None:
+        client = create_client(
+            settings.supabase_url,
+            settings.supabase_service_role_key.get_secret_value(),
+        )
+        try:
+            resp = (
+                client.table("bank_accounts")
+                .update({"is_active": False})
+                .eq("id", account_id)
+                .eq("user_id", str(user_id))
+                .execute()
+            )
+        except Exception as exc:
+            logger.error("Failed to hide account %s: %s", account_id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hide account",
+            ) from exc
+
+        if not resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Account not found or does not belong to this user",
+            )
+
+    await asyncio.to_thread(_do_hide)

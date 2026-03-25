@@ -76,6 +76,14 @@ function CertificateIcon() {
   );
 }
 
+function InstallmentsIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { href: '/dashboard/accounts', label: 'Accounts', icon: <AccountsIcon /> },
@@ -83,6 +91,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/credit-cards', label: 'Credit Cards', icon: <CreditCardIcon /> },
   { href: '/dashboard/certificates', label: 'Certificates & Deposits', icon: <CertificateIcon /> },
   { href: '/dashboard/debts', label: 'Debts', icon: <DebtsIcon /> },
+  { href: '/dashboard/installments', label: 'Installments', icon: <InstallmentsIcon /> },
   { href: '/dashboard/recommendations', label: 'Recommendations', icon: <RecommendationsIcon /> },
   { href: '/dashboard/settings', label: 'Settings', icon: <SettingsIcon /> },
 ];

@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit manually.
 // Regenerate with: Supabase MCP → generate_typescript_types
-// Last generated: 2026-03-23
+// Last generated: 2026-03-25
 
 export type Json =
   | string
@@ -24,28 +24,19 @@ export type Database = {
           account_type: string
           balance: number
           bank_name: string
-          /** Current statement billed amount — credit_card accounts only */
           billed_amount: number | null
           created_at: string
-          /** Authorised credit limit — credit_card accounts only */
           credit_limit: number | null
           currency: string
           id: string
-          /** Annual interest rate as decimal fraction (0.15 = 15%) — certificate/deposit accounts only */
           interest_rate: number | null
           is_active: boolean
           last_synced_at: string | null
-          /** Maturity date (ISO 8601) — certificate/deposit accounts only */
           maturity_date: string | null
-          /** Minimum payment due on a CC statement — credit_card accounts only */
           minimum_payment: number | null
-          /** Date the certificate/deposit was opened (ISO 8601) — certificate/deposit accounts only */
           opened_date: string | null
-          /** Payment due date for the CC bill — credit_card accounts only */
           payment_due_date: string | null
-          /** Bank product name (e.g. 'شهادة بلاتينية') — certificate/deposit accounts only */
           product_name: string | null
-          /** Pending unbilled transactions — credit_card accounts only */
           unbilled_amount: number | null
           updated_at: string
           user_id: string
@@ -91,6 +82,45 @@ export type Database = {
           payment_due_date?: string | null
           product_name?: string | null
           unbilled_amount?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      bank_credentials: {
+        Row: {
+          bank: string
+          created_at: string
+          encrypted_password: string
+          encrypted_username: string
+          id: string
+          is_active: boolean
+          label: string | null
+          last_synced_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bank: string
+          created_at?: string
+          encrypted_password: string
+          encrypted_username: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bank?: string
+          created_at?: string
+          encrypted_password?: string
+          encrypted_username?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          last_synced_at?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -177,6 +207,57 @@ export type Database = {
           original_amount?: number
           outstanding_balance?: number
           status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      installments: {
+        Row: {
+          billing_day: number | null
+          category: string
+          created_at: string
+          down_payment: number
+          id: string
+          is_active: boolean
+          monthly_amount: number
+          name: string
+          notes: string | null
+          start_date: string
+          total_amount: number
+          total_months: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          billing_day?: number | null
+          category: string
+          created_at?: string
+          down_payment?: number
+          id?: string
+          is_active?: boolean
+          monthly_amount: number
+          name: string
+          notes?: string | null
+          start_date: string
+          total_amount: number
+          total_months: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          billing_day?: number | null
+          category?: string
+          created_at?: string
+          down_payment?: number
+          id?: string
+          is_active?: boolean
+          monthly_amount?: number
+          name?: string
+          notes?: string | null
+          start_date?: string
+          total_amount?: number
+          total_months?: number
           updated_at?: string
           user_id?: string
         }
@@ -462,26 +543,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-
-// ---------------------------------------------------------------------------
-// Convenience type aliases — use these in application code instead of the
-// verbose Tables<"table_name">["Row"] pattern.
-// ---------------------------------------------------------------------------
-
-export type UserProfileRow = Tables<"user_profiles">
-export type BankAccountRow = Tables<"bank_accounts">
-export type TransactionRow = Tables<"transactions">
-export type LoanRow = Tables<"loans">
-export type DebtRow = Tables<"debts">
-export type DebtPaymentRow = Tables<"debt_payments">
-
-export type BankAccountInsert = TablesInsert<"bank_accounts">
-export type TransactionInsert = TablesInsert<"transactions">
-export type LoanInsert = TablesInsert<"loans">
-export type DebtInsert = TablesInsert<"debts">
-export type DebtPaymentInsert = TablesInsert<"debt_payments">
-
-export type BankAccountUpdate = TablesUpdate<"bank_accounts">
-export type TransactionUpdate = TablesUpdate<"transactions">
-export type LoanUpdate = TablesUpdate<"loans">
-export type DebtUpdate = TablesUpdate<"debts">

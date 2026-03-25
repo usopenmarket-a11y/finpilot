@@ -254,6 +254,21 @@ export async function syncBankCreditCards(
   return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
 }
 
+// ---------------------------------------------------------------------------
+// Account management
+// ---------------------------------------------------------------------------
+
+/**
+ * Hide a bank account by setting is_active=false.
+ * The account reappears automatically on the next sync.
+ */
+export async function hideAccount(userId: string, accountId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/accounts/${accountId}`, {
+    method: 'PATCH',
+    userId,
+  });
+}
+
 /**
  * Sync NBE certificate/term-deposit accounts only (skip demand-deposit and CC).
  * Falls back to full scrape for non-NBE banks.
