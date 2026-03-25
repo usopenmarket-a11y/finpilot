@@ -115,13 +115,10 @@ _SEL_PASSWORD = "input[name='C2__C1__LOGIN[1].PASSWORD']"
 _SEL_LOGIN_BTN = "input[type='image'][id*='BUT_']"
 
 # Post-login presence indicators (try several patterns; log which matched)
-_SEL_POST_LOGIN_CANDIDATES = [
-    # Navigation items typical of T24 authenticated shell
-    "a[onclick*='goNavItem']",
-    # T24 font class used in many views
-    ".tc-global-font",
-    # Absence check: if username field is gone → login succeeded
-]
+# NOTE: goNavItem and tc-global-font are also present on the login page —
+# they cannot be used as post-login indicators.  Only use selectors that
+# are exclusive to the authenticated shell.
+_SEL_POST_LOGIN_CANDIDATES: list[str] = []
 
 # OTP / 2FA patterns
 _SEL_OTP_CANDIDATES = [
@@ -669,6 +666,12 @@ class BDCRetailScraper(BankScraper):
                     except PlaywrightTimeoutError:
                         pass
                     await self._random_delay(2.0, 4.0)
+                    # Handle session dialog again in case it reappears on 2nd login
+                    session_cleared2 = await self._handle_session_dialog(page)
+                    if session_cleared2:
+                        logger.warning(
+                            "BDC_RETAIL: session dialog reappeared after reload — login may fail"
+                        )
 
         finally:
             del username
@@ -723,19 +726,26 @@ class BDCRetailScraper(BankScraper):
             logger.info("BDC_RETAIL: Yes click result = %s", clicked)
 
             if clicked.get("ok"):
-                # Wait for T24 to navigate away from the session dialog
+                # T24's buttonClicked() triggers a full-page navigation, which means
+                # document.body becomes null immediately after the click. We must wait
+                # for the page to finish loading, not poll body.innerText.
                 try:
-                    await page.wait_for_function(
-                        """() => !document.body.innerText.includes('already logged in') &&
-                                !document.body.innerText.includes('Session Active')""",
-                        timeout=_WAIT_TIMEOUT_MS,
+                    await page.wait_for_load_state(
+                        "domcontentloaded", timeout=_POST_LOGIN_TIMEOUT_MS
                     )
-                    logger.info("BDC_RETAIL: session dialog cleared — proceeding")
-                    await self._random_delay(2.0, 3.0)
-                    return False  # No re-login needed
+                    # Check if the dialog is gone (page navigated to dashboard)
+                    html_after = await page.content()
+                    low_after = html_after.lower()
+                    if "already logged in" not in low_after and "session active" not in low_after:
+                        logger.info("BDC_RETAIL: session dialog cleared via Yes click — proceeding")
+                        await self._random_delay(2.0, 3.0)
+                        return False  # No re-login needed
+                    logger.warning(
+                        "BDC_RETAIL: session dialog still present after Yes click — falling back to reload"
+                    )
                 except PlaywrightTimeoutError:
                     logger.warning(
-                        "BDC_RETAIL: session dialog still visible after Yes click — falling back to reload"
+                        "BDC_RETAIL: page load timed out after Yes click — falling back to reload"
                     )
             else:
                 logger.warning(
