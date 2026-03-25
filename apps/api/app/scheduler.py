@@ -8,12 +8,14 @@ free tier.
 Uses APScheduler AsyncIOScheduler so the job fires inside the existing FastAPI
 event loop without spawning additional threads or processes.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import random
 from datetime import UTC, datetime
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -37,7 +39,7 @@ async def _run_daily_sync() -> None:
 
     logger.info("Daily auto-sync: starting at %s UTC", datetime.now(UTC).isoformat())
 
-    def _fetch_credentials() -> list[dict]:
+    def _fetch_credentials() -> list[Any]:
         client = create_client(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
@@ -68,14 +70,15 @@ async def _run_daily_sync() -> None:
     for cred in credentials:
         credential_id: str = cred["id"]
         user_id = UUID(cred["user_id"])
-        bank: str = cred["bank"]
+        bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"] = cred["bank"]
 
         # If another sync is running (e.g. a manual user-triggered sync), wait
         # up to 10 minutes before giving up on this credential.
         if _SCRAPE_SEMAPHORE.locked():
             logger.warning(
                 "Daily auto-sync: semaphore locked for %s/%s, waiting up to 10 min",
-                bank, credential_id,
+                bank,
+                credential_id,
             )
             for _ in range(120):
                 await asyncio.sleep(5)
@@ -84,7 +87,8 @@ async def _run_daily_sync() -> None:
             else:
                 logger.error(
                     "Daily auto-sync: timed out waiting for semaphore (%s/%s), skipping",
-                    bank, credential_id,
+                    bank,
+                    credential_id,
                 )
                 failed += 1
                 continue
@@ -107,24 +111,26 @@ async def _run_daily_sync() -> None:
                 synced += 1
                 logger.info(
                     "Daily auto-sync: %s OK for user …%s",
-                    bank, str(user_id)[-8:],
+                    bank,
+                    str(user_id)[-8:],
                 )
             else:
                 failed += 1
                 logger.warning(
                     "Daily auto-sync: %s FAILED for user …%s — %s",
-                    bank, str(user_id)[-8:], job.get("error"),
+                    bank,
+                    str(user_id)[-8:],
+                    job.get("error"),
                 )
         except Exception:
             failed += 1
             logger.exception(
                 "Daily auto-sync: unexpected error for %s / credential %s",
-                bank, credential_id,
+                bank,
+                credential_id,
             )
 
-    logger.info(
-        "Daily auto-sync: complete — %d succeeded, %d failed", synced, failed
-    )
+    logger.info("Daily auto-sync: complete — %d succeeded, %d failed", synced, failed)
 
 
 def create_scheduler() -> AsyncIOScheduler:

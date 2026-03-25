@@ -628,7 +628,9 @@ class BDCRetailScraper(BankScraper):
                 raise ScraperParseError(
                     "BDC_RETAIL: Sign In button not found", bank_code="BDC_RETAIL"
                 )
-            logger.info("BDC_RETAIL: clicking Sign In button (id=%s)", await login_btn.get_attribute("id"))
+            logger.info(
+                "BDC_RETAIL: clicking Sign In button (id=%s)", await login_btn.get_attribute("id")
+            )
             await login_btn.click()
             # T24 uses in-page AJAX — wait for the Loading indicator to disappear,
             # which signals the AJAX response has been processed.
@@ -661,7 +663,9 @@ class BDCRetailScraper(BankScraper):
                 await self._random_delay(1.0, 2.0)
                 login_btn2 = await page.query_selector("button[onclick='encrypt();']")
                 if login_btn2 is None:
-                    login_btn2 = await page.query_selector("button[value='Sign in'][id^='C2__C1__BUT_']")
+                    login_btn2 = await page.query_selector(
+                        "button[value='Sign in'][id^='C2__C1__BUT_']"
+                    )
                 if login_btn2:
                     await login_btn2.click()
                     logger.info("BDC_RETAIL: re-submitted login form")
@@ -751,27 +755,39 @@ class BDCRetailScraper(BankScraper):
                         }""",
                         timeout=25000,
                     )
-                    logger.info("BDC_RETAIL: session dialog cleared — dashboard loaded successfully")
+                    logger.info(
+                        "BDC_RETAIL: session dialog cleared — dashboard loaded successfully"
+                    )
                     await self._random_delay(2.0, 3.0)
                     return False  # No re-login needed
                 except PlaywrightTimeoutError:
-                    logger.warning("BDC_RETAIL: dashboard not loaded 25s after Yes — checking for error")
+                    logger.warning(
+                        "BDC_RETAIL: dashboard not loaded 25s after Yes — checking for error"
+                    )
                     # Check if we got an error page — if so, fall through to reload
                     try:
                         body = await page.evaluate("() => document.body.innerText || ''")
                         body_lower = body.lower()
                         error_phrases = (
-                            "access violation", "error has occured",
-                            "exceptional error", "we're sorry", "we are sorry",
+                            "access violation",
+                            "error has occured",
+                            "exceptional error",
+                            "we're sorry",
+                            "we are sorry",
                         )
                         if any(p in body_lower for p in error_phrases):
-                            logger.warning("BDC_RETAIL: error page after Yes — clearing and reloading: %s", body[:200])
+                            logger.warning(
+                                "BDC_RETAIL: error page after Yes — clearing and reloading: %s",
+                                body[:200],
+                            )
                             # Fall through to reload below
                         else:
                             # No error and no login form — probably loaded OK
                             login_still_present = await page.query_selector("#C2__C1__USER_NAME")
                             if login_still_present is None:
-                                logger.info("BDC_RETAIL: login form gone, proceeding optimistically")
+                                logger.info(
+                                    "BDC_RETAIL: login form gone, proceeding optimistically"
+                                )
                                 await self._random_delay(2.0, 3.0)
                                 return False
                     except Exception:
@@ -1566,9 +1582,7 @@ class BDCRetailScraper(BankScraper):
         # or simply sibling text nodes.  We scan all text nodes that look
         # like labels and take the adjacent text as the value.
         full_text_lines = [
-            line.strip()
-            for line in soup.get_text(separator="\n").splitlines()
-            if line.strip()
+            line.strip() for line in soup.get_text(separator="\n").splitlines() if line.strip()
         ]
         # Build a label→value map from consecutive non-empty lines
         label_value_map: dict[str, str] = {}
@@ -1585,9 +1599,7 @@ class BDCRetailScraper(BankScraper):
                         # Try the next-next line (value is 2 lines after label)
                         lines = full_text_lines
                         try:
-                            idx = lines.index(
-                                next(line for line in lines if line.lower() == k)
-                            )
+                            idx = lines.index(next(line for line in lines if line.lower() == k))
                             # skip the currency line, take the one after
                             candidate = lines[idx + 2] if idx + 2 < len(lines) else ""
                             if candidate and re.search(r"\d", candidate):
@@ -1602,24 +1614,42 @@ class BDCRetailScraper(BankScraper):
             return ""
 
         if not raw_balance:
-            raw_balance = _lv((
-                "closing balance", "total utilized amount", "outstanding balance",
-                "amount due", "current balance", "total due",
-            ))
+            raw_balance = _lv(
+                (
+                    "closing balance",
+                    "total utilized amount",
+                    "outstanding balance",
+                    "amount due",
+                    "current balance",
+                    "total due",
+                )
+            )
         if not raw_credit_limit:
-            raw_credit_limit = _lv((
-                "approved limit egp", "approved limit usd", "approved limit eur",
-                "approved limit", "credit limit egp", "credit limit",
-                "card limit", "limit",
-            ))
+            raw_credit_limit = _lv(
+                (
+                    "approved limit egp",
+                    "approved limit usd",
+                    "approved limit eur",
+                    "approved limit",
+                    "credit limit egp",
+                    "credit limit",
+                    "card limit",
+                    "limit",
+                )
+            )
         if not raw_billed:
             raw_billed = _lv(("closing balance", "billed amount", "statement balance"))
         if not raw_unbilled:
             raw_unbilled = _lv(("unbilled amount", "pending amount", "current unbilled"))
         if not raw_min_payment:
-            raw_min_payment = _lv((
-                "minimum payment amount", "minimum payment", "min payment", "min. payment",
-            ))
+            raw_min_payment = _lv(
+                (
+                    "minimum payment amount",
+                    "minimum payment",
+                    "min payment",
+                    "min. payment",
+                )
+            )
         if not raw_due_date:
             raw_due_date = _lv(("payment due date", "due date", "payment date"))
         if not raw_account_number:
@@ -1871,6 +1901,7 @@ class BDCRetailScraper(BankScraper):
 
         if is_bdc_layout:
             logger.info("BDC_RETAIL: using BDC-specific transaction column layout")
+
             # Locate columns by header text (handles leading empty icon column)
             def _find_col(keywords: tuple[str, ...], default: int) -> int:
                 for kw in keywords:
@@ -1886,7 +1917,10 @@ class BDCRetailScraper(BankScraper):
 
             logger.info(
                 "BDC_RETAIL: BDC column indices — date=%d amount=%d currency=%d desc=%d",
-                date_col, amount_col, currency_col, desc_col,
+                date_col,
+                amount_col,
+                currency_col,
+                desc_col,
             )
 
             for row_idx, row in enumerate(data_rows[:_MAX_TRANSACTIONS]):
@@ -1897,7 +1931,13 @@ class BDCRetailScraper(BankScraper):
                 logger.debug("BDC_RETAIL: card txn BDC row[%d]: %r", row_idx, cells)
 
                 date_str = cells[date_col] if date_col < len(cells) else ""
-                if not date_str or date_str.lower() in ("transaction date", "date", "-", "responsive icon", ""):
+                if not date_str or date_str.lower() in (
+                    "transaction date",
+                    "date",
+                    "-",
+                    "responsive icon",
+                    "",
+                ):
                     continue
 
                 txn_date = _parse_t24_date(date_str)
@@ -1923,9 +1963,7 @@ class BDCRetailScraper(BankScraper):
                 desc_lower = description.lower()
                 # Also check "Transaction Category" column if present
                 try:
-                    cat_col = next(
-                        i for i, h in enumerate(headers_lower) if "category" in h
-                    )
+                    cat_col = next(i for i, h in enumerate(headers_lower) if "category" in h)
                     category_text = (cells[cat_col] if cat_col < len(cells) else "").lower()
                 except StopIteration:
                     category_text = ""
@@ -1939,25 +1977,27 @@ class BDCRetailScraper(BankScraper):
 
                 external_id = _make_external_id(txn_date, description, amount)
 
-                transactions.append(Transaction(
-                    id=_ZERO_UUID,
-                    user_id=_ZERO_UUID,
-                    account_id=_ZERO_UUID,
-                    external_id=external_id,
-                    amount=amount,
-                    currency=ccy,
-                    transaction_type=transaction_type,
-                    description=description,
-                    category=None,
-                    sub_category=None,
-                    transaction_date=txn_date,
-                    value_date=None,
-                    balance_after=None,
-                    raw_data={"cells": cells, "source": "bdc_retail"},
-                    is_categorized=False,
-                    created_at=now,
-                    updated_at=now,
-                ))
+                transactions.append(
+                    Transaction(
+                        id=_ZERO_UUID,
+                        user_id=_ZERO_UUID,
+                        account_id=_ZERO_UUID,
+                        external_id=external_id,
+                        amount=amount,
+                        currency=ccy,
+                        transaction_type=transaction_type,
+                        description=description,
+                        category=None,
+                        sub_category=None,
+                        transaction_date=txn_date,
+                        value_date=None,
+                        balance_after=None,
+                        raw_data={"cells": cells, "source": "bdc_retail"},
+                        is_categorized=False,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
 
         else:
             # Generic debit/credit layout (other T24 portals)

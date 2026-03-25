@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, date, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -123,7 +124,7 @@ async def list_installments(
     """Return all instalment plans for the authenticated user."""
     user_id = _parse_user_id(x_user_id)
 
-    def _fetch() -> list[dict]:
+    def _fetch() -> list[Any]:
         client = create_client(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
@@ -154,7 +155,7 @@ async def create_installment(
 ) -> InstallmentResponse:
     user_id = _parse_user_id(x_user_id)
 
-    def _insert() -> dict:
+    def _insert() -> Any:
         client = create_client(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
@@ -197,7 +198,7 @@ async def get_installment(
 ) -> InstallmentResponse:
     user_id = _parse_user_id(x_user_id)
 
-    def _fetch_one() -> dict | None:
+    def _fetch_one() -> Any | None:
         client = create_client(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),
@@ -244,7 +245,7 @@ async def update_installment(
             detail="No fields to update",
         )
 
-    def _update() -> dict | None:
+    def _update() -> Any | None:
         client = create_client(
             settings.supabase_url,
             settings.supabase_service_role_key.get_secret_value(),

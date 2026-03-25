@@ -310,7 +310,9 @@ class InstallmentDB(BaseModel):
 
     id: UUID = Field(description="Primary key — gen_random_uuid()")
     user_id: UUID = Field(description="FK to auth.users(id) — cascade-deleted with the user")
-    name: str = Field(description="Human-readable label for the instalment plan (e.g. 'iPhone 15 BNPL')")
+    name: str = Field(
+        description="Human-readable label for the instalment plan (e.g. 'iPhone 15 BNPL')"
+    )
     category: INSTALLMENT_CATEGORY_LITERAL = Field(
         description="Plan type — one of: bnpl, property, vehicle, other"
     )
@@ -325,7 +327,9 @@ class InstallmentDB(BaseModel):
     )
     start_date: date = Field(description="Date the first instalment was (or will be) charged")
     total_months: int = Field(description="Total number of monthly instalments in the plan")
-    notes: str | None = Field(default=None, description="Free-text context (e.g. merchant, contract ref)")
+    notes: str | None = Field(
+        default=None, description="Free-text context (e.g. merchant, contract ref)"
+    )
     is_active: bool = Field(
         default=True, description="False once the plan is fully paid off or cancelled"
     )

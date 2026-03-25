@@ -152,15 +152,21 @@ class InstallmentCreate(BaseModel):
     category: Literal["bnpl", "property", "vehicle", "other"] = Field(
         description="Plan type — one of: bnpl, property, vehicle, other"
     )
-    total_amount: Decimal = Field(gt=0, description="Full purchase/contract price — must be positive")
-    down_payment: Decimal = Field(default=Decimal("0"), ge=0, description="Upfront payment at inception")
+    total_amount: Decimal = Field(
+        gt=0, description="Full purchase/contract price — must be positive"
+    )
+    down_payment: Decimal = Field(
+        default=Decimal("0"), ge=0, description="Upfront payment at inception"
+    )
     monthly_amount: Decimal = Field(gt=0, description="Fixed monthly instalment — must be positive")
     billing_day: int | None = Field(
         default=None, ge=1, le=31, description="Day of month the instalment is charged (1–31)"
     )
     start_date: date = Field(description="Date the first instalment was (or will be) charged")
     total_months: int = Field(gt=0, description="Total number of monthly instalments")
-    notes: str | None = Field(default=None, description="Free-text context (e.g. merchant, contract ref)")
+    notes: str | None = Field(
+        default=None, description="Free-text context (e.g. merchant, contract ref)"
+    )
 
 
 class InstallmentUpdate(BaseModel):
@@ -189,16 +195,12 @@ class InstallmentResponse(InstallmentDB):
     months_elapsed: int = Field(
         description="Number of monthly instalments that have passed since start_date"
     )
-    months_remaining: int = Field(
-        description="Number of monthly instalments still outstanding"
-    )
+    months_remaining: int = Field(description="Number of monthly instalments still outstanding")
     next_payment_date: date | None = Field(
         default=None,
         description="Calendar date of the next scheduled instalment; NULL when fully paid off",
     )
-    is_paid_off: bool = Field(
-        description="True when months_elapsed >= total_months"
-    )
+    is_paid_off: bool = Field(description="True when months_elapsed >= total_months")
 
 
 # ---------------------------------------------------------------------------
