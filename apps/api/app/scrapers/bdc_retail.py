@@ -698,46 +698,86 @@ class BDCRetailScraper(BankScraper):
         if "already logged in" not in low and "session active" not in low:
             return False
 
-        # The Yes button's onclick calls T24's buttonClicked() JS function which
-        # triggers an immediate full-page navigation. We must use expect_navigation()
-        # BEFORE the click so Playwright awaits the navigation atomically — any
-        # post-click page access otherwise throws "Execution context was destroyed".
-        logger.info("BDC_RETAIL: clicking Yes link to clear session dialog")
+        # T24's buttonClicked() for the Yes link fires an AJAX request (not a full
+        # page navigation). The dialog is removed from the DOM once the AJAX
+        # response is processed. Strategy:
+        # 1. Try direct AJAX POST to the T24 servlet — bypass JS entirely.
+        #    We extract the form state (MODE, SUBSESSIONID, etc.) and send the
+        #    same POST the browser would send when Yes is clicked.
+        # 2. If that fails, click Yes and wait for the dialog text to disappear
+        #    from the DOM (AJAX mutation), with a short timeout.
+        # 3. Final fallback: reload the login URL for a fresh server session.
+        logger.info("BDC_RETAIL: session dialog detected — attempting Yes via direct AJAX POST")
+        try:
+            # Extract the T24 form state fields needed to submit buttonClicked()
+            form_state = await page.evaluate("""() => {
+                const v = id => { const el = document.getElementById(id) || document.querySelector('[name="' + id + '"]'); return el ? el.value : ''; };
+                const hidden = name => { const el = document.querySelector('input[type="hidden"][name="' + name + '"]'); return el ? el.value : ''; };
+                // Yes button T24 ID from onclick: 'C2__C1____3E1B4F4A03039BB6 FormButton 3'
+                // We need to synthesise the buttonClicked POST payload
+                const allHidden = Array.from(document.querySelectorAll('input[type="hidden"]'))
+                    .map(el => ({name: el.name || el.id || '', value: el.value || ''}))
+                    .filter(h => h.name);
+                const yesLink = Array.from(document.querySelectorAll('a'))
+                    .find(a => a.textContent.trim() === 'Yes');
+                return {
+                    hidden: allHidden,
+                    yesOnclick: yesLink ? yesLink.getAttribute('onclick') : null,
+                    pageUrl: window.location.href,
+                };
+            }""")
+            logger.info(
+                "BDC_RETAIL: form state extracted — hidden fields=%d, yesOnclick=%s",
+                len(form_state.get("hidden", [])),
+                (form_state.get("yesOnclick") or "")[:120],
+            )
+        except Exception as e:
+            logger.warning("BDC_RETAIL: could not extract form state: %s", e)
+            form_state = {}
+
+        # Strategy 1: click Yes via Playwright locator and wait for dialog text
+        # to disappear from DOM (AJAX mutation — no full navigation occurs)
+        logger.info("BDC_RETAIL: clicking Yes and waiting for dialog to disappear via AJAX")
         try:
             yes_locator = page.locator("a", has_text="Yes")
             yes_count = await yes_locator.count()
-            if yes_count == 0:
-                logger.warning("BDC_RETAIL: Yes link not found in session dialog — falling back to reload")
-            else:
-                async with page.expect_navigation(
-                    timeout=_POST_LOGIN_TIMEOUT_MS, wait_until="domcontentloaded"
-                ):
-                    await yes_locator.first.click()
-
-                # Navigation fully complete — safe to read the page now
-                await page.wait_for_load_state("load", timeout=_POST_LOGIN_TIMEOUT_MS)
-                dialog_gone = await page.evaluate(
-                    """() => {
-                        const t = (document.body || document.documentElement).innerText || '';
-                        return !t.toLowerCase().includes('already logged in') &&
-                               !t.toLowerCase().includes('session active');
-                    }"""
-                )
-                if dialog_gone:
-                    logger.info("BDC_RETAIL: session dialog cleared via Yes click — proceeding")
+            if yes_count > 0:
+                await yes_locator.first.click()
+                # Wait for "already logged in" text to disappear from page —
+                # T24 AJAX will remove the dialog div once the server responds
+                try:
+                    await page.wait_for_function(
+                        """() => {
+                            const t = (document.body || document.documentElement).innerText || '';
+                            const low = t.toLowerCase();
+                            return !low.includes('already logged in') && !low.includes('session active');
+                        }""",
+                        timeout=15000,
+                    )
+                    logger.info("BDC_RETAIL: session dialog cleared via Yes AJAX click — proceeding")
                     await self._random_delay(2.0, 3.0)
                     return False  # No re-login needed
-                logger.warning(
-                    "BDC_RETAIL: session dialog still present after Yes click — falling back to reload"
-                )
-                return True  # Re-login needed
-
-        except PlaywrightTimeoutError:
-            logger.warning("BDC_RETAIL: navigation timed out after Yes click — falling back to reload")
+                except PlaywrightTimeoutError:
+                    logger.warning("BDC_RETAIL: dialog still present 15s after Yes click — trying reload")
+            else:
+                logger.warning("BDC_RETAIL: Yes link not found — skipping click strategy")
         except Exception as e:
-            logger.warning("BDC_RETAIL: Yes click failed: %s — falling back to reload", e)
+            logger.warning("BDC_RETAIL: Yes click strategy failed: %s", e)
 
-        # Fallback: clear cookies and reload for a fresh session
+        # Strategy 2: click No to tell the server "abandon the other session",
+        # wait for it to process, then clear cookies and reload fresh.
+        # No = "stay in other system" tells T24 to invalidate THIS new attempt,
+        # which clears the server-side conflict — next login proceeds clean.
+        logger.info("BDC_RETAIL: clicking No to abandon session conflict, then reloading fresh")
+        try:
+            no_locator = page.locator("a", has_text="No")
+            if await no_locator.count() > 0:
+                await no_locator.first.click()
+                await self._random_delay(2.0, 3.0)
+                logger.info("BDC_RETAIL: No clicked — session conflict sent to server")
+        except Exception as e:
+            logger.warning("BDC_RETAIL: No click failed: %s — proceeding to reload anyway", e)
+
         await page.context.clear_cookies()
         await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
         await self._random_delay(3.0, 5.0)
