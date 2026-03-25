@@ -1306,3 +1306,41 @@ async def hide_account(
             )
 
     await asyncio.to_thread(_do_hide)
+
+
+@router.delete(
+    "/data",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete all scraped data for the authenticated user",
+)
+async def clear_user_data(
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> None:
+    """Delete all scraped financial data for the user.
+
+    Removes: transactions, loans, bank_accounts (incl. credit cards/certificates).
+    Does NOT remove credentials or debts/installments (manually entered data).
+
+    After clearing, the user can re-sync each bank to repopulate from scratch.
+    """
+    user_id = _parse_user_id(x_user_id)
+
+    def _do_clear() -> None:
+        client = create_client(
+            settings.supabase_url,
+            settings.supabase_service_role_key.get_secret_value(),
+        )
+        uid = str(user_id)
+        client.table("transactions").delete().eq("user_id", uid).execute()
+        client.table("loans").delete().eq("user_id", uid).execute()
+        client.table("bank_accounts").delete().eq("user_id", uid).execute()
+        logger.info("Cleared all scraped data for user_id=%s", uid)
+
+    try:
+        await asyncio.to_thread(_do_clear)
+    except Exception as exc:
+        logger.error("Failed to clear data for user_id=%s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to clear data",
+        ) from exc

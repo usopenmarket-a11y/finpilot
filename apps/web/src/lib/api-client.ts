@@ -304,3 +304,7 @@ export async function syncBankCertificates(
   const maxWaitMs = 4 * 60 * 1000;
   return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
 }
+
+export async function clearAllData(userId: string): Promise<void> {
+  return apiFetch<void>('/api/v1/data', { method: 'DELETE', userId });
+}
