@@ -305,6 +305,8 @@ export async function syncBankCertificates(
   return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
 }
 
-export async function clearAllData(userId: string): Promise<void> {
-  return apiFetch<void>('/api/v1/data', { method: 'DELETE', userId });
+export type ClearDataScope = 'all' | 'accounts' | 'credit_cards' | 'certificates' | 'debts' | 'installments';
+
+export async function clearData(userId: string, scope: ClearDataScope = 'all'): Promise<void> {
+  return apiFetch<void>(`/api/v1/data?scope=${scope}`, { method: 'DELETE', userId });
 }

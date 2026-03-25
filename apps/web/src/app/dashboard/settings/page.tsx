@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { clearAllData } from '@/lib/api-client';
+import { clearData, type ClearDataScope } from '@/lib/api-client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
@@ -14,8 +14,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [clearing, setClearing] = useState(false);
-  const [clearConfirm, setClearConfirm] = useState(false);
+  const [clearingScope, setClearingScope] = useState<ClearDataScope | null>(null);
+  const [confirmScope, setConfirmScope] = useState<ClearDataScope | null>(null);
   const [clearMsg, setClearMsg] = useState<string | null>(null);
   useEffect(() => {
     const supabase = createClient();
@@ -109,62 +109,72 @@ export default function SettingsPage() {
         <CardHeader>
           <h2 className="text-base font-semibold text-red-600 dark:text-red-400">Danger Zone</h2>
         </CardHeader>
-        <CardBody>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Clear all synced data</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Deletes all accounts, credit cards, certificates, and transactions. Your credentials,
-                debts, and installments are kept. Re-sync each bank afterwards to repopulate.
-              </p>
-            </div>
-            {!clearConfirm ? (
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={clearing}
-                onClick={() => { setClearConfirm(true); setClearMsg(null); }}
-              >
-                Clear Data
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs text-gray-600 dark:text-gray-400">Are you sure?</span>
+        <CardBody className="space-y-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Clear specific data categories. Credentials are never removed. Re-sync after clearing to repopulate.
+          </p>
+          {(
+            [
+              { scope: 'accounts', label: 'Accounts', desc: 'Savings, current & payroll accounts + transactions' },
+              { scope: 'credit_cards', label: 'Credit Cards', desc: 'Credit card accounts + transactions' },
+              { scope: 'certificates', label: 'Certificates & Deposits', desc: 'Certificate and deposit accounts' },
+              { scope: 'debts', label: 'Debts', desc: 'Manually entered borrowing & lending records' },
+              { scope: 'installments', label: 'Installments', desc: 'BNPL plans and instalment obligations' },
+            ] as { scope: ClearDataScope; label: string; desc: string }[]
+          ).map(({ scope, label, desc }) => (
+            <div key={scope} className="flex flex-col sm:flex-row sm:items-center gap-2 py-2 border-t border-gray-100 dark:border-gray-800 first:border-t-0 first:pt-0">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{desc}</p>
+              </div>
+              {confirmScope !== scope ? (
                 <Button
                   variant="danger"
                   size="sm"
-                  loading={clearing}
-                  disabled={clearing}
-                  onClick={async () => {
-                    if (!userId) return;
-                    setClearing(true);
-                    setClearMsg(null);
-                    try {
-                      await clearAllData(userId);
-                      setClearMsg('All synced data cleared. Re-sync your banks to repopulate.');
-                      setClearConfirm(false);
-                    } catch {
-                      setClearMsg('Failed to clear data. Please try again.');
-                    } finally {
-                      setClearing(false);
-                    }
-                  }}
+                  disabled={clearingScope !== null}
+                  onClick={() => { setConfirmScope(scope); setClearMsg(null); }}
                 >
-                  Yes, delete everything
+                  Clear
                 </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={clearing}
-                  onClick={() => setClearConfirm(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            )}
-          </div>
+              ) : (
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">Sure?</span>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    loading={clearingScope === scope}
+                    disabled={clearingScope !== null}
+                    onClick={async () => {
+                      if (!userId) return;
+                      setClearingScope(scope);
+                      setClearMsg(null);
+                      try {
+                        await clearData(userId, scope);
+                        setClearMsg(`${label} cleared successfully.`);
+                        setConfirmScope(null);
+                      } catch {
+                        setClearMsg(`Failed to clear ${label}. Please try again.`);
+                      } finally {
+                        setClearingScope(null);
+                      }
+                    }}
+                  >
+                    Yes
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={clearingScope !== null}
+                    onClick={() => setConfirmScope(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
           {clearMsg && (
-            <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${
+            <p className={`text-xs px-3 py-2 rounded-lg ${
               clearMsg.startsWith('Failed')
                 ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
                 : 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'

@@ -1311,17 +1311,24 @@ async def hide_account(
 @router.delete(
     "/data",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete all scraped data for the authenticated user",
+    summary="Delete scraped data for the authenticated user",
 )
 async def clear_user_data(
     x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    scope: Literal["all", "accounts", "credit_cards", "certificates", "debts", "installments"]
+    | None = None,
 ) -> None:
-    """Delete all scraped financial data for the user.
+    """Delete scraped/manual financial data for the user.
 
-    Removes: transactions, loans, bank_accounts (incl. credit cards/certificates).
-    Does NOT remove credentials or debts/installments (manually entered data).
+    ``scope`` controls what is deleted:
+    - ``accounts``     — savings/current/payroll bank_accounts + their transactions + loans
+    - ``credit_cards`` — credit_card bank_accounts + their transactions
+    - ``certificates`` — certificate/deposit bank_accounts
+    - ``debts``        — debts + debt_payments (manually entered)
+    - ``installments`` — installments (manually entered)
+    - ``all`` / omitted — everything above
 
-    After clearing, the user can re-sync each bank to repopulate from scratch.
+    Credentials are never removed.
     """
     user_id = _parse_user_id(x_user_id)
 
@@ -1331,15 +1338,66 @@ async def clear_user_data(
             settings.supabase_service_role_key.get_secret_value(),
         )
         uid = str(user_id)
-        client.table("transactions").delete().eq("user_id", uid).execute()
-        client.table("loans").delete().eq("user_id", uid).execute()
-        client.table("bank_accounts").delete().eq("user_id", uid).execute()
-        logger.info("Cleared all scraped data for user_id=%s", uid)
+        effective = scope or "all"
+
+        if effective in ("all", "accounts"):
+            # Collect account IDs first so we can delete their transactions
+            acct_rows: list[Any] = (
+                client.table("bank_accounts")
+                .select("id")
+                .eq("user_id", uid)
+                .not_.in_(
+                    "account_type",
+                    ["credit_card", "certificate", "deposit"],
+                )
+                .execute()
+            ).data or []
+            acct_ids = [r["id"] for r in acct_rows]
+            if acct_ids:
+                client.table("transactions").delete().eq("user_id", uid).in_(
+                    "account_id", acct_ids
+                ).execute()
+                client.table("bank_accounts").delete().eq("user_id", uid).not_.in_(
+                    "account_type",
+                    ["credit_card", "certificate", "deposit"],
+                ).execute()
+            client.table("loans").delete().eq("user_id", uid).execute()
+
+        if effective in ("all", "credit_cards"):
+            cc_rows: list[Any] = (
+                client.table("bank_accounts")
+                .select("id")
+                .eq("user_id", uid)
+                .eq("account_type", "credit_card")
+                .execute()
+            ).data or []
+            cc_ids = [r["id"] for r in cc_rows]
+            if cc_ids:
+                client.table("transactions").delete().eq("user_id", uid).in_(
+                    "account_id", cc_ids
+                ).execute()
+                client.table("bank_accounts").delete().eq("user_id", uid).eq(
+                    "account_type", "credit_card"
+                ).execute()
+
+        if effective in ("all", "certificates"):
+            client.table("bank_accounts").delete().eq("user_id", uid).in_(
+                "account_type", ["certificate", "deposit"]
+            ).execute()
+
+        if effective in ("all", "debts"):
+            client.table("debt_payments").delete().eq("user_id", uid).execute()
+            client.table("debts").delete().eq("user_id", uid).execute()
+
+        if effective in ("all", "installments"):
+            client.table("installments").delete().eq("user_id", uid).execute()
+
+        logger.info("Cleared data scope=%s for user_id=%s", effective, uid)
 
     try:
         await asyncio.to_thread(_do_clear)
     except Exception as exc:
-        logger.error("Failed to clear data for user_id=%s: %s", user_id, exc)
+        logger.error("Failed to clear data scope=%s user_id=%s: %s", scope, user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to clear data",
