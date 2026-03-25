@@ -4,6 +4,7 @@ import { Card, CardBody } from '@/components/ui/card';
 import { AccountAccordion } from '@/components/accounts/account-accordion';
 import type { Database } from '@finpilot/shared';
 
+
 export const dynamic = 'force-dynamic';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
@@ -31,18 +32,18 @@ function TotalBalanceIcon() {
   );
 }
 
-function CCOutstandingIcon() {
+function CertificateIcon() {
   return (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17 13l-5 5m0 0l-5-5m5 5V6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
     </svg>
   );
 }
 
-function NetWorthIcon() {
+function AccountCountIcon() {
   return (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
     </svg>
   );
 }
@@ -78,15 +79,20 @@ export default async function AccountsPage() {
   // KPI computation
   // ---------------------------------------------------------------------------
 
-  const totalBalance = accounts
-    .filter((a) => a.account_type !== 'credit_card')
-    .reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
+  const bankAccounts = accounts.filter(
+    (a) => ['savings', 'current', 'payroll'].includes(a.account_type),
+  );
+  const certAccounts = accounts.filter(
+    (a) => ['certificate', 'deposit'].includes(a.account_type),
+  );
 
-  const ccOutstanding = accounts
-    .filter((a) => a.account_type === 'credit_card')
-    .reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
-
-  const netWorth = totalBalance - ccOutstanding;
+  const liquidBalance = bankAccounts.reduce(
+    (sum, a) => sum + parseFloat(String(a.balance)), 0,
+  );
+  const certBalance = certAccounts.reduce(
+    (sum, a) => sum + parseFloat(String(a.balance)), 0,
+  );
+  const totalBalance = liquidBalance + certBalance;
 
   return (
     <div className="p-6 lg:p-8 space-y-8">
@@ -94,8 +100,8 @@ export default async function AccountsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Accounts</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          {accounts.length > 0
-            ? `${accounts.length} connected account${accounts.length !== 1 ? 's' : ''} across all banks`
+          {(bankAccounts.length + certAccounts.length) > 0
+            ? `${bankAccounts.length + certAccounts.length} account${(bankAccounts.length + certAccounts.length) !== 1 ? 's' : ''} across all banks`
             : 'Connect a bank account in Settings to see your accounts here'}
         </p>
       </div>
@@ -103,36 +109,36 @@ export default async function AccountsPage() {
       {/* KPI row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <AccountCard
-          label="Total Balance"
-          amount={totalBalance}
+          label="Liquid Balance"
+          amount={liquidBalance}
           currency="EGP"
           trend="neutral"
           changePercent={0}
           icon={<TotalBalanceIcon />}
         />
         <AccountCard
-          label="CC Outstanding"
-          amount={ccOutstanding}
+          label="Certificates & Deposits"
+          amount={certBalance}
           currency="EGP"
           trend="neutral"
           changePercent={0}
-          icon={<CCOutstandingIcon />}
+          icon={<CertificateIcon />}
         />
         <AccountCard
-          label="Net Worth"
-          amount={netWorth}
+          label="Total Account Balance"
+          amount={totalBalance}
           currency="EGP"
-          trend={netWorth >= 0 ? 'up' : 'down'}
+          trend="neutral"
           changePercent={0}
-          icon={<NetWorthIcon />}
+          icon={<AccountCountIcon />}
         />
       </div>
 
-      {/* Account accordion */}
-      {accounts.length > 0 ? (
+      {/* Account accordion — pass only non-CC accounts */}
+      {(bankAccounts.length + certAccounts.length) > 0 ? (
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">All Accounts</h2>
-          <AccountAccordion accounts={accounts} transactions={transactions} />
+          <AccountAccordion accounts={[...bankAccounts, ...certAccounts]} transactions={transactions} />
         </div>
       ) : (
         <Card>

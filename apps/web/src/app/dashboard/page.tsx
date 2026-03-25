@@ -14,6 +14,8 @@ export const dynamic = 'force-dynamic';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
 type TransactionRow = Database['public']['Tables']['transactions']['Row'];
+type DebtRow = Database['public']['Tables']['debts']['Row'];
+type InstallmentRow = Database['public']['Tables']['installments']['Row'];
 
 interface SpendingCategory {
   name: string;
@@ -136,7 +138,7 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
-  const [accountsResult, transactionsResult] = await Promise.all([
+  const [accountsResult, transactionsResult, debtsResult, installmentsResult] = await Promise.all([
     supabase
       .from('bank_accounts')
       .select('*')
@@ -148,6 +150,16 @@ export default async function DashboardPage() {
       .eq('user_id', userId)
       .order('transaction_date', { ascending: false })
       .limit(600),
+    supabase
+      .from('debts')
+      .select('debt_type, outstanding_balance')
+      .eq('user_id', userId)
+      .neq('status', 'settled'),
+    supabase
+      .from('installments')
+      .select('monthly_amount, total_months, start_date, billing_day')
+      .eq('user_id', userId)
+      .eq('is_active', true),
   ]);
 
   const accounts: BankAccountRow[] = accountsResult.data ?? [];
@@ -168,8 +180,32 @@ export default async function DashboardPage() {
     .filter((a) => a.account_type === 'credit_card')
     .reduce((sum, a) => sum + parseFloat(String(a.balance)), 0);
 
-  // Net worth = assets minus CC liabilities
-  const netWorth = totalBalance - totalCCOutstanding;
+  // Debts: money others owe user (lent) = asset; money user owes (borrowed) = liability
+  const debts: Pick<DebtRow, 'debt_type' | 'outstanding_balance'>[] = debtsResult.data ?? [];
+  const totalLent = debts
+    .filter((d) => d.debt_type === 'lent')
+    .reduce((s, d) => s + parseFloat(String(d.outstanding_balance)), 0);
+  const totalBorrowed = debts
+    .filter((d) => d.debt_type === 'borrowed')
+    .reduce((s, d) => s + parseFloat(String(d.outstanding_balance)), 0);
+
+  // Installments: remaining obligation = months_remaining * monthly_amount
+  const today = new Date();
+  const installmentLiability = (installmentsResult.data as Pick<InstallmentRow, 'monthly_amount' | 'total_months' | 'start_date' | 'billing_day'>[] ?? []).reduce((s, inst) => {
+    const start = new Date(inst.start_date);
+    const billingDay = inst.billing_day ?? start.getDate();
+    const monthsElapsed = Math.max(
+      0,
+      (today.getFullYear() - start.getFullYear()) * 12 +
+        (today.getMonth() - start.getMonth()) -
+        (today.getDate() < billingDay ? 1 : 0),
+    );
+    const monthsRemaining = Math.max(0, inst.total_months - monthsElapsed);
+    return s + monthsRemaining * parseFloat(String(inst.monthly_amount));
+  }, 0);
+
+  // Net worth = bank assets + lent debts - CC liabilities - borrowed debts - installment obligations
+  const netWorth = totalBalance + totalLent - totalCCOutstanding - totalBorrowed - installmentLiability;
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
