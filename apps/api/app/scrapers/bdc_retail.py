@@ -698,70 +698,44 @@ class BDCRetailScraper(BankScraper):
         if "already logged in" not in low and "session active" not in low:
             return False
 
-        # The Yes button's onclick calls T24's buttonClicked() JS function directly.
-        # From logs: onclick="return buttonClicked('C2__C1____3E1B4F4A03039BB6 FormButton 3', ...)"
-        # We find the Yes <a> by text and call its onclick handler via JS, then wait
-        # for the resulting navigation (T24 submits the form via JS after buttonClicked).
-        logger.info("BDC_RETAIL: invoking Yes buttonClicked() via JS onclick")
+        # The Yes button's onclick calls T24's buttonClicked() JS function which
+        # triggers an immediate full-page navigation. We must use expect_navigation()
+        # BEFORE the click so Playwright awaits the navigation atomically — any
+        # post-click page access otherwise throws "Execution context was destroyed".
+        logger.info("BDC_RETAIL: clicking Yes link to clear session dialog")
         try:
-            # Find the Yes link and extract its full onclick handler, then call it
-            clicked = await page.evaluate("""
-                () => {
-                    // Find Yes anchor by text content
-                    const links = Array.from(document.querySelectorAll('a'));
-                    const yes = links.find(a => a.textContent.trim() === 'Yes');
-                    if (!yes) return {ok: false, reason: 'Yes link not found'};
-                    const onclick = yes.getAttribute('onclick') || '';
-                    if (!onclick) return {ok: false, reason: 'Yes link has no onclick'};
-                    // Execute the onclick inline — this calls buttonClicked() with all
-                    // required T24 arguments and triggers the form submission
-                    try {
-                        yes.click();
-                        return {ok: true, onclick: onclick.slice(0, 120)};
-                    } catch(e) {
-                        return {ok: false, reason: e.toString()};
-                    }
-                }
-            """)
-            logger.info("BDC_RETAIL: Yes click result = %s", clicked)
-
-            if clicked.get("ok"):
-                # T24's buttonClicked() triggers a full-page navigation. Wait for
-                # domcontentloaded, then use evaluate (not page.content()) to check
-                # whether the session dialog is still present — page.content() can
-                # raise "page is navigating" even after load_state resolves.
-                try:
-                    await page.wait_for_load_state(
-                        "domcontentloaded", timeout=_POST_LOGIN_TIMEOUT_MS
-                    )
-                    await page.wait_for_load_state("load", timeout=_POST_LOGIN_TIMEOUT_MS)
-                    # Use evaluate to safely read page text after load
-                    dialog_gone = await page.evaluate(
-                        """() => {
-                            const t = (document.body || document.documentElement).innerText || '';
-                            return !t.toLowerCase().includes('already logged in') &&
-                                   !t.toLowerCase().includes('session active');
-                        }"""
-                    )
-                    if dialog_gone:
-                        logger.info("BDC_RETAIL: session dialog cleared via Yes click — proceeding")
-                        await self._random_delay(2.0, 3.0)
-                        return False  # No re-login needed
-                    logger.warning(
-                        "BDC_RETAIL: session dialog still present after Yes click — falling back to reload"
-                    )
-                except PlaywrightTimeoutError:
-                    logger.warning(
-                        "BDC_RETAIL: page load timed out after Yes click — falling back to reload"
-                    )
+            yes_locator = page.locator("a", has_text="Yes")
+            yes_count = await yes_locator.count()
+            if yes_count == 0:
+                logger.warning("BDC_RETAIL: Yes link not found in session dialog — falling back to reload")
             else:
-                logger.warning(
-                    "BDC_RETAIL: Yes click failed: %s — falling back to reload",
-                    clicked.get("reason"),
-                )
+                async with page.expect_navigation(
+                    timeout=_POST_LOGIN_TIMEOUT_MS, wait_until="domcontentloaded"
+                ):
+                    await yes_locator.first.click()
 
+                # Navigation fully complete — safe to read the page now
+                await page.wait_for_load_state("load", timeout=_POST_LOGIN_TIMEOUT_MS)
+                dialog_gone = await page.evaluate(
+                    """() => {
+                        const t = (document.body || document.documentElement).innerText || '';
+                        return !t.toLowerCase().includes('already logged in') &&
+                               !t.toLowerCase().includes('session active');
+                    }"""
+                )
+                if dialog_gone:
+                    logger.info("BDC_RETAIL: session dialog cleared via Yes click — proceeding")
+                    await self._random_delay(2.0, 3.0)
+                    return False  # No re-login needed
+                logger.warning(
+                    "BDC_RETAIL: session dialog still present after Yes click — falling back to reload"
+                )
+                return True  # Re-login needed
+
+        except PlaywrightTimeoutError:
+            logger.warning("BDC_RETAIL: navigation timed out after Yes click — falling back to reload")
         except Exception as e:
-            logger.warning("BDC_RETAIL: Yes JS click failed: %s — falling back to reload", e)
+            logger.warning("BDC_RETAIL: Yes click failed: %s — falling back to reload", e)
 
         # Fallback: clear cookies and reload for a fresh session
         await page.context.clear_cookies()
