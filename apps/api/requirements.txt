@@ -12,6 +12,8 @@ anyio==4.12.1
     #   httpx
     #   starlette
     #   watchfiles
+apscheduler==3.11.2
+    # via finpilot-api
 beautifulsoup4==4.14.3
     # via finpilot-api
 cachetools==6.2.6
@@ -187,6 +189,10 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
+tzdata==2025.3 ; sys_platform == 'win32'
+    # via tzlocal
+tzlocal==5.3.1
+    # via apscheduler
 urllib3==2.6.3
     # via requests
 uvicorn==0.41.0
