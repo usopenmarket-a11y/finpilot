@@ -46,6 +46,7 @@ from app.scrapers import (
     NBEScraper,
     ScraperLoginError,
     ScraperParseError,
+    ScraperPasswordChangeRequired,
     ScraperTimeoutError,
     UBScraper,
 )
@@ -251,6 +252,10 @@ async def _background_sync_task(
             logger.info("Sync initiated via stored credentials", extra={"bank": bank})
             async with _SCRAPE_SEMAPHORE:
                 result = await scraper.scrape()
+        except ScraperPasswordChangeRequired:
+            _JOBS[job_id]["error"] = (
+                "NBE requires a password change — go to Settings to update your credentials"
+            )
         except ScraperLoginError:
             logger.warning("Sync failed: bank rejected credentials", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
@@ -442,6 +447,10 @@ async def _background_sync_accounts_task(
                     result = await scraper.scrape_accounts()
                 else:
                     result = await scraper.scrape()
+        except ScraperPasswordChangeRequired:
+            _JOBS[job_id]["error"] = (
+                "NBE requires a password change — go to Settings to update your credentials"
+            )
         except ScraperLoginError:
             logger.warning("Accounts sync failed: bank rejected credentials", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
@@ -620,6 +629,10 @@ async def _background_sync_cc_task(
                     result = await scraper.scrape_credit_cards()
                 else:
                     result = await scraper.scrape()
+        except ScraperPasswordChangeRequired:
+            _JOBS[job_id]["error"] = (
+                "NBE requires a password change — go to Settings to update your credentials"
+            )
         except ScraperLoginError:
             logger.warning("CC sync failed: bank rejected credentials", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
@@ -806,6 +819,10 @@ async def _background_sync_certificates_task(
                     result = await scraper.scrape_certificates()
                 else:
                     result = await scraper.scrape()
+        except ScraperPasswordChangeRequired:
+            _JOBS[job_id]["error"] = (
+                "NBE requires a password change — go to Settings to update your credentials"
+            )
         except ScraperLoginError:
             logger.warning(
                 "Certificates sync failed: bank rejected credentials", extra={"bank": bank}

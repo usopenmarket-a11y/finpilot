@@ -100,6 +100,7 @@ from app.scrapers.base import (
     ScraperLoginError,
     ScraperOTPRequired,
     ScraperParseError,
+    ScraperPasswordChangeRequired,
     ScraperResult,
     ScraperTimeoutError,
 )
@@ -1543,6 +1544,34 @@ class NBEScraper(BankScraper):
                 bank_code="NBE",
                 session_token="",  # Populated by API layer with real session token
             )
+
+        # Check for forced password change prompt
+        logger.info("NBE: checking for forced password change prompt")
+        try:
+            page_text_check = await page.inner_text("body")
+            if any(
+                phrase in page_text_check.lower()
+                for phrase in (
+                    "change your password",
+                    "change password",
+                    "new password",
+                    "تغيير كلمة المرور",
+                    "كلمة المرور الجديدة",
+                )
+            ):
+                # Also check for password change form fields to reduce false positives
+                has_new_pass_field = await page.query_selector(
+                    "input[id*='newPass' i], input[name*='newPass' i], input[id*='new_pass' i], #newPassword"
+                )
+                if has_new_pass_field is not None:
+                    raise ScraperPasswordChangeRequired(
+                        "NBE: bank is requiring a password change — update your credentials in FinPilot Settings",
+                        bank_code="NBE",
+                    )
+        except ScraperPasswordChangeRequired:
+            raise
+        except Exception:
+            pass  # Don't block login flow on check failure
 
         # Wait for the loggedInUser nav badge which confirms an authenticated session.
         # li.loggedInUser is more reliable than looking for Logout link text because

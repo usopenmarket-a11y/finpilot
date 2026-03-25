@@ -248,3 +248,81 @@ async def delete_credential(
         ) from exc
 
     logger.info("Credentials deleted id=%s user_id=%s", credential_id, user_id)
+
+
+class UpdateCredentialRequest(BaseModel):
+    """PATCH /api/v1/accounts/credentials/id/{credential_id} — update encrypted credentials."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    encrypted_username: str | None = None
+    encrypted_password: str | None = None
+    label: str | None = None
+
+
+@router.patch(
+    "/accounts/credentials/id/{credential_id}",
+    response_model=CredentialInfo,
+    status_code=status.HTTP_200_OK,
+    summary="Update encrypted credentials for an existing bank account",
+)
+async def update_credential(
+    credential_id: UUID,
+    body: UpdateCredentialRequest,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> CredentialInfo:
+    """Update the encrypted credentials (username, password, label) for an existing row.
+
+    Only provided fields are updated. The user_id guard ensures a user cannot
+    update another user's credentials. Secret fields are never returned.
+    """
+    user_id = _parse_user_id(x_user_id)
+
+    updates: dict[str, Any] = {}
+    if body.encrypted_username is not None:
+        updates["encrypted_username"] = body.encrypted_username
+    if body.encrypted_password is not None:
+        updates["encrypted_password"] = body.encrypted_password
+    if body.label is not None:
+        updates["label"] = body.label
+
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No fields to update",
+        )
+
+    client = _get_client()
+    try:
+        response = (
+            client.table("bank_credentials")
+            .update(updates)
+            .eq("id", str(credential_id))
+            .eq("user_id", str(user_id))
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Failed to update credentials id=%s: %s", credential_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update credentials",
+        ) from exc
+
+    rows = response.data
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Credential not found or does not belong to this user",
+        )
+
+    row = rows[0]
+    assert isinstance(row, dict)
+    logger.info("Credentials updated id=%s user_id=%s", credential_id, user_id)
+    return CredentialInfo(
+        id=row["id"],
+        bank=row["bank"],
+        label=row.get("label"),
+        is_active=row["is_active"],
+        last_synced_at=row.get("last_synced_at"),
+        created_at=row["created_at"],
+    )

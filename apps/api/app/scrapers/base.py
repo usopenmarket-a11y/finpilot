@@ -125,6 +125,10 @@ class ScraperOTPRequired(ScraperException):
         self.session_token = session_token
 
 
+class ScraperPasswordChangeRequired(ScraperException):
+    """Raised when the bank portal forces the user to change their password before proceeding."""
+
+
 class BankPortalUnreachableError(ScraperException):
     """Raised when the bank portal returns a network-level error or 5xx."""
 

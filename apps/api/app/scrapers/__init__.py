@@ -9,6 +9,7 @@ from app.scrapers.base import (
     ScraperLoginError,
     ScraperOTPRequired,
     ScraperParseError,
+    ScraperPasswordChangeRequired,
     ScraperResult,
     ScraperTimeoutError,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "ScraperTimeoutError",
     "ScraperParseError",
     "ScraperOTPRequired",
+    "ScraperPasswordChangeRequired",
     "BankPortalUnreachableError",
     # Bank scrapers
     "NBEScraper",

@@ -136,6 +136,23 @@ export async function deleteCredential(
   });
 }
 
+export async function updateCredential(
+  userId: string,
+  credentialId: string,
+  updates: { encryptedUsername?: string; encryptedPassword?: string; label?: string },
+): Promise<CredentialInfo> {
+  const body: Record<string, string> = {};
+  if (updates.encryptedUsername !== undefined) body.encrypted_username = updates.encryptedUsername;
+  if (updates.encryptedPassword !== undefined) body.encrypted_password = updates.encryptedPassword;
+  if (updates.label !== undefined) body.label = updates.label;
+
+  return apiFetch<CredentialInfo>(`/api/v1/accounts/credentials/id/${credentialId}`, {
+    method: 'PATCH',
+    userId,
+    body: JSON.stringify(body),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Sync — async job pattern
 // ---------------------------------------------------------------------------

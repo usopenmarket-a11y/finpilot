@@ -6,6 +6,7 @@ import {
   listCredentials,
   saveCredential,
   deleteCredential,
+  updateCredential,
   syncBank,
   syncBankAccounts,
   syncBankCreditCards,
@@ -99,6 +100,14 @@ export function BankAccountsSection() {
   // Per-credential remove state keyed by credential id
   const [removingId, setRemovingId] = useState<string | null>(null);
 
+  // Inline edit form state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUsername, setEditUsername] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editLabel, setEditLabel] = useState('');
+  const [updating, setUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
   // Fetch user id on mount
   useEffect(() => {
     const supabase = createClient();
@@ -176,6 +185,39 @@ export function BankAccountsSection() {
       setListError(message);
     } finally {
       setRemovingId(null);
+    }
+  };
+
+  const handleUpdate = async (cred: CredentialInfo) => {
+    if (!userId) return;
+    setUpdating(true);
+    setUpdateError(null);
+    try {
+      const updates: { encryptedUsername?: string; encryptedPassword?: string; label?: string } = {};
+      if (editUsername.trim()) {
+        updates.encryptedUsername = await encryptValue(editUsername);
+      }
+      if (editPassword.trim()) {
+        updates.encryptedPassword = await encryptValue(editPassword);
+      }
+      if (editLabel.trim() !== cred.label) {
+        updates.label = editLabel.trim();
+      }
+      if (Object.keys(updates).length === 0) {
+        setUpdateError('Enter a new username, password, or label to update');
+        return;
+      }
+      await updateCredential(userId, cred.id, updates);
+      setEditingId(null);
+      setEditUsername('');
+      setEditPassword('');
+      setEditLabel('');
+      await fetchCredentials(userId);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update credentials';
+      setUpdateError(message);
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -348,6 +390,9 @@ export function BankAccountsSection() {
                     ? Math.max(...activeSyncKeys.map((k) => elapsedSeconds[k] ?? 0))
                     : 0;
 
+                const hasPasswordChangeError = [cred.id, `${cred.id}_accounts`, `${cred.id}_cc`, `${cred.id}_certs`]
+                  .some(k => syncStates[k]?.error?.toLowerCase().includes('password change'));
+
                 return (
                   <li key={cred.id} className="py-4 first:pt-0 last:pb-0">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -383,6 +428,17 @@ export function BankAccountsSection() {
                             {msg.text}
                           </p>
                         ))}
+                        {/* Password change warning */}
+                        {hasPasswordChangeError && (
+                          <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                            <svg className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <p className="text-xs text-amber-700 dark:text-amber-300">
+                              Your bank requires a password change. Update your credentials below to continue syncing.
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Status badge */}
@@ -441,6 +497,24 @@ export function BankAccountsSection() {
                         )}
                         <Button
                           size="sm"
+                          variant="secondary"
+                          disabled={isAnySyncing || isRemoving || updating}
+                          onClick={() => {
+                            if (editingId === cred.id) {
+                              setEditingId(null);
+                            } else {
+                              setEditingId(cred.id);
+                              setEditLabel(cred.label ?? '');
+                              setEditUsername('');
+                              setEditPassword('');
+                              setUpdateError(null);
+                            }
+                          }}
+                        >
+                          {editingId === cred.id ? 'Cancel' : 'Edit'}
+                        </Button>
+                        <Button
+                          size="sm"
                           variant="danger"
                           loading={isRemoving}
                           disabled={isAnySyncing || isRemoving}
@@ -450,6 +524,51 @@ export function BankAccountsSection() {
                         </Button>
                       </div>
                     </div>
+                    {/* Inline edit form */}
+                    {editingId === cred.id && (
+                      <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 space-y-3">
+                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                          Update credentials — leave blank to keep existing value
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <Input
+                            label="New Username (optional)"
+                            placeholder="Leave blank to keep current"
+                            autoComplete="off"
+                            value={editUsername}
+                            onChange={(e) => setEditUsername(e.target.value)}
+                          />
+                          <Input
+                            label="New Password (optional)"
+                            type="password"
+                            placeholder="Leave blank to keep current"
+                            autoComplete="new-password"
+                            value={editPassword}
+                            onChange={(e) => setEditPassword(e.target.value)}
+                          />
+                        </div>
+                        <Input
+                          label="Label / Nickname (optional)"
+                          placeholder="e.g. Personal NBE"
+                          autoComplete="off"
+                          value={editLabel}
+                          onChange={(e) => setEditLabel(e.target.value)}
+                        />
+                        {updateError && (
+                          <p className="text-xs text-red-600 dark:text-red-400">{updateError}</p>
+                        )}
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            loading={updating}
+                            disabled={updating}
+                            onClick={() => void handleUpdate(cred)}
+                          >
+                            Save Changes
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {activeSyncKeys.length > 0 && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                         Syncing... {maxElapsed}s — this can take 2-4 minutes
