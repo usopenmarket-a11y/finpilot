@@ -1095,7 +1095,7 @@ def _purge_old_jobs(max_age_seconds: int = 3600) -> None:
         job_id
         for job_id, job in _JOBS.items()
         if job["status"] in ("complete", "failed")
-        and (now - job.get("finished_at", now)).total_seconds() > max_age_seconds
+        and (now - (job.get("finished_at") or now)).total_seconds() > max_age_seconds
     ]
     for job_id in to_delete:
         del _JOBS[job_id]
