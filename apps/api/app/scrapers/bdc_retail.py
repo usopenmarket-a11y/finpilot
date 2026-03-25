@@ -652,7 +652,9 @@ class BDCRetailScraper(BankScraper):
                 await page.wait_for_selector(_SEL_USERNAME, timeout=_WAIT_TIMEOUT_MS)
                 await self._type_human(page, _SEL_USERNAME, username)
                 await self._random_delay(0.8, 1.5)
-                await page.wait_for_selector(_SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS)
+                await page.wait_for_selector(
+                    _SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS
+                )
                 await page.fill(_SEL_PASSWORD, password, force=True)
                 await self._random_delay(1.0, 2.0)
                 login_btn2 = await page.query_selector("input[type='image'][id^='C2__C1__BUT_']")
@@ -732,9 +734,14 @@ class BDCRetailScraper(BankScraper):
                     await self._random_delay(2.0, 3.0)
                     return False  # No re-login needed
                 except PlaywrightTimeoutError:
-                    logger.warning("BDC_RETAIL: session dialog still visible after Yes click — falling back to reload")
+                    logger.warning(
+                        "BDC_RETAIL: session dialog still visible after Yes click — falling back to reload"
+                    )
             else:
-                logger.warning("BDC_RETAIL: Yes click failed: %s — falling back to reload", clicked.get("reason"))
+                logger.warning(
+                    "BDC_RETAIL: Yes click failed: %s — falling back to reload",
+                    clicked.get("reason"),
+                )
 
         except Exception as e:
             logger.warning("BDC_RETAIL: Yes JS click failed: %s — falling back to reload", e)
@@ -834,8 +841,14 @@ class BDCRetailScraper(BankScraper):
         try:
             page_text_check = await page.evaluate("document.body.innerText || ''")
             lower_text = page_text_check.lower()
-            error_phrases = ["invalid username", "invalid password", "incorrect password",
-                             "login failed", "authentication failed", "invalid credentials"]
+            error_phrases = [
+                "invalid username",
+                "invalid password",
+                "incorrect password",
+                "login failed",
+                "authentication failed",
+                "invalid credentials",
+            ]
             for phrase in error_phrases:
                 if phrase in lower_text:
                     raise ScraperLoginError(
@@ -1055,19 +1068,18 @@ class BDCRetailScraper(BankScraper):
         for el in buttons[:40]:
             tag = el.name
             el_type = el.get("type", "")
-            el_id = el.get("id", "")[:60]
-            el_value = el.get("value", el.get_text(strip=True))[:60]
+            el_id = str(el.get("id", ""))[:60]
+            el_value = str(el.get("value", el.get_text(strip=True)))[:60]
             el_onclick = str(el.get("onclick", ""))[:100]
             btn_summaries.append(
-                f"{tag}[type={el_type!r}] id={el_id!r} value={el_value!r} "
-                f"onclick={el_onclick!r}"
+                f"{tag}[type={el_type!r}] id={el_id!r} value={el_value!r} onclick={el_onclick!r}"
             )
         logger.info("BDC_RETAIL [nav_discovery]: buttons/inputs: %s", btn_summaries)
 
         # T24 component IDs — these are often the most reliable selectors
         t24_els = soup.find_all(id=re.compile(r"C2__", re.I))
         t24_summaries = [
-            f"{el.name}#{el.get('id', '')[:60]} "
+            f"{el.name}#{str(el.get('id', ''))[:60]} "
             f"class={str(el.get('class', ''))[:40]} "
             f"text={el.get_text(strip=True)[:40]!r}"
             for el in t24_els[:60]
@@ -1155,9 +1167,7 @@ class BDCRetailScraper(BankScraper):
                 if len(all_nav) == 1:
                     link = all_nav[0]
                     matched_selector = "sole goNavItem link (fallback)"
-                    logger.info(
-                        "BDC_RETAIL: only one goNavItem link found — treating as card view"
-                    )
+                    logger.info("BDC_RETAIL: only one goNavItem link found — treating as card view")
                 elif all_nav:
                     # Log all nav items so we can pick the right one next time
                     for i, nav_el in enumerate(all_nav):
@@ -1340,9 +1350,7 @@ class BDCRetailScraper(BankScraper):
 
         # --- Strategy 1: T24 component IDs ---
         # Balance / outstanding amount
-        for pattern in (
-            r"OUTSTANDING|CURRENTBAL|CURRENT_BAL|WORKINGBAL|BALANCE|AMTDUE|AMT_DUE",
-        ):
+        for pattern in (r"OUTSTANDING|CURRENTBAL|CURRENT_BAL|WORKINGBAL|BALANCE|AMTDUE|AMT_DUE",):
             el = soup.find(id=re.compile(pattern, re.I))
             if el:
                 raw_balance = el.get_text(strip=True)
@@ -1355,9 +1363,7 @@ class BDCRetailScraper(BankScraper):
             el = soup.find(id=re.compile(pattern, re.I))
             if el:
                 raw_credit_limit = el.get_text(strip=True)
-                logger.debug(
-                    "BDC_RETAIL: credit limit via T24 ID: %r", raw_credit_limit
-                )
+                logger.debug("BDC_RETAIL: credit limit via T24 ID: %r", raw_credit_limit)
                 break
 
         for pattern in (r"BILLEDAMT|BILLED_AMT|STMT_BAL|STATEMENTBAL|BILL_AMOUNT",):
@@ -1378,9 +1384,7 @@ class BDCRetailScraper(BankScraper):
             el = soup.find(id=re.compile(pattern, re.I))
             if el:
                 raw_min_payment = el.get_text(strip=True)
-                logger.debug(
-                    "BDC_RETAIL: min payment via T24 ID: %r", raw_min_payment
-                )
+                logger.debug("BDC_RETAIL: min payment via T24 ID: %r", raw_min_payment)
                 break
 
         for pattern in (r"DUEDATE|DUE_DATE|PAYMENTDUE|PAYMENT_DUE",):
@@ -1394,9 +1398,7 @@ class BDCRetailScraper(BankScraper):
             el = soup.find(id=re.compile(pattern, re.I))
             if el:
                 raw_account_number = el.get_text(strip=True)
-                logger.debug(
-                    "BDC_RETAIL: card/account number via T24 ID: %r", raw_account_number
-                )
+                logger.debug("BDC_RETAIL: card/account number via T24 ID: %r", raw_account_number)
                 break
 
         for pattern in (r"CURRENCY|CCY",):
@@ -1433,9 +1435,7 @@ class BDCRetailScraper(BankScraper):
                             "BDC_RETAIL: credit limit via table label %r: %r", cells[0], value
                         )
 
-                    if not raw_billed and re.search(
-                        r"billed|statement\s*bal|bill\s*amount", label
-                    ):
+                    if not raw_billed and re.search(r"billed|statement\s*bal|bill\s*amount", label):
                         raw_billed = value
                         logger.debug(
                             "BDC_RETAIL: billed amount via table label %r: %r", cells[0], value
@@ -1457,9 +1457,7 @@ class BDCRetailScraper(BankScraper):
 
                     if not raw_due_date and re.search(r"due\s*date|payment\s*date", label):
                         raw_due_date = value
-                        logger.debug(
-                            "BDC_RETAIL: due date via table label %r: %r", cells[0], value
-                        )
+                        logger.debug("BDC_RETAIL: due date via table label %r: %r", cells[0], value)
 
                     if not raw_account_number and re.search(
                         r"card\s*no|account\s*no|card\s*number|account\s*number", label
@@ -1487,9 +1485,7 @@ class BDCRetailScraper(BankScraper):
                     raw_balance,
                 )
 
-            _limit_pattern = re.compile(
-                r"(credit\s*limit|card\s*limit)[:\s]+([0-9,]+\.?\d*)", re.I
-            )
+            _limit_pattern = re.compile(r"(credit\s*limit|card\s*limit)[:\s]+([0-9,]+\.?\d*)", re.I)
             m2 = _limit_pattern.search(full_text)
             if m2 and not raw_credit_limit:
                 raw_credit_limit = m2.group(2)
@@ -1544,9 +1540,7 @@ class BDCRetailScraper(BankScraper):
             digits = re.sub(r"\D", "", raw_account_number)
             masked = self._mask_account_number(digits) if digits else "****BDCR"
         else:
-            logger.warning(
-                "BDC_RETAIL: could not extract card number — using placeholder ****BDCR"
-            )
+            logger.warning("BDC_RETAIL: could not extract card number — using placeholder ****BDCR")
             masked = "****BDCR"
 
         return BankAccount(
@@ -1586,9 +1580,7 @@ class BDCRetailScraper(BankScraper):
 
         # Strategy 2: ID patterns
         if table is None:
-            table = soup.find(
-                "table", id=re.compile(r"STATEMENT|TRANS|ACTIVITY|CARD", re.I)
-            )
+            table = soup.find("table", id=re.compile(r"STATEMENT|TRANS|ACTIVITY|CARD", re.I))
 
         # Strategy 3: table with debit+credit headers
         if table is None:
@@ -1637,9 +1629,7 @@ class BDCRetailScraper(BankScraper):
             try:
                 txn = _parse_transaction_row(cells, col, account, now)
             except Exception as exc:
-                logger.debug(
-                    "BDC_RETAIL: skipping card txn row %d: %s", row_idx, exc
-                )
+                logger.debug("BDC_RETAIL: skipping card txn row %d: %s", row_idx, exc)
                 continue
             if txn is not None:
                 transactions.append(txn)
