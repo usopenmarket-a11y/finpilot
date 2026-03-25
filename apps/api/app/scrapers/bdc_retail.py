@@ -107,8 +107,12 @@ _MAX_TRANSACTIONS = 30
 # Username field — stable ID (type=search on this portal)
 _SEL_USERNAME = "#C2__C1__USER_NAME"
 
-# Password field — name is stable; ID changes per session; type is "text" (not "password")
-_SEL_PASSWORD = "input[name='C2__C1__LOGIN[1].PASSWORD']"
+# Visible password field — the user types plaintext here; T24's encrypt() JS
+# reads this field on Sign In click, encrypts it with the RSA public key, and
+# writes the ciphertext back to the same field before form submission.
+# Field: name=C2__C1__LOGIN[1].ENCRYPTEDPASSWORD, class=pass_field (type=text, visible)
+# NOTE: there is also a hidden tc-encrypt-pass field (LOGIN[1].PASSWORD) — do NOT fill that.
+_SEL_PASSWORD = "input.pass_field"
 
 # Sign In button — try stable name-based selector first, then visible image inputs
 # The ID suffix changes; the name pattern is stable across sessions
@@ -604,28 +608,27 @@ class BDCRetailScraper(BankScraper):
             logger.info("BDC_RETAIL: username filled, waiting for password field")
             await self._random_delay(0.8, 1.5)
 
-            # Fill the password field (type=text, name-based stable selector).
-            # The T24 portal keeps this field hidden until after username interaction —
-            # wait for DOM attachment only, then force-fill bypassing visibility check.
-            await page.wait_for_selector(_SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS)
-            logger.info("BDC_RETAIL: password field found (attached), filling")
-            await page.fill(_SEL_PASSWORD, password, force=True)
+            # Fill the visible password field (class=pass_field, type=text).
+            # T24's encrypt() JS reads this field on Sign In click — must use
+            # _type_human (real keystrokes) so JS change events fire correctly.
+            # page.fill() sets value silently and encrypt() may miss it.
+            await page.wait_for_selector(_SEL_PASSWORD, state="visible", timeout=_WAIT_TIMEOUT_MS)
+            logger.info("BDC_RETAIL: password field visible, typing")
+            await self._type_human(page, _SEL_PASSWORD, password)
             await self._random_delay(1.0, 2.0)
 
-            # Click Sign In — find the visible image button (ID suffix changes)
-            # Prefer a button whose ID contains the LOGIN context ("C2__C1__BUT_")
-            login_btn = await page.query_selector("input[type='image'][id^='C2__C1__BUT_']")
+            # Click Sign In — the button is a <button> with onclick='encrypt();'
+            # It has a stable ID prefix C2__C1__BUT_ and value='Sign in'
+            login_btn = await page.query_selector("button[onclick='encrypt();']")
             if login_btn is None:
-                # Fallback: any visible image input
-                for el in await page.query_selector_all(_SEL_LOGIN_BTN):
-                    if await el.is_visible():
-                        login_btn = el
-                        break
+                login_btn = await page.query_selector("button#C2__C1__BUT_9BD7C5B3E72A5180154807")
+            if login_btn is None:
+                login_btn = await page.query_selector("button[value='Sign in'][id^='C2__C1__BUT_']")
             if login_btn is None:
                 raise ScraperParseError(
                     "BDC_RETAIL: Sign In button not found", bank_code="BDC_RETAIL"
                 )
-            logger.info("BDC_RETAIL: clicking Sign In button")
+            logger.info("BDC_RETAIL: clicking Sign In button (id=%s)", await login_btn.get_attribute("id"))
             await login_btn.click()
             # T24 uses in-page AJAX — wait for the Loading indicator to disappear,
             # which signals the AJAX response has been processed.
@@ -633,12 +636,14 @@ class BDCRetailScraper(BankScraper):
             try:
                 # Wait up to 60s for "Loading..." text to disappear from the page
                 await page.wait_for_function(
-                    "() => !document.body.innerText.includes('Loading...')",
+                    "() => !document.body || !document.body.innerText.includes('Loading...')",
                     timeout=60_000,
                 )
                 logger.info("BDC_RETAIL: Loading indicator gone — AJAX complete")
             except PlaywrightTimeoutError:
                 logger.info("BDC_RETAIL: Loading still present after 60s — proceeding anyway")
+            except Exception:
+                logger.info("BDC_RETAIL: Loading check failed (page navigated) — proceeding")
             await self._random_delay(1.0, 2.0)
 
             # Handle "Session Active" dialog — reloads page and re-submits login if needed
@@ -650,20 +655,22 @@ class BDCRetailScraper(BankScraper):
                 await self._type_human(page, _SEL_USERNAME, username)
                 await self._random_delay(0.8, 1.5)
                 await page.wait_for_selector(
-                    _SEL_PASSWORD, state="attached", timeout=_WAIT_TIMEOUT_MS
+                    _SEL_PASSWORD, state="visible", timeout=_WAIT_TIMEOUT_MS
                 )
-                await page.fill(_SEL_PASSWORD, password, force=True)
+                await self._type_human(page, _SEL_PASSWORD, password)
                 await self._random_delay(1.0, 2.0)
-                login_btn2 = await page.query_selector("input[type='image'][id^='C2__C1__BUT_']")
+                login_btn2 = await page.query_selector("button[onclick='encrypt();']")
+                if login_btn2 is None:
+                    login_btn2 = await page.query_selector("button[value='Sign in'][id^='C2__C1__BUT_']")
                 if login_btn2:
                     await login_btn2.click()
                     logger.info("BDC_RETAIL: re-submitted login form")
                     try:
                         await page.wait_for_function(
-                            "() => !document.body.innerText.includes('Loading...')",
+                            "() => !document.body || !document.body.innerText.includes('Loading...')",
                             timeout=60_000,
                         )
-                    except PlaywrightTimeoutError:
+                    except Exception:
                         pass
                     await self._random_delay(2.0, 4.0)
                     # Handle session dialog again in case it reappears on 2nd login
@@ -698,86 +705,81 @@ class BDCRetailScraper(BankScraper):
         if "already logged in" not in low and "session active" not in low:
             return False
 
-        # T24's buttonClicked() for the Yes link fires an AJAX request (not a full
-        # page navigation). The dialog is removed from the DOM once the AJAX
-        # response is processed. Strategy:
-        # 1. Try direct AJAX POST to the T24 servlet — bypass JS entirely.
-        #    We extract the form state (MODE, SUBSESSIONID, etc.) and send the
-        #    same POST the browser would send when Yes is clicked.
-        # 2. If that fails, click Yes and wait for the dialog text to disappear
-        #    from the DOM (AJAX mutation), with a short timeout.
-        # 3. Final fallback: reload the login URL for a fresh server session.
-        logger.info("BDC_RETAIL: session dialog detected — attempting Yes via direct AJAX POST")
+        # The session dialog is a jQuery UI popup rendered over the login page.
+        # The Yes/No buttons have stable IDs across sessions:
+        #   Yes: C2__C1__BUT_3E1B4F4A03039BB6116473
+        #   No:  C2__C1__BUT_3E1B4F4A03039BB6118777
+        # Both call T24's buttonClicked() which fires an AJAX POST — no navigation.
+        # Playwright's locator.click() fails because the popup is inside a jQuery
+        # overlay that marks elements as not-visible. Use page.evaluate() to call
+        # the onclick handler directly, bypassing all visibility checks.
+        logger.info("BDC_RETAIL: session dialog detected — invoking Yes onclick via JS evaluate")
         try:
-            # Extract the T24 form state fields needed to submit buttonClicked()
-            form_state = await page.evaluate("""() => {
-                const v = id => { const el = document.getElementById(id) || document.querySelector('[name="' + id + '"]'); return el ? el.value : ''; };
-                const hidden = name => { const el = document.querySelector('input[type="hidden"][name="' + name + '"]'); return el ? el.value : ''; };
-                // Yes button T24 ID from onclick: 'C2__C1____3E1B4F4A03039BB6 FormButton 3'
-                // We need to synthesise the buttonClicked POST payload
-                const allHidden = Array.from(document.querySelectorAll('input[type="hidden"]'))
-                    .map(el => ({name: el.name || el.id || '', value: el.value || ''}))
-                    .filter(h => h.name);
-                const yesLink = Array.from(document.querySelectorAll('a'))
-                    .find(a => a.textContent.trim() === 'Yes');
-                return {
-                    hidden: allHidden,
-                    yesOnclick: yesLink ? yesLink.getAttribute('onclick') : null,
-                    pageUrl: window.location.href,
-                };
+            result = await page.evaluate("""() => {
+                // Try by stable ID first
+                const yes = document.getElementById('C2__C1__BUT_3E1B4F4A03039BB6116473')
+                    || Array.from(document.querySelectorAll('a[title="Yes"]'))[0]
+                    || Array.from(document.querySelectorAll('a')).find(a => a.textContent.trim() === 'Yes');
+                if (!yes) return {ok: false, reason: 'Yes element not found'};
+                const onclick = yes.getAttribute('onclick') || '';
+                if (!onclick) return {ok: false, reason: 'Yes has no onclick'};
+                // Dispatch a real click event on the element — this triggers
+                // buttonClicked() with the correct 'this' context and form state,
+                // exactly as if the user clicked it in the browser.
+                yes.click();
+                return {ok: true, onclick: onclick.slice(0, 120)};
             }""")
-            logger.info(
-                "BDC_RETAIL: form state extracted — hidden fields=%d, yesOnclick=%s",
-                len(form_state.get("hidden", [])),
-                (form_state.get("yesOnclick") or "")[:120],
-            )
-        except Exception as e:
-            logger.warning("BDC_RETAIL: could not extract form state: %s", e)
-            form_state = {}
+            logger.info("BDC_RETAIL: Yes onclick result = %s", result)
 
-        # Strategy 1: click Yes via Playwright locator and wait for dialog text
-        # to disappear from DOM (AJAX mutation — no full navigation occurs)
-        logger.info("BDC_RETAIL: clicking Yes and waiting for dialog to disappear via AJAX")
-        try:
-            yes_locator = page.locator("a", has_text="Yes")
-            yes_count = await yes_locator.count()
-            if yes_count > 0:
-                await yes_locator.first.click()
-                # Wait for "already logged in" text to disappear from page —
-                # T24 AJAX will remove the dialog div once the server responds
+            if result.get("ok"):
+                # Wait for dashboard to load: login form gone AND dashboard content present.
+                # The dashboard has User ID shown in the header (not just absence of login form).
                 try:
                     await page.wait_for_function(
                         """() => {
-                            const t = (document.body || document.documentElement).innerText || '';
-                            const low = t.toLowerCase();
-                            return !low.includes('already logged in') && !low.includes('session active');
+                            // Login form gone
+                            if (document.querySelector('#C2__C1__USER_NAME')) return false;
+                            // Not an error page
+                            const body = (document.body || {}).innerText || '';
+                            const bl = body.toLowerCase();
+                            if (bl.includes('access violation') || bl.includes('error has occured')
+                                || bl.includes('exceptional error') || bl.includes("we're sorry")) return false;
+                            // Dashboard has loaded (has nav items beyond just Home/Logout)
+                            return document.querySelector('a[onclick*="C5__"]') !== null
+                                || document.querySelector('a[onclick*="C6__"]') !== null
+                                || body.includes('Your Accounts');
                         }""",
-                        timeout=15000,
+                        timeout=25000,
                     )
-                    logger.info("BDC_RETAIL: session dialog cleared via Yes AJAX click — proceeding")
+                    logger.info("BDC_RETAIL: session dialog cleared — dashboard loaded successfully")
                     await self._random_delay(2.0, 3.0)
                     return False  # No re-login needed
                 except PlaywrightTimeoutError:
-                    logger.warning("BDC_RETAIL: dialog still present 15s after Yes click — trying reload")
-            else:
-                logger.warning("BDC_RETAIL: Yes link not found — skipping click strategy")
+                    logger.warning("BDC_RETAIL: dashboard not loaded 25s after Yes — checking for error")
+                    # Check if we got an error page — if so, fall through to reload
+                    try:
+                        body = await page.evaluate("() => document.body.innerText || ''")
+                        body_lower = body.lower()
+                        error_phrases = (
+                            "access violation", "error has occured",
+                            "exceptional error", "we're sorry", "we are sorry",
+                        )
+                        if any(p in body_lower for p in error_phrases):
+                            logger.warning("BDC_RETAIL: error page after Yes — clearing and reloading: %s", body[:200])
+                            # Fall through to reload below
+                        else:
+                            # No error and no login form — probably loaded OK
+                            login_still_present = await page.query_selector("#C2__C1__USER_NAME")
+                            if login_still_present is None:
+                                logger.info("BDC_RETAIL: login form gone, proceeding optimistically")
+                                await self._random_delay(2.0, 3.0)
+                                return False
+                    except Exception:
+                        pass
         except Exception as e:
-            logger.warning("BDC_RETAIL: Yes click strategy failed: %s", e)
+            logger.warning("BDC_RETAIL: Yes onclick invoke failed: %s — falling back", e)
 
-        # Strategy 2: click No to tell the server "abandon the other session",
-        # wait for it to process, then clear cookies and reload fresh.
-        # No = "stay in other system" tells T24 to invalidate THIS new attempt,
-        # which clears the server-side conflict — next login proceeds clean.
-        logger.info("BDC_RETAIL: clicking No to abandon session conflict, then reloading fresh")
-        try:
-            no_locator = page.locator("a", has_text="No")
-            if await no_locator.count() > 0:
-                await no_locator.first.click()
-                await self._random_delay(2.0, 3.0)
-                logger.info("BDC_RETAIL: No clicked — session conflict sent to server")
-        except Exception as e:
-            logger.warning("BDC_RETAIL: No click failed: %s — proceeding to reload anyway", e)
-
+        # Fallback: clear cookies and reload for a completely fresh server session
         await page.context.clear_cookies()
         await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
         await self._random_delay(3.0, 5.0)
@@ -1128,116 +1130,218 @@ class BDCRetailScraper(BankScraper):
             pass
 
     async def _navigate_to_card_view(self, page: Page) -> None:
-        """Attempt to navigate to the credit card detail view.
+        """Navigate to the credit card detail view.
 
-        Tries multiple selector strategies in order from most to least
-        specific.  Logs which strategy succeeds.  Raises ``ScraperParseError``
-        if no card navigation element can be located.
+        The BDC dashboard has a "View Credit Cards" link in the left
+        navigation sidebar.  Clicking it navigates to a card list page
+        that shows all cards with a ``>`` arrow to open each card's detail.
+
+        Strategy:
+        1. Click the "View Credit Cards" nav link (triggers a full page
+           navigation to the card list).
+        2. Wait for the card list page to load and show at least one card row.
+        3. Click the first card row's ``>`` / "Select" arrow.
+        4. Wait for the card detail page to load.
+
+        Raises ``ScraperParseError`` if no card row can be found.
         """
         await self._random_delay(1.5, 3.0)
-        logger.info("BDC_RETAIL: searching for card view navigation element")
+        logger.info("BDC_RETAIL: clicking View Credit Cards nav link")
 
-        # CSS selectors — ordered from most specific to broadest
-        card_css_selectors = [
-            # T24 goNavItem calls that mention card/cc/visa/mastercard
+        # --- Step 1: click the "View Credit Cards" nav link ---
+        # This link is in the left sidebar and triggers a full navigation.
+        # It uses T24 buttonClicked() with C6__ component context.
+        nav_link = None
+        nav_sel_used = ""
+        for sel in (
+            "a[onclick*='C6__'][onclick*='buttonClicked']",
+            "a[title='View Credit Cards']",
             "a[onclick*='goNavItem'][onclick*='ard']",
             "a[onclick*='goNavItem'][onclick*='CC']",
-            "a[onclick*='goNavItem'][onclick*='VISA']",
-            "a[onclick*='goNavItem'][onclick*='MASTER']",
             "a[onclick*='goNavItem'][onclick*='Credit']",
-            # href-based card links
-            "a[href*='card' i]",
-            "a[href*='credit' i]",
-            "a[href*='CC' ]",
-            # image buttons with card-related IDs
-            "input[type='image'][id*='CARD']",
-            "input[type='image'][id*='CC']",
-            # generic "View" / "My Account" image button on card portals
-            "input[type='image'][id*='VIEW']",
-        ]
-
-        # XPath for text-content matching (English + Arabic)
-        card_xpath = (
-            "//a[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-            "'abcdefghijklmnopqrstuvwxyz'),'card') or "
-            "contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-            "'abcdefghijklmnopqrstuvwxyz'),'credit') or "
-            "contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-            "'abcdefghijklmnopqrstuvwxyz'),'view card') or "
-            "contains(text(),'بطاقة') or "
-            "contains(text(),'كارت') or "
-            "contains(text(),'ائتمان')]"
-        )
-
-        link = None
-        matched_selector = ""
-        for sel in card_css_selectors:
+        ):
             try:
                 el = await page.query_selector(sel)
-                if el is not None and await el.is_visible():
-                    link = el
-                    matched_selector = sel
+                if el is not None:
+                    nav_link = el
+                    nav_sel_used = sel
                     break
             except Exception:
                 continue
 
-        if link is None:
-            try:
-                el = await page.query_selector(f"xpath={card_xpath}")
-                if el is not None:
-                    link = el
-                    matched_selector = "xpath (text-content)"
-            except Exception:
-                pass
-
-        if link is None:
-            # Last resort: any goNavItem link on the page — the portal may
-            # have only one nav item which IS the card view.
-            try:
-                all_nav = await page.query_selector_all("a[onclick*='goNavItem']")
-                if len(all_nav) == 1:
-                    link = all_nav[0]
-                    matched_selector = "sole goNavItem link (fallback)"
-                    logger.info("BDC_RETAIL: only one goNavItem link found — treating as card view")
-                elif all_nav:
-                    # Log all nav items so we can pick the right one next time
-                    for i, nav_el in enumerate(all_nav):
-                        try:
-                            txt = await nav_el.inner_text()
-                            onclick_val = await nav_el.get_attribute("onclick") or ""
-                            logger.info(
-                                "BDC_RETAIL: goNavItem[%d] text=%r onclick=%r",
-                                i,
-                                txt[:80],
-                                onclick_val[:120],
-                            )
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        if link is None:
+        if nav_link is None:
             await self._safe_screenshot(page, "card_nav_missing")
             raise ScraperParseError(
-                "BDC_RETAIL: could not find card view navigation element on dashboard",
+                "BDC_RETAIL: could not find View Credit Cards nav link on dashboard",
                 bank_code="BDC_RETAIL",
             )
 
-        logger.info("BDC_RETAIL: found card nav element via %r — clicking", matched_selector)
-        await link.click()
-        await self._random_delay(2.0, 4.0)
+        logger.info("BDC_RETAIL: found View Credit Cards link via %r — clicking", nav_sel_used)
+        # Use JS element.click() to bypass jQuery overlay visibility checks
+        await page.evaluate("(el) => { el.click(); }", nav_link)
 
-        # Wait for any table or card-related element to appear
+        # Wait for the card list page to load.
+        # The nav click causes a full-page navigation — wait for the new page
+        # body to contain card-related content.
+        logger.info("BDC_RETAIL: waiting for card list page to load after nav click")
         try:
-            await page.wait_for_selector(
-                "table, [id*='BALANCE' i], [id*='LIMIT' i], [id*='CARD' i]",
+            await page.wait_for_function(
+                """() => {
+                    if (!document.body) return false;
+                    const body = document.body.innerText || '';
+                    // Card list page shows card holder name and masked number
+                    // OR shows "No cards" message.
+                    return body.includes('Card Holder') || body.includes('Card Number')
+                        || body.includes('All Cards')
+                        || /[0-9]{4,6}[*]+[0-9]{4}/.test(body)
+                        || body.includes('No card') || body.includes('no card');
+                }""",
                 timeout=_WAIT_TIMEOUT_MS,
             )
-            logger.info("BDC_RETAIL: card view loaded (table or card element visible)")
+            logger.info("BDC_RETAIL: card list page loaded")
+        except PlaywrightTimeoutError:
+            logger.warning("BDC_RETAIL: card list page did not load within timeout — proceeding")
+
+        await self._random_delay(2.0, 3.5)
+
+        # Log the current page state for diagnosis
+        try:
+            page_text = await page.evaluate("() => (document.body || {}).innerText || ''")
+            logger.info("BDC_RETAIL: card list page text (first 1000): %s", page_text[:1000])
+        except Exception:
+            pass
+
+        # --- Step 2: find and click the card row "Select" / ">" arrow ---
+        # Check if card rows are present in the DOM
+        select_info = await page.evaluate("""() => {
+            // Priority 1: <a title="Select">
+            const byTitle = document.querySelector('a[title="Select"]');
+            if (byTitle) return {found: true, method: 'title=Select', onclick: (byTitle.getAttribute('onclick') || '').slice(0, 120)};
+
+            // Priority 2: <a> with text content exactly "Select" or icon chars
+            const allLinks = Array.from(document.querySelectorAll('a'));
+            const byText = allLinks.find(a => {
+                const t = (a.innerText || a.textContent || '').trim();
+                return t === 'Select' || t === '>' || t === '›' || t === '»' || t === 'select';
+            });
+            if (byText) return {found: true, method: 'text=Select', onclick: (byText.getAttribute('onclick') || '').slice(0, 120)};
+
+            // Priority 3: any buttonClicked link in the page that is NOT navigation/sidebar
+            // Navigation items (Home, Logout, etc.) have IDs with known T24 nav patterns.
+            const navIds = /HOME|LOGOUT|NAVITEM|goNav|hamburger|SIDEBAR|MENU/i;
+            const rowLink = allLinks.find(a => {
+                const onclick = a.getAttribute('onclick') || '';
+                const id = a.id || '';
+                const txt = (a.innerText || a.textContent || '').trim().toLowerCase();
+                return onclick.includes('buttonClicked')
+                    && !navIds.test(id)
+                    && txt !== 'home' && txt !== 'logout' && txt !== 'transfer';
+            });
+            if (rowLink) return {found: true, method: 'non-nav buttonClicked', onclick: (rowLink.getAttribute('onclick') || '').slice(0, 120)};
+
+            return {found: false, allLinksCount: allLinks.length};
+        }""")
+
+        logger.info("BDC_RETAIL: card Select lookup = %s", select_info)
+
+        if not select_info.get("found"):
+            await self._safe_screenshot(page, "card_select_missing")
+            # Dump all links for diagnosis
+            all_links_dump = await page.evaluate("""() =>
+                Array.from(document.querySelectorAll('a')).slice(0, 80).map(a => ({
+                    id: a.id || '',
+                    text: (a.innerText || a.textContent || '').trim().slice(0, 60),
+                    onclick: (a.getAttribute('onclick') || '').slice(0, 100),
+                    title: a.title || '',
+                }))
+            """)
+            logger.info("BDC_RETAIL: all links on card list page: %s", all_links_dump)
+            raise ScraperParseError(
+                "BDC_RETAIL: no card Select arrow found on card list page",
+                bank_code="BDC_RETAIL",
+            )
+
+        # Click it
+        method = select_info.get("method", "")
+        logger.info("BDC_RETAIL: clicking card Select arrow via method=%r", method)
+
+        clicked = await page.evaluate("""() => {
+            const byTitle = document.querySelector('a[title="Select"]');
+            if (byTitle) { byTitle.click(); return 'title=Select'; }
+
+            const allLinks = Array.from(document.querySelectorAll('a'));
+            const byText = allLinks.find(a => {
+                const t = (a.innerText || a.textContent || '').trim();
+                return t === 'Select' || t === '>' || t === '›' || t === '»' || t === 'select';
+            });
+            if (byText) { byText.click(); return 'text=Select'; }
+
+            const navIds = /HOME|LOGOUT|NAVITEM|goNav|hamburger|SIDEBAR|MENU/i;
+            const rowLink = allLinks.find(a => {
+                const onclick = a.getAttribute('onclick') || '';
+                const id = a.id || '';
+                const txt = (a.innerText || a.textContent || '').trim().toLowerCase();
+                return onclick.includes('buttonClicked')
+                    && !navIds.test(id)
+                    && txt !== 'home' && txt !== 'logout' && txt !== 'transfer';
+            });
+            if (rowLink) { rowLink.click(); return 'non-nav buttonClicked'; }
+
+            return null;
+        }""")
+
+        logger.info("BDC_RETAIL: card Select click result = %r", clicked)
+        if not clicked:
+            await self._safe_screenshot(page, "card_select_click_failed")
+            raise ScraperParseError(
+                "BDC_RETAIL: Select link disappeared between lookup and click",
+                bank_code="BDC_RETAIL",
+            )
+
+        # Wait for AJAX to fire — give it a moment to start
+        await self._random_delay(1.5, 2.5)
+
+        # Wait for Loading indicator to appear then disappear (T24 AJAX pattern).
+        # The ajaxButtonAction first shows "Loading..." then updates the DOM.
+        # We wait for it to disappear (or timeout if it never appeared).
+        try:
+            # First wait up to 8s for Loading to appear
+            await page.wait_for_function(
+                "() => document.body && document.body.innerText.includes('Loading...')",
+                timeout=8_000,
+            )
+            logger.info("BDC_RETAIL: Loading indicator appeared after card Select click")
+            # Now wait for it to disappear
+            await page.wait_for_function(
+                "() => !document.body || !document.body.innerText.includes('Loading...')",
+                timeout=60_000,
+            )
+            logger.info("BDC_RETAIL: Loading cleared — AJAX response complete")
+        except PlaywrightTimeoutError:
+            logger.info("BDC_RETAIL: Loading indicator never appeared or timed out — proceeding")
+        except Exception:
+            logger.info("BDC_RETAIL: Loading check skipped (page navigated)")
+
+        await self._random_delay(2.0, 3.0)
+
+        # Wait for card detail content (balance, limit, or a table)
+        try:
+            await page.wait_for_function(
+                """() => {
+                    const body = document.body ? document.body.innerText : '';
+                    return body.includes('Balance') || body.includes('\\u0631\\u0635\\u064a\\u062f')
+                        || body.includes('Credit Limit') || body.includes('Available Credit')
+                        || body.includes('Statement') || body.includes('Minimum')
+                        || body.includes('Outstanding') || body.includes('Available')
+                        || body.includes('Due Date') || body.includes('Payment Due');
+                }""",
+                timeout=_WAIT_TIMEOUT_MS,
+            )
+            logger.info("BDC_RETAIL: card detail content loaded")
         except PlaywrightTimeoutError:
             logger.warning(
-                "BDC_RETAIL: no table/card element appeared after clicking card nav — "
-                "proceeding with current page"
+                "BDC_RETAIL: card detail content not found after %dms — proceeding with current page",
+                _WAIT_TIMEOUT_MS,
             )
 
     async def _navigate_to_card_transactions(
@@ -1311,22 +1415,29 @@ class BDCRetailScraper(BankScraper):
                 pass
 
         if link is None:
-            # If the transaction table is already on the current page (some
-            # T24 portals show statement inline), return current HTML.
+            # BDC Retail shows transactions inline on the card detail page —
+            # no separate navigation needed.  Check if transaction data is
+            # present on the current page and return it directly.
             try:
-                tbl_el = await page.query_selector("table")
-                if tbl_el is not None:
-                    current_html = await page.content()
-                    soup_check = BeautifulSoup(current_html, "lxml")
-                    raw_text_lower = soup_check.get_text(separator=" ").lower()
-                    if ("debit" in raw_text_lower or "مدين" in raw_text_lower) and (
-                        "credit" in raw_text_lower or "دائن" in raw_text_lower
-                    ):
-                        logger.info(
-                            "BDC_RETAIL: transaction table already on current page — "
-                            "skipping navigation"
-                        )
-                        return current_html
+                current_html = await page.content()
+                soup_check = BeautifulSoup(current_html, "lxml")
+                raw_text_lower = soup_check.get_text(separator=" ").lower()
+                # BDC card detail page has "Transaction Date" and "Amount" columns
+                if "transaction date" in raw_text_lower or "transaction details" in raw_text_lower:
+                    logger.info(
+                        "BDC_RETAIL: transaction data already on card detail page — "
+                        "returning current page HTML"
+                    )
+                    return current_html
+                # Fallback: debit/credit columns (other T24 portals)
+                if ("debit" in raw_text_lower or "مدين" in raw_text_lower) and (
+                    "credit" in raw_text_lower or "دائن" in raw_text_lower
+                ):
+                    logger.info(
+                        "BDC_RETAIL: debit/credit table already on current page — "
+                        "skipping navigation"
+                    )
+                    return current_html
             except Exception:
                 pass
 
@@ -1438,7 +1549,93 @@ class BDCRetailScraper(BankScraper):
                 raw_currency = el.get_text(strip=True)
                 break
 
-        # --- Strategy 2: label/value table scan ---
+        # --- Strategy 1b: masked card number from page heading ---
+        # BDC card detail page shows the masked number in the page title heading
+        # e.g. "/ 55359*******9208" or in a breadcrumb "Credit Card / 55359*******9208"
+        # Override any T24-ID-based result if it looks wrong (not a card number pattern)
+        m_card = re.search(r"\b(\d{4,6}\*+\d{4})\b", soup.get_text(separator=" "))
+        if m_card:
+            raw_account_number = m_card.group(1)
+            logger.info("BDC_RETAIL: card number from masked pattern: %r", raw_account_number)
+
+        # --- Strategy 2a: BDC label/value div scan ---
+        # BDC Retail card detail page uses <div> or <span> pairs for labels
+        # and values, e.g.:
+        #   <div class="label">Closing Balance</div>
+        #   <div class="value">109950.57</div>
+        # or simply sibling text nodes.  We scan all text nodes that look
+        # like labels and take the adjacent text as the value.
+        full_text_lines = [
+            line.strip()
+            for line in soup.get_text(separator="\n").splitlines()
+            if line.strip()
+        ]
+        # Build a label→value map from consecutive non-empty lines
+        label_value_map: dict[str, str] = {}
+        for i, line in enumerate(full_text_lines[:-1]):
+            label_value_map[line.lower()] = full_text_lines[i + 1]
+
+        def _lv(keys: tuple[str, ...]) -> str:
+            """Return first value whose key matches and which looks like an amount/date."""
+            for k in keys:
+                if k in label_value_map:
+                    v = label_value_map[k]
+                    # Skip if the value is a pure currency code (EGP, USD, etc.)
+                    if re.fullmatch(r"[A-Z]{3}", v.strip()):
+                        # Try the next-next line (value is 2 lines after label)
+                        lines = full_text_lines
+                        try:
+                            idx = lines.index(
+                                next(line for line in lines if line.lower() == k)
+                            )
+                            # skip the currency line, take the one after
+                            candidate = lines[idx + 2] if idx + 2 < len(lines) else ""
+                            if candidate and re.search(r"\d", candidate):
+                                return candidate
+                        except (StopIteration, ValueError):
+                            pass
+                        continue
+                    # Skip if the "value" looks like another text label (no digits)
+                    if re.search(r"[A-Za-z]{5,}", v) and not re.search(r"\d", v):
+                        continue
+                    return v
+            return ""
+
+        if not raw_balance:
+            raw_balance = _lv((
+                "closing balance", "total utilized amount", "outstanding balance",
+                "amount due", "current balance", "total due",
+            ))
+        if not raw_credit_limit:
+            raw_credit_limit = _lv((
+                "approved limit egp", "approved limit usd", "approved limit eur",
+                "approved limit", "credit limit egp", "credit limit",
+                "card limit", "limit",
+            ))
+        if not raw_billed:
+            raw_billed = _lv(("closing balance", "billed amount", "statement balance"))
+        if not raw_unbilled:
+            raw_unbilled = _lv(("unbilled amount", "pending amount", "current unbilled"))
+        if not raw_min_payment:
+            raw_min_payment = _lv((
+                "minimum payment amount", "minimum payment", "min payment", "min. payment",
+            ))
+        if not raw_due_date:
+            raw_due_date = _lv(("payment due date", "due date", "payment date"))
+        if not raw_account_number:
+            candidate = _lv(("card number", "card no", "account number", "account no"))
+            # Only use if it looks like a card number (digits and stars only)
+            if candidate and re.fullmatch(r"[\d\*\-\s]+", candidate) and len(candidate) >= 8:
+                raw_account_number = candidate
+        if not raw_currency:
+            # Look for "EGP" near "Approved Limit" line
+            for line in full_text_lines:
+                m = re.search(r"\b(EGP|USD|EUR|GBP)\b", line)
+                if m:
+                    raw_currency = m.group(1)
+                    break
+
+        # --- Strategy 2b: label/value table scan ---
         # Look for two-column tables where the first column is a text label
         # and the second column is an amount or date.
         if not (raw_balance or raw_credit_limit):
@@ -1498,7 +1695,7 @@ class BDCRetailScraper(BankScraper):
                             "BDC_RETAIL: card number via table label %r: %r", cells[0], value
                         )
 
-        # --- Strategy 3: text-pattern scan ---
+        # --- Strategy 3: text-pattern regex scan ---
         if not (raw_balance or raw_credit_limit):
             full_text = soup.get_text(separator="\n", strip=True)
             # Pattern: "Label: 12,345.67" or "Label  12,345.67"
@@ -1545,7 +1742,7 @@ class BDCRetailScraper(BankScraper):
             raw_unbilled,
             raw_min_payment,
             raw_due_date,
-            raw_account_number,
+            (raw_account_number or "")[:40],
             raw_currency,
         )
 
@@ -1596,24 +1793,37 @@ class BDCRetailScraper(BankScraper):
     def _parse_card_transactions(
         self, html: str, account: BankAccount, now: datetime
     ) -> list[Transaction]:
-        """Parse credit card transaction rows from the statement HTML.
+        """Parse credit card transaction rows from the card detail HTML.
 
-        Delegates to the existing table-parsing helpers (``_resolve_txn_columns``
-        and ``_parse_transaction_row``).  Table-discovery strategies mirror
-        ``_extract_transactions``.
+        BDC Retail card detail page shows transactions in a table with columns:
+            Transaction Date | Amount | Currency | Transaction Category |
+            Transaction details | Transaction Status
+
+        Falls back to generic debit/credit column detection for other T24 portals.
 
         Returns up to ``_MAX_TRANSACTIONS`` transactions.
         """
         soup = BeautifulSoup(html, "lxml")
 
+        # --- Find the transaction table ---
+        table = None
+
         # Strategy 1: T24 CSS class
         table = soup.find("table", class_=re.compile(r"tc-table|tc_table", re.I))
 
-        # Strategy 2: ID patterns
+        # Strategy 2: table containing "Transaction Date" or "Transaction details"
+        if table is None:
+            for t in soup.find_all("table"):
+                raw_text = t.get_text(separator=" ").lower()
+                if "transaction date" in raw_text or "transaction details" in raw_text:
+                    table = t
+                    break
+
+        # Strategy 3: ID patterns
         if table is None:
             table = soup.find("table", id=re.compile(r"STATEMENT|TRANS|ACTIVITY|CARD", re.I))
 
-        # Strategy 3: table with debit+credit headers
+        # Strategy 4: table with debit+credit headers (other T24 portals)
         if table is None:
             for t in soup.find_all("table"):
                 raw_text = t.get_text(separator=" ").lower()
@@ -1623,7 +1833,7 @@ class BDCRetailScraper(BankScraper):
                     table = t
                     break
 
-        # Strategy 4: largest table
+        # Strategy 5: largest table
         if table is None:
             all_tables = soup.find_all("table")
             if all_tables:
@@ -1634,10 +1844,7 @@ class BDCRetailScraper(BankScraper):
                 )
 
         if table is None:
-            logger.info(
-                "BDC_RETAIL: no transaction table found in card statement page — "
-                "returning empty transaction list"
-            )
+            logger.info("BDC_RETAIL: no transaction table found — returning empty list")
             return []
 
         header_row = table.find("tr")
@@ -1647,24 +1854,129 @@ class BDCRetailScraper(BankScraper):
 
         headers = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])]
         logger.info("BDC_RETAIL: card transaction table headers: %r", headers)
-        col = _resolve_txn_columns(headers)
-        logger.info("BDC_RETAIL: card transaction column map: %r", col)
+
+        # --- Map BDC-specific column layout ---
+        # BDC columns: Transaction Date | Amount | Currency | Transaction Category |
+        #              Transaction details | Transaction Status
+        # We detect this by looking for "transaction date" and "amount" headers.
+        headers_lower = [h.lower() for h in headers]
+        is_bdc_layout = (
+            any("transaction date" in h for h in headers_lower)
+            and any("amount" in h for h in headers_lower)
+            and not any("debit" in h for h in headers_lower)
+        )
 
         transactions: list[Transaction] = []
         data_rows = [r for r in table.find_all("tr") if r.find("td")]
-        for row_idx, row in enumerate(data_rows[:_MAX_TRANSACTIONS]):
-            cells = [td.get_text(strip=True) for td in row.find_all("td")]
-            if not cells or len(cells) < 3:
-                continue
-            logger.debug("BDC_RETAIL: card txn row[%d] cells: %r", row_idx, cells)
-            try:
-                txn = _parse_transaction_row(cells, col, account, now)
-            except Exception as exc:
-                logger.debug("BDC_RETAIL: skipping card txn row %d: %s", row_idx, exc)
-                continue
-            if txn is not None:
-                transactions.append(txn)
 
+        if is_bdc_layout:
+            logger.info("BDC_RETAIL: using BDC-specific transaction column layout")
+            # Locate columns by header text (handles leading empty icon column)
+            def _find_col(keywords: tuple[str, ...], default: int) -> int:
+                for kw in keywords:
+                    for i, h in enumerate(headers_lower):
+                        if kw in h:
+                            return i
+                return default
+
+            date_col = _find_col(("transaction date",), 1)
+            amount_col = _find_col(("amount",), 2)
+            currency_col = _find_col(("currency",), 3)
+            desc_col = _find_col(("transaction details", "details", "narrat"), 5)
+
+            logger.info(
+                "BDC_RETAIL: BDC column indices — date=%d amount=%d currency=%d desc=%d",
+                date_col, amount_col, currency_col, desc_col,
+            )
+
+            for row_idx, row in enumerate(data_rows[:_MAX_TRANSACTIONS]):
+                cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                # Skip icon/image-only rows and header repetitions
+                if not cells or len(cells) < 3:
+                    continue
+                logger.debug("BDC_RETAIL: card txn BDC row[%d]: %r", row_idx, cells)
+
+                date_str = cells[date_col] if date_col < len(cells) else ""
+                if not date_str or date_str.lower() in ("transaction date", "date", "-", "responsive icon", ""):
+                    continue
+
+                txn_date = _parse_t24_date(date_str)
+                if txn_date is None:
+                    continue
+
+                # Amount column — BDC shows signed or unsigned amount
+                raw_amount = cells[amount_col] if amount_col < len(cells) else ""
+                amount = _parse_amount(raw_amount)
+                if amount is None or amount == 0:
+                    continue
+
+                # Currency (may override account currency)
+                raw_ccy = cells[currency_col] if currency_col < len(cells) else ""
+                ccy = _normalise_currency(raw_ccy) if raw_ccy else account.currency
+
+                description = cells[desc_col] if desc_col < len(cells) else "N/A"
+                if not description:
+                    description = "N/A"
+
+                # BDC shows all amounts as positive — determine type from context.
+                # "Card Payment" / "Payment" → credit; everything else → debit.
+                desc_lower = description.lower()
+                # Also check "Transaction Category" column if present
+                try:
+                    cat_col = next(
+                        i for i, h in enumerate(headers_lower) if "category" in h
+                    )
+                    category_text = (cells[cat_col] if cat_col < len(cells) else "").lower()
+                except StopIteration:
+                    category_text = ""
+
+                is_payment = (
+                    "payment" in desc_lower
+                    or "card payment" in desc_lower
+                    or "payment" in category_text
+                )
+                transaction_type = "credit" if is_payment else "debit"
+
+                external_id = _make_external_id(txn_date, description, amount)
+
+                transactions.append(Transaction(
+                    id=_ZERO_UUID,
+                    user_id=_ZERO_UUID,
+                    account_id=_ZERO_UUID,
+                    external_id=external_id,
+                    amount=amount,
+                    currency=ccy,
+                    transaction_type=transaction_type,
+                    description=description,
+                    category=None,
+                    sub_category=None,
+                    transaction_date=txn_date,
+                    value_date=None,
+                    balance_after=None,
+                    raw_data={"cells": cells, "source": "bdc_retail"},
+                    is_categorized=False,
+                    created_at=now,
+                    updated_at=now,
+                ))
+
+        else:
+            # Generic debit/credit layout (other T24 portals)
+            col = _resolve_txn_columns(headers)
+            logger.info("BDC_RETAIL: card transaction column map (generic): %r", col)
+            for row_idx, row in enumerate(data_rows[:_MAX_TRANSACTIONS]):
+                cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                if not cells or len(cells) < 3:
+                    continue
+                logger.debug("BDC_RETAIL: card txn generic row[%d]: %r", row_idx, cells)
+                try:
+                    txn = _parse_transaction_row(cells, col, account, now)
+                except Exception as exc:
+                    logger.debug("BDC_RETAIL: skipping card txn row %d: %s", row_idx, exc)
+                    continue
+                if txn is not None:
+                    transactions.append(txn)
+
+        logger.info("BDC_RETAIL: parsed %d card transactions", len(transactions))
         return transactions
 
     # ------------------------------------------------------------------
