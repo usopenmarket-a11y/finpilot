@@ -298,12 +298,71 @@ export function BankAccountsSection() {
     }
   };
 
+  const isAnySyncingGlobal = Object.values(syncStates).some((s) => s.loading);
+
+  const [syncAllRunning, setSyncAllRunning] = useState(false);
+  const [syncAllProgress, setSyncAllProgress] = useState<{ done: number; total: number } | null>(null);
+  const [syncAllSummary, setSyncAllSummary] = useState<string | null>(null);
+
+  const handleSyncAll = async () => {
+    if (!userId || credentials.length === 0) return;
+    setSyncAllRunning(true);
+    setSyncAllSummary(null);
+    const total = credentials.length;
+    let done = 0;
+    let failed = 0;
+    setSyncAllProgress({ done: 0, total });
+
+    for (const cred of credentials) {
+      if (!isValidBank(cred.bank)) {
+        done++;
+        failed++;
+        setSyncAllProgress({ done, total });
+        continue;
+      }
+      try {
+        await syncBank(userId, cred.bank as Bank, cred.id);
+      } catch {
+        failed++;
+      }
+      done++;
+      setSyncAllProgress({ done, total });
+    }
+
+    await fetchCredentials(userId);
+    setSyncAllRunning(false);
+    setSyncAllProgress(null);
+    if (failed === 0) {
+      setSyncAllSummary('All synced');
+    } else {
+      setSyncAllSummary(`${done - failed} synced, ${failed} failed`);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-          Connected Bank Accounts
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            Connected Bank Accounts
+          </h2>
+          <div className="flex items-center gap-3">
+            {syncAllSummary && !syncAllRunning && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">{syncAllSummary}</span>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={syncAllRunning}
+              disabled={syncAllRunning || isAnySyncingGlobal || loadingList || credentials.length === 0}
+              onClick={() => void handleSyncAll()}
+            >
+              {syncAllRunning && syncAllProgress
+                ? `Syncing… (${syncAllProgress.done}/${syncAllProgress.total})`
+                : 'Sync All'}
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardBody className="space-y-6">
         {/* Existing credentials list */}

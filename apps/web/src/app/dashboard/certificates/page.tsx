@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 import type { Database } from '@finpilot/shared';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
+type BankCredentialRow = Database['public']['Tables']['bank_credentials']['Row'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,7 +70,7 @@ function durationLabel(openedStr: string, maturityStr: string): string {
   return `${months} month${months !== 1 ? 's' : ''}`;
 }
 
-function CertificateRow({ account }: { account: BankAccountRow }) {
+function CertificateRow({ account, credentialLabel }: { account: BankAccountRow; credentialLabel?: string }) {
   const balance = parseFloat(String(account.balance));
   const interestRate = account.interest_rate != null ? parseFloat(String(account.interest_rate)) : null;
   const maturityDate = account.maturity_date ?? null;
@@ -102,6 +103,14 @@ function CertificateRow({ account }: { account: BankAccountRow }) {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               {account.bank_name} · <span className="font-mono">{account.account_number_masked}</span>
             </p>
+            {credentialLabel && (
+              <span className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full mt-1">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                {credentialLabel}
+              </span>
+            )}
           </div>
         </div>
 
@@ -174,20 +183,40 @@ function CertificateRow({ account }: { account: BankAccountRow }) {
 // Page
 // ---------------------------------------------------------------------------
 
+const BANK_CODE_TO_NAME: Record<string, string> = {
+  NBE: 'National Bank of Egypt',
+  CIB: 'Commercial International Bank',
+  BDC: 'Banque Du Caire (ibanking)',
+  BDC_RETAIL: 'Banque Du Caire (Retail)',
+  UB: 'United Bank',
+};
+
 export default async function CertificatesPage() {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
-  const { data } = await supabase
-    .from('bank_accounts')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('is_active', true)
-    .in('account_type', ['certificate', 'deposit', 'term_deposit']);
+  const [{ data }, { data: credData }] = await Promise.all([
+    supabase
+      .from('bank_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .in('account_type', ['certificate', 'deposit', 'term_deposit']),
+    supabase
+      .from('bank_credentials')
+      .select('bank, label')
+      .eq('user_id', userId),
+  ]);
 
   const accounts: BankAccountRow[] = data ?? [];
+
+  const bankNameToLabel: Record<string, string> = {};
+  for (const cred of ((credData ?? []) as Pick<BankCredentialRow, 'bank' | 'label'>[]) ) {
+    const displayName = BANK_CODE_TO_NAME[cred.bank] ?? cred.bank;
+    bankNameToLabel[displayName] = cred.label ?? cred.bank;
+  }
 
   const totalValue = accounts.reduce((s, a) => s + parseFloat(String(a.balance)), 0);
 
@@ -275,7 +304,7 @@ export default async function CertificatesPage() {
             </CardHeader>
             <CardBody className="space-y-3">
               {accounts.map((account) => (
-                <CertificateRow key={account.id} account={account} />
+                <CertificateRow key={account.id} account={account} credentialLabel={bankNameToLabel[account.bank_name]} />
               ))}
             </CardBody>
           </Card>

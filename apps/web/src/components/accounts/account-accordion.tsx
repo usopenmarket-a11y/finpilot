@@ -122,9 +122,10 @@ interface AccordionItemProps {
   isOpen: boolean;
   onToggle: () => void;
   onHide: (id: string) => void;
+  credentialLabel?: string;
 }
 
-function AccordionItem({ account, transactions, isOpen, onToggle, onHide }: AccordionItemProps) {
+function AccordionItem({ account, transactions, isOpen, onToggle, onHide, credentialLabel }: AccordionItemProps) {
   const balance = parseFloat(String(account.balance));
 
   return (
@@ -149,6 +150,14 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide }: Acco
             <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
               {account.account_number_masked}
             </p>
+            {credentialLabel && (
+              <span className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full mt-1">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                {credentialLabel}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -181,7 +190,6 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide }: Acco
 
 const GROUP_CONFIGS: { label: string; types: string[] }[] = [
   { label: 'Savings, Current & Payroll', types: ['savings', 'current', 'payroll'] },
-  { label: 'Certificates & Deposits', types: ['certificate', 'deposit'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -191,9 +199,10 @@ const GROUP_CONFIGS: { label: string; types: string[] }[] = [
 interface AccountAccordionProps {
   accounts: BankAccountRow[];
   transactions: TransactionRow[];
+  credentialLabels?: Record<string, string>;
 }
 
-export function AccountAccordion({ accounts: initialAccounts, transactions }: AccountAccordionProps) {
+export function AccountAccordion({ accounts: initialAccounts, transactions, credentialLabels = {} }: AccountAccordionProps) {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -237,6 +246,7 @@ export function AccountAccordion({ accounts: initialAccounts, transactions }: Ac
                 isOpen={openId === account.id}
                 onToggle={() => handleToggle(account.id)}
                 onHide={handleHide}
+                credentialLabel={credentialLabels[account.bank_name]}
               />
             ))}
           </div>

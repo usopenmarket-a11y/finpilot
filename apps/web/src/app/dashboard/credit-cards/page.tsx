@@ -9,6 +9,7 @@ import type { Database } from '@finpilot/shared';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
 type TransactionRow = Database['public']['Tables']['transactions']['Row'];
+type BankCredentialRow = Database['public']['Tables']['bank_credentials']['Row'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,6 +118,18 @@ function buildPerCardData(
 }
 
 // ---------------------------------------------------------------------------
+// Bank code → display name map
+// ---------------------------------------------------------------------------
+
+const BANK_CODE_TO_NAME: Record<string, string> = {
+  NBE: 'National Bank of Egypt',
+  CIB: 'Commercial International Bank',
+  BDC: 'Banque Du Caire (ibanking)',
+  BDC_RETAIL: 'Banque Du Caire (Retail)',
+  UB: 'United Bank',
+};
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -126,7 +139,7 @@ export default async function CreditCardsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
-  const [accountsResult, transactionsResult] = await Promise.all([
+  const [accountsResult, transactionsResult, credentialsResult] = await Promise.all([
     supabase
       .from('bank_accounts')
       .select('*')
@@ -139,10 +152,20 @@ export default async function CreditCardsPage() {
       .eq('user_id', userId)
       .order('transaction_date', { ascending: false })
       .limit(1000),
+    supabase
+      .from('bank_credentials')
+      .select('bank, label')
+      .eq('user_id', userId),
   ]);
 
   const creditCardAccounts: BankAccountRow[] = accountsResult.data ?? [];
   const allTransactions: TransactionRow[] = transactionsResult.data ?? [];
+
+  const bankNameToLabel: Record<string, string> = {};
+  for (const cred of ((credentialsResult.data ?? []) as Pick<BankCredentialRow, 'bank' | 'label'>[]) ) {
+    const displayName = BANK_CODE_TO_NAME[cred.bank] ?? cred.bank;
+    bankNameToLabel[displayName] = cred.label ?? cred.bank;
+  }
 
   const totalBalance = creditCardAccounts.reduce(
     (s, a) => s + parseFloat(String(a.balance)),
@@ -181,9 +204,10 @@ export default async function CreditCardsPage() {
     );
   }
 
-  const cards: CreditCardData[] = creditCardAccounts.map((account) =>
-    buildPerCardData(account, allTransactions),
-  );
+  const cards: CreditCardData[] = creditCardAccounts.map((account) => ({
+    ...buildPerCardData(account, allTransactions),
+    credentialLabel: bankNameToLabel[account.bank_name] ?? null,
+  }));
 
   return (
     <div className="p-6 lg:p-8 space-y-8">
