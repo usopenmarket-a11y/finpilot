@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -509,7 +509,8 @@ class TestRunner:
         )
 
         before = datetime.now(tz=UTC)
-        result = await run_pipeline(scraper_result, uid, supabase)
+        with patch("app.pipeline.runner.categorize_batch", new=AsyncMock(return_value=[])):
+            result = await run_pipeline(scraper_result, uid, supabase)
         after = datetime.now(tz=UTC)
 
         assert isinstance(result, PipelineRunResult)
@@ -537,7 +538,8 @@ class TestRunner:
             insert_count=n_new,
         )
 
-        result = await run_pipeline(scraper_result, uid, supabase)
+        with patch("app.pipeline.runner.categorize_batch", new=AsyncMock(return_value=[])):
+            result = await run_pipeline(scraper_result, uid, supabase)
 
         assert result.transactions_new + result.transactions_skipped == n_total
         assert result.transactions_skipped == n_existing
@@ -556,7 +558,8 @@ class TestRunner:
             insert_count=0,
         )
 
-        result = await run_pipeline(scraper_result, uid, supabase)
+        with patch("app.pipeline.runner.categorize_batch", new=AsyncMock(return_value=[])):
+            result = await run_pipeline(scraper_result, uid, supabase)
 
         assert result.transactions_new == 0
         assert result.transactions_skipped == 4
@@ -570,6 +573,7 @@ class TestRunner:
             balance=Decimal("5000.00"),
             transactions_new=10,
             transactions_skipped=2,
+            transactions_categorized=8,
             ran_at=now,
         )
 
@@ -578,9 +582,11 @@ class TestRunner:
         assert hasattr(pipeline_result, "balance")
         assert hasattr(pipeline_result, "transactions_new")
         assert hasattr(pipeline_result, "transactions_skipped")
+        assert hasattr(pipeline_result, "transactions_categorized")
         assert hasattr(pipeline_result, "ran_at")
 
         assert isinstance(pipeline_result.account_id, UUID)
         assert isinstance(pipeline_result.transactions_new, int)
         assert isinstance(pipeline_result.transactions_skipped, int)
+        assert isinstance(pipeline_result.transactions_categorized, int)
         assert isinstance(pipeline_result.ran_at, datetime)

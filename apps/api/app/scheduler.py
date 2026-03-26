@@ -1,12 +1,30 @@
 """Daily auto-sync scheduler.
 
-Runs once per day at a random time between 08:00–09:00 Cairo time (EET, UTC+2),
-which corresponds to 06:00–07:00 UTC.  Syncs all users' active bank credentials
-sequentially to respect the single-Playwright-instance constraint on Render's
-free tier.
+Strategy
+--------
+Render's free tier suspends the process after ~15 minutes of inactivity.
+A fixed-time cron job (e.g. "fire at 06:07 UTC") is therefore unreliable —
+the instance is almost always asleep at that moment, and APScheduler only
+fires a misfired job while the *scheduler is running*, not when it first
+starts.
 
-Uses APScheduler AsyncIOScheduler so the job fires inside the existing FastAPI
-event loop without spawning additional threads or processes.
+Instead we use two complementary mechanisms:
+
+1. **Startup check** — on every cold start, check whether today's sync has
+   already run (by reading the most recent ``last_synced_at`` across all
+   credentials).  If not, schedule a one-shot job to fire after a short
+   randomised delay (10–60 s) so the startup HTTP response is not blocked.
+
+2. **Long-running fallback cron** — a daily cron job at 06:xx UTC covers
+   the edge case where the instance stays alive across midnight (e.g. if
+   the user keeps pinging it).  ``next_run_time=None`` disables the
+   catch-up-on-missed-fires behaviour; the startup check already handles
+   that.
+
+Sequencing
+----------
+Credentials are synced one at a time to respect the single-Playwright-
+instance constraint on Render's free tier (512 MB RAM).
 """
 
 from __future__ import annotations
@@ -14,12 +32,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from supabase import create_client
 
 from app.config import settings
@@ -133,29 +152,113 @@ async def _run_daily_sync() -> None:
     logger.info("Daily auto-sync: complete — %d succeeded, %d failed", synced, failed)
 
 
+async def _needs_sync_today() -> bool:
+    """Return True if no credential has been synced today (UTC date).
+
+    Reads the most recent ``last_synced_at`` across all active credentials.
+    Returns True when that value is either absent or from a previous day,
+    meaning today's sync window has not yet run.
+    """
+    today = date.today()
+
+    def _fetch() -> list[Any]:
+        client = create_client(
+            settings.supabase_url,
+            settings.supabase_service_role_key.get_secret_value(),
+        )
+        resp = (
+            client.table("bank_credentials")
+            .select("last_synced_at")
+            .eq("is_active", True)
+            .order("last_synced_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return resp.data or []
+
+    try:
+        rows = await asyncio.to_thread(_fetch)
+    except Exception:
+        logger.exception("Startup sync check: failed to query credentials")
+        return False
+
+    if not rows:
+        logger.info("Startup sync check: no active credentials found")
+        return False
+
+    last_synced_raw: str | None = rows[0].get("last_synced_at")
+    if not last_synced_raw:
+        logger.info("Startup sync check: credentials exist but never synced — will sync now")
+        return True
+
+    last_synced_date = datetime.fromisoformat(last_synced_raw.replace("Z", "+00:00")).date()
+    needs = last_synced_date < today
+    logger.info(
+        "Startup sync check: last_synced=%s today=%s needs_sync=%s",
+        last_synced_date,
+        today,
+        needs,
+    )
+    return needs
+
+
+async def _startup_sync_if_needed() -> None:
+    """Run today's sync if it hasn't happened yet.
+
+    Called via a one-shot DateTrigger a few seconds after startup so that
+    the HTTP server is fully ready before Playwright launches.
+    """
+    if await _needs_sync_today():
+        logger.info("Startup sync: today's sync has not run yet — starting now")
+        await _run_daily_sync()
+    else:
+        logger.info("Startup sync: already synced today — skipping")
+
+
 def create_scheduler() -> AsyncIOScheduler:
     """Create and configure the APScheduler instance.
 
-    Fires daily at a random minute within the 06:xx UTC window
-    (= 08:00–09:00 Cairo EET).  The minute is randomised once at startup so
-    that restarts don't always fire at :00.
-    """
-    random_minute = random.randint(0, 59)
-    logger.info(
-        "Daily auto-sync scheduled for 06:%02d UTC (08:%02d Cairo EET) every day",
-        random_minute,
-        random_minute,
-    )
+    Two jobs are registered:
 
+    * **startup_sync_check** — fires once, 15–45 s after startup.  Checks
+      whether today's sync has already run; runs it if not.  This is the
+      primary mechanism for Render free-tier instances that sleep between
+      requests.
+
+    * **daily_auto_sync** — a daily cron at 06:xx UTC as a belt-and-
+      suspenders fallback for long-running instances.  ``next_run_time=None``
+      prevents APScheduler from immediately firing a "missed" job on startup
+      (the startup check already handles that case).
+    """
     scheduler = AsyncIOScheduler(timezone="UTC")
+
+    # One-shot startup check — fires 15–45 s after the server is ready
+    startup_delay_s = random.randint(15, 45)
+    startup_run_at = datetime.now(UTC) + timedelta(seconds=startup_delay_s)
+    scheduler.add_job(
+        _startup_sync_if_needed,
+        trigger=DateTrigger(run_date=startup_run_at),
+        id="startup_sync_check",
+        name="Startup sync check",
+        replace_existing=True,
+    )
+    logger.info("Startup sync check scheduled to fire in ~%d s", startup_delay_s)
+
+    # Daily fallback cron — for long-running instances; next_run_time=None
+    # disables catch-up so it doesn't double-fire alongside the startup check.
+    random_minute = random.randint(0, 59)
     scheduler.add_job(
         _run_daily_sync,
         trigger=CronTrigger(hour=6, minute=random_minute, timezone="UTC"),
         id="daily_auto_sync",
-        name="Daily bank sync",
+        name="Daily bank sync (cron fallback)",
         replace_existing=True,
-        # Allow up to 1 hour late — handles Render free tier instance sleep
-        # during the scheduled window.
-        misfire_grace_time=3600,
+        next_run_time=None,  # don't fire immediately on startup
     )
+    logger.info(
+        "Daily cron fallback scheduled for 06:%02d UTC (08:%02d Cairo EET)",
+        random_minute,
+        random_minute,
+    )
+
     return scheduler

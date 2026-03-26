@@ -23,13 +23,17 @@ backward compatibility with the sync router.
 from __future__ import annotations
 
 import logging
+import uuid as _uuid_mod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
+import anthropic
 from supabase import AsyncClient
 
+from app.analytics.categorizer import categorize_batch
+from app.config import settings
 from app.models.db import Transaction
 from app.pipeline.deduplicator import filter_new_transactions
 from app.pipeline.normalizer import normalize_account, normalize_transaction
@@ -53,6 +57,7 @@ class PipelineRunResult:
         balance: Current balance of the primary account
         transactions_new: Total transactions inserted (all accounts)
         transactions_skipped: Total transactions deduplicated (all accounts)
+        transactions_categorized: Transactions assigned a category this run
         ran_at: Timestamp when the pipeline completed
     """
 
@@ -61,6 +66,7 @@ class PipelineRunResult:
     balance: Decimal
     transactions_new: int
     transactions_skipped: int
+    transactions_categorized: int
     ran_at: datetime
 
 
@@ -107,9 +113,16 @@ async def run_pipeline(
 
     total_inserted = 0
     total_skipped = 0
+    total_categorized = 0
     primary_account_id: UUID = UUID(int=0)
     primary_masked: str = ""
     primary_balance: Decimal = Decimal("0.00")
+
+    # Build a single Anthropic client for the whole pipeline run (avoids
+    # repeated httpx client construction).  Categorization degrades
+    # gracefully when the API key is absent.
+    _api_key = settings.claude_api_key.get_secret_value()
+    _anthropic_client = anthropic.AsyncAnthropic(api_key=_api_key or "no-key")
 
     for acct_idx, raw_account in enumerate(result.accounts):
         # ------------------------------------------------------------------
@@ -194,12 +207,27 @@ async def run_pipeline(
             inserted = await insert_transactions(new_transactions, supabase_client)
             total_inserted += inserted
 
+            # ------------------------------------------------------------------
+            # Stage 7: Categorize newly inserted transactions
+            # ------------------------------------------------------------------
+            categorized = await _categorize_and_update(
+                new_transactions, _anthropic_client, supabase_client
+            )
+            total_categorized += categorized
+            logger.info(
+                "Categorized %d/%d new transactions for account %s",
+                categorized,
+                inserted,
+                account_masked,
+            )
+
     now = datetime.now(UTC)
     logger.info(
-        "Pipeline complete: primary_account_id=%s txn_new=%d txn_skipped=%d",
+        "Pipeline complete: primary_account_id=%s txn_new=%d txn_skipped=%d txn_categorized=%d",
         primary_account_id,
         total_inserted,
         total_skipped,
+        total_categorized,
     )
 
     return PipelineRunResult(
@@ -208,8 +236,55 @@ async def run_pipeline(
         balance=primary_balance,
         transactions_new=total_inserted,
         transactions_skipped=total_skipped,
+        transactions_categorized=total_categorized,
         ran_at=now,
     )
+
+
+async def _categorize_and_update(
+    transactions: list[Transaction],
+    anthropic_client: anthropic.AsyncAnthropic,
+    supabase_client: AsyncClient,
+) -> int:
+    """Categorize a batch of transactions and persist the results.
+
+    Returns the number of transactions successfully categorized and updated.
+    Failures are logged but do not abort the pipeline.
+    """
+    if not transactions:
+        return 0
+
+    try:
+        results = await categorize_batch(transactions, anthropic_client)
+    except Exception:
+        logger.exception("Categorization batch failed — skipping category updates")
+        return 0
+
+    # Build bulk update payloads — one per transaction
+    categorized_count = 0
+    for txn, cat_result in zip(transactions, results, strict=False):
+        if cat_result.category == "Other" and cat_result.confidence < 0.5:
+            # Low-confidence "Other" — leave uncategorized so the user can
+            # review; don't mark is_categorized=True to signal it's pending.
+            continue
+        deterministic_id = str(
+            _uuid_mod.uuid5(_uuid_mod.NAMESPACE_OID, f"{txn.account_id}:{txn.external_id}")
+        )
+        try:
+            await supabase_client.table("transactions").update(
+                {
+                    "category": cat_result.category,
+                    "sub_category": cat_result.sub_category,
+                    "is_categorized": True,
+                }
+            ).eq("id", deterministic_id).execute()
+            categorized_count += 1
+        except Exception:
+            logger.exception(
+                "Failed to update category for transaction %s", deterministic_id
+            )
+
+    return categorized_count
 
 
 def _rebuild_transaction_with_real_id(txn: Transaction, real_account_id: UUID) -> Transaction:
