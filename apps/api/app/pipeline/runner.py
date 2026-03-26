@@ -271,18 +271,21 @@ async def _categorize_and_update(
             _uuid_mod.uuid5(_uuid_mod.NAMESPACE_OID, f"{txn.account_id}:{txn.external_id}")
         )
         try:
-            await supabase_client.table("transactions").update(
-                {
-                    "category": cat_result.category,
-                    "sub_category": cat_result.sub_category,
-                    "is_categorized": True,
-                }
-            ).eq("id", deterministic_id).execute()
+            await (
+                supabase_client.table("transactions")
+                .update(
+                    {
+                        "category": cat_result.category,
+                        "sub_category": cat_result.sub_category,
+                        "is_categorized": True,
+                    }
+                )
+                .eq("id", deterministic_id)
+                .execute()
+            )
             categorized_count += 1
         except Exception:
-            logger.exception(
-                "Failed to update category for transaction %s", deterministic_id
-            )
+            logger.exception("Failed to update category for transaction %s", deterministic_id)
 
     return categorized_count
 
