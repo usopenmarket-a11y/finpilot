@@ -156,9 +156,12 @@ _SEL_USERNAME_BTN = "#username-button"
 # The submit button: class="btn-login-2" (60%-width green button for step 2).
 # NOTE: class "btn-login" belongs to #username-button (step 1 — full width).
 # Using "button.btn-login" would match the WRONG button.
-_SEL_PASSWORD = "#login_password"
-_SEL_PASSWORD_BTN = "button.btn-login-2"
-# Fallback chain tried in order if btn-login-2 is not found:
+# Portal updated 2026-04-01: password field id changed from "login_password"
+# to "login_password1"; submit button gained id="login-button".
+# Selector matches both old and new ids to handle any future renames gracefully.
+_SEL_PASSWORD = "#login_password1, #login_password"
+_SEL_PASSWORD_BTN = "#login-button, button.btn-login-2"
+# Fallback chain tried in order if primary selectors are not found:
 _SEL_PASSWORD_BTN_FALLBACKS = [
     ".loginContainer button.action-button-primary",
     "button:not(#username-button).btn-login",
@@ -1474,7 +1477,8 @@ class NBEScraper(BankScraper):
             await self._random_delay(1.2, 2.0)
 
             # Step 2 — wait for password field to render inside loginContainer popup.
-            # The field uses id="login_password" with CSS text-security masking.
+            # Portal 2026-04-01: field id changed to "login_password1"; selector
+            # matches both ids for forward/backward compatibility.
             logger.info("NBE: waiting for password field %r to appear", _SEL_PASSWORD)
             try:
                 await page.wait_for_selector(_SEL_PASSWORD, timeout=_WAIT_TIMEOUT_MS)
