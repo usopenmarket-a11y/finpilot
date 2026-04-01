@@ -163,12 +163,12 @@ _SEL_USERNAME_BTN = "#username-button"
 # ID-based selectors are kept as the FIRST option so they still work when
 # present; structural selectors act as stable fallbacks.
 _SEL_PASSWORD = (
-    "input[id^='login_password'], "   # id prefix match — survives id rotations
-    "input.cz-text-box"               # class-based fallback
+    "input[id^='login_password'], "  # id prefix match — survives id rotations
+    "input.cz-text-box"  # class-based fallback
 )
 _SEL_PASSWORD_BTN = (
-    "#login-button, "                 # explicit id (seen 2026-04-01)
-    "button.btn-login-2"              # class-based (step-2 submit, stable)
+    "#login-button, "  # explicit id (seen 2026-04-01)
+    "button.btn-login-2"  # class-based (step-2 submit, stable)
 )
 # Deeper fallback chain tried in order if primary selectors are not found:
 _SEL_PASSWORD_BTN_FALLBACKS = [
