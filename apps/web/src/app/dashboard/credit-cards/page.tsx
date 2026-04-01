@@ -27,9 +27,11 @@ function monthLabel(date: Date): string {
 }
 
 function buildLast6MonthsData(
-  transactions: TransactionRow[],
-  accountId: string,
+  statementTx: TransactionRow[],
 ): MonthlySpend[] {
+  // Only use statement transactions (nbe_cc_statement source) — these are the
+  // monthly statement items that NBE has actually billed. Unbilled/unsettled are
+  // current-cycle and shown separately.
   const now = new Date();
   const months: MonthlySpend[] = [];
 
@@ -39,10 +41,9 @@ function buildLast6MonthsData(
     const start = d.toISOString().slice(0, 10);
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 
-    const total = transactions
+    const total = statementTx
       .filter(
         (tx) =>
-          tx.account_id === accountId &&
           tx.transaction_type === 'debit' &&
           tx.transaction_date >= start &&
           tx.transaction_date <= end,
@@ -73,16 +74,18 @@ function buildPerCardData(
 ): CreditCardData {
   const cardTx = allTransactions.filter((tx) => tx.account_id === account.id);
 
-  // Use source tags written by the scraper — NBE already decides which transactions
-  // are unbilled vs unsettled; we must not second-guess that with date arithmetic.
-  // raw_data.source: 'nbe_cc_unbilled' | 'nbe_cc_unsettled' | 'nbe_cc_statement'
-  const unbilledTx = cardTx
-    .filter((tx) => (tx.raw_data as Record<string, unknown> | null)?.source === 'nbe_cc_unbilled')
-    .map(toCardTx);
+  const source = (tx: TransactionRow) =>
+    (tx.raw_data as Record<string, unknown> | null)?.source as string | undefined;
 
-  const unsettledTx = cardTx
-    .filter((tx) => (tx.raw_data as Record<string, unknown> | null)?.source === 'nbe_cc_unsettled')
-    .map(toCardTx);
+  // Use source tags written by the scraper — NBE already decides which transactions
+  // are unbilled vs unsettled vs statement; we must not second-guess with date math.
+  const unbilledTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_unbilled').map(toCardTx);
+  const unsettledTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_unsettled').map(toCardTx);
+
+  // Statement transactions: payments made against the last bill live here as credits.
+  // We pass them to the repayment tracker so it can compute how much has been paid
+  // off since the statement was issued.
+  const statementTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_statement');
 
   return {
     id: account.id,
@@ -98,7 +101,8 @@ function buildPerCardData(
     payment_due_date: account.payment_due_date ?? null,
     unbilledTx,
     unsettledTx,
-    last6MonthsData: buildLast6MonthsData(allTransactions, account.id),
+    statementTx: statementTx.map(toCardTx),
+    last6MonthsData: buildLast6MonthsData(statementTx),
   };
 }
 

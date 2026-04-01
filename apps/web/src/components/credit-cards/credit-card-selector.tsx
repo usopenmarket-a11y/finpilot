@@ -25,6 +25,7 @@ export interface CreditCardData {
   // Transactions for this card
   unbilledTx: CreditCardTransaction[];
   unsettledTx: CreditCardTransaction[];
+  statementTx: CreditCardTransaction[];
   last6MonthsData: MonthlySpend[];
 }
 
@@ -133,6 +134,7 @@ export function CreditCardSelector({ cards }: CreditCardSelectorProps) {
                 last6MonthsData={card.last6MonthsData}
                 unbilledTx={card.unbilledTx}
                 unsettledTx={card.unsettledTx}
+                statementTx={card.statementTx}
                 billedAmount={card.billed_amount}
                 creditLimit={card.credit_limit}
                 minimumPayment={card.minimum_payment}

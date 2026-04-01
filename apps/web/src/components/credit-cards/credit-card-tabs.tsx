@@ -28,6 +28,7 @@ interface CreditCardTabsProps {
   last6MonthsData: MonthlySpend[];
   unbilledTx: CreditCardTransaction[];
   unsettledTx: CreditCardTransaction[];
+  statementTx: CreditCardTransaction[];
   billedAmount?: number | null;
   creditLimit?: number | null;
   minimumPayment?: number | null;
@@ -177,6 +178,7 @@ function FawryBreakdown({ transactions }: { transactions: CreditCardTransaction[
 // ---------------------------------------------------------------------------
 
 interface RepaymentTrackerPanelProps {
+  statementTx: CreditCardTransaction[];
   unbilledTx: CreditCardTransaction[];
   billedAmount?: number | null;
   minimumPayment?: number | null;
@@ -184,6 +186,7 @@ interface RepaymentTrackerPanelProps {
 }
 
 function RepaymentTrackerPanel({
+  statementTx,
   unbilledTx,
   billedAmount,
   minimumPayment,
@@ -191,9 +194,19 @@ function RepaymentTrackerPanel({
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
-  // Total credits = sum of all credit transactions in unbilled
-  const totalPaid = unbilledTx
-    .filter((tx) => tx.transaction_type === 'credit')
+  // Payments against the current statement appear as credit transactions in
+  // the statement source (nbe_cc_statement). Filter to only those posted after
+  // the statement date — i.e., after the most recent debit transaction date.
+  const latestDebitDate = statementTx
+    .filter((tx) => tx.transaction_type === 'debit')
+    .reduce((max, tx) => (tx.transaction_date > max ? tx.transaction_date : max), '');
+
+  const totalPaid = statementTx
+    .filter(
+      (tx) =>
+        tx.transaction_type === 'credit' &&
+        (latestDebitDate === '' || tx.transaction_date >= latestDebitDate),
+    )
     .reduce((s, tx) => s + tx.amount, 0);
 
   // Remaining = closing balance - total paid
@@ -477,6 +490,7 @@ export function CreditCardTabs({
   last6MonthsData,
   unbilledTx,
   unsettledTx,
+  statementTx,
   billedAmount,
   creditLimit,
   minimumPayment,
@@ -539,6 +553,7 @@ export function CreditCardTabs({
         {/* Repayment Tracker */}
         {activeTab === 'repayment' && (
           <RepaymentTrackerPanel
+            statementTx={statementTx}
             unbilledTx={unbilledTx}
             billedAmount={billedAmount}
             minimumPayment={minimumPayment}
