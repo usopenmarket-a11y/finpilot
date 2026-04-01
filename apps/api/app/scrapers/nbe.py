@@ -2681,12 +2681,16 @@ class NBEScraper(BankScraper):
         description = (
             str(stmt.get("responsedesc") or stmt.get("description") or "").strip() or "N/A"
         )
-        crdrflag_raw = str(stmt.get("crdrflag", "D")).upper()
-        # UNS API uses numeric response codes ('000' = approved debit) rather than D/C
-        crdrflag = crdrflag_raw if crdrflag_raw in ("D", "C") else "D"
-        # Statement API uses "originalamt"/"originalcurrency";
-        # Unbilled (UBT) / Unsettled (UNS) APIs use "txnamt"/"txnccy" (EGP) and "amt"/"currency" (original).
+        crdrflag_raw = str(stmt.get("crdrflag", "")).upper()
+        # Statement and UBT APIs use "D"/"C"; UNS API uses numeric response codes
+        # (e.g. "000" = approved).  When the flag is not D/C, infer direction from
+        # the sign of the raw amount (negative → credit/refund, else debit).
         amount_str = str(stmt.get("txnamt") or stmt.get("originalamt") or stmt.get("amt") or "0")
+        if crdrflag_raw in ("D", "C"):
+            crdrflag = crdrflag_raw
+        else:
+            # Infer from amount sign: NBE sends negative amounts for credits in some APIs
+            crdrflag = "C" if amount_str.strip().startswith("-") else "D"
         currency_raw = str(
             stmt.get("txnccy") or stmt.get("originalcurrency") or stmt.get("currency") or "EGP"
         )
@@ -2695,14 +2699,16 @@ class NBEScraper(BankScraper):
         postdate_str = str(stmt.get("postdate") or "")
         authcode = str(stmt.get("authcode", "") or stmt.get("referenceno", ""))
 
-        # Parse amount
+        # Parse amount — NBE always sends positive amounts; direction is in crdrflag.
+        # Use abs() so any sign in the raw value doesn't cause us to drop real transactions.
+        # Only skip truly unparseable or zero entries (API noise/header rows).
         try:
-            amount = Decimal(amount_str.replace(",", ""))
+            amount = abs(Decimal(amount_str.replace(",", "")))
         except InvalidOperation:
             logger.debug("NBE: CC stmt — invalid amount %r — skipping", amount_str)
             return None
 
-        if amount <= 0:
+        if amount == 0:
             return None
 
         # Parse dates — format from API: "2025-06-28T00:00:00"
