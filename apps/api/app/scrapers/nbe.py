@@ -119,9 +119,9 @@ _PAGE_LOAD_TIMEOUT_MS = 150_000
 
 # Default Playwright wait timeout in milliseconds.
 # Set high to handle Oregon→Egypt latency (~120-150ms RTT) for AJAX calls.
-# Increased to 120s (was 90s) — OAAM auth flow from Render Oregon→Egypt can
-# exceed 90s under load.
-_WAIT_TIMEOUT_MS = 120_000
+# Increased to 180s (was 120s) — OAAM auth flow from Render Oregon→Egypt can
+# exceed 120s under load.
+_WAIT_TIMEOUT_MS = 180_000
 
 # Shorter timeout for optional / conditional element checks.
 _SHORT_TIMEOUT_MS = 20_000
@@ -1574,15 +1574,19 @@ class NBEScraper(BankScraper):
             pass  # Don't block login flow on check failure
 
         # Wait for the loggedInUser nav badge which confirms an authenticated session.
-        # li.loggedInUser is more reliable than looking for Logout link text because
-        # the logout anchor on alahlynet.com.eg may be icon-only (no visible text).
-        logger.info("NBE: waiting for dashboard (loggedInUser selector)")
+        # Also accept any dashboard widget (accounts/CC/certificates) as login proof —
+        # these appear before li.loggedInUser on slow connections from Render Oregon.
+        _SEL_DASHBOARD_READY = (
+            f"{_SEL_LOGGED_IN}, {_SEL_ACCOUNTS_WIDGET}, "
+            f"{_SEL_CREDIT_CARDS_WIDGET}, {_SEL_CERTIFICATES_WIDGET}"
+        )
+        logger.info("NBE: waiting for dashboard (loggedInUser or any widget selector)")
         _logged_in_found = False
         try:
-            await page.wait_for_selector(_SEL_LOGGED_IN, timeout=_WAIT_TIMEOUT_MS)
+            await page.wait_for_selector(_SEL_DASHBOARD_READY, timeout=_WAIT_TIMEOUT_MS)
             _logged_in_found = True
         except PlaywrightTimeoutError:
-            # li.loggedInUser not found — try the logout link fallback before giving up
+            # No dashboard signal — try the logout link fallback before giving up
             logout_found = False
             try:
                 await page.wait_for_selector(_SEL_LOGOUT, timeout=_SHORT_TIMEOUT_MS)
@@ -1601,6 +1605,7 @@ class NBEScraper(BankScraper):
             # the login succeeded even though the nav selectors are still rendering.
             try:
                 current_url = page.url
+                logger.info("NBE: URL at dashboard timeout: %r", current_url)
                 if isinstance(current_url, str) and (
                     "page=home" not in current_url or "?page=" not in current_url
                 ):
