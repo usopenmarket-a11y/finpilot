@@ -150,20 +150,30 @@ _SEL_USERNAME_BTN = "#username-button"
 # sets userNameSubmitted(true) which injects a .loginContainer modal popup
 # containing the password form.
 #
-# The password input: id="login_password", technically type=text with CSS
-# text-security:disc masking (not type=password).
+# NBE/Oracle OBDX rotates element IDs as an anti-automation security measure
+# (observed: id changed from "login_password" → "login_password1" on 2026-04-01,
+# submit button gained id="login-button").  We therefore rely on STRUCTURAL /
+# CLASS selectors that are stable across ID rotations:
 #
-# The submit button: class="btn-login-2" (60%-width green button for step 2).
-# NOTE: class "btn-login" belongs to #username-button (step 1 — full width).
-# Using "button.btn-login" would match the WRONG button.
-# Portal updated 2026-04-01: password field id changed from "login_password"
-# to "login_password1"; submit button gained id="login-button".
-# Selector matches both old and new ids to handle any future renames gracefully.
-_SEL_PASSWORD = "#login_password1, #login_password"
-_SEL_PASSWORD_BTN = "#login-button, button.btn-login-2"
-# Fallback chain tried in order if primary selectors are not found:
+# Password input: class="cz-text-box" — the only cz-text-box inside the step-2
+#   form.  Also tried: input[id^="login_password"] as a broader id-prefix match.
+# Submit button: class="btn-login-2" — the step-2 green button (narrower than
+#   "btn-login" which belongs to the step-1 username button).
+#
+# ID-based selectors are kept as the FIRST option so they still work when
+# present; structural selectors act as stable fallbacks.
+_SEL_PASSWORD = (
+    "input[id^='login_password'], "   # id prefix match — survives id rotations
+    "input.cz-text-box"               # class-based fallback
+)
+_SEL_PASSWORD_BTN = (
+    "#login-button, "                 # explicit id (seen 2026-04-01)
+    "button.btn-login-2"              # class-based (step-2 submit, stable)
+)
+# Deeper fallback chain tried in order if primary selectors are not found:
 _SEL_PASSWORD_BTN_FALLBACKS = [
     ".loginContainer button.action-button-primary",
+    "button:not(#username-button).action-button-primary",
     "button:not(#username-button).btn-login",
 ]
 
