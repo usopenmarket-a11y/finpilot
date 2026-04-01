@@ -630,6 +630,27 @@ class NBEScraper(BankScraper):
                 logger.warning("NBE: CC transaction scraping failed (non-fatal): %s", cc_txn_exc)
                 cc_txns = []
 
+            # Compute unbilled_amount from actual UBT debit transactions.
+            # The API field totalunbilledamount is often "0" even when transactions exist.
+            # At this point all cc_txns have account_id=_ZERO_UUID (not yet assigned by pipeline),
+            # so we sum across all UBT transactions and apply to each CC account.
+            # NBE currently only returns one CC account, so this is correct in practice.
+            ubt_total = sum(
+                t.amount
+                for t in cc_txns
+                if isinstance(t.raw_data, dict)
+                and t.raw_data.get("source") == "nbe_cc_unbilled"
+                and t.transaction_type == "debit"
+            )
+            for cc_acc in cc_accounts:
+                if ubt_total > 0:
+                    cc_acc.unbilled_amount = ubt_total
+                    logger.info(
+                        "NBE: CC account %s — unbilled_amount computed from UBT = %s",
+                        cc_acc.account_number_masked,
+                        ubt_total,
+                    )
+
             # ------------------------------------------------------------------
             # Reveal the accounts card to enumerate demand-deposit accounts.
             # Navigate to a fresh dashboard first — the CC statement page may
@@ -1043,6 +1064,24 @@ class NBEScraper(BankScraper):
                 logger.warning(
                     "NBE: scrape_credit_cards — CC transaction scraping failed: %s", cc_txn_exc
                 )
+
+            # Compute unbilled_amount from actual UBT debit transactions
+            # (API totalunbilledamount is often "0" even when transactions exist).
+            ubt_total = sum(
+                t.amount
+                for t in cc_txns
+                if isinstance(t.raw_data, dict)
+                and t.raw_data.get("source") == "nbe_cc_unbilled"
+                and t.transaction_type == "debit"
+            )
+            for cc_acc in cc_accounts:
+                if ubt_total > 0:
+                    cc_acc.unbilled_amount = ubt_total
+                    logger.info(
+                        "NBE: scrape_credit_cards — CC account %s unbilled_amount = %s (from UBT)",
+                        cc_acc.account_number_masked,
+                        ubt_total,
+                    )
 
             logger.info(
                 "NBE: scrape_credit_cards complete — %d account(s), %d transaction(s)",
@@ -1893,6 +1932,9 @@ class NBEScraper(BankScraper):
         # Intercept the creditcarddetails API call to get authoritative billed amounts
         # Maps maskedcardno → {totalbilledamount, totalunbilledamount, creditlimit,
         #                       minamountdue, paymentduedate, currency}
+        # NOTE: totalunbilledamount from the API is often "0" even when there are
+        # unbilled transactions — it is NOT reliable. We compute it from the UBT
+        # tab transactions instead (done in _scrape_cc_transactions after scraping).
         cc_api_data: dict[str, dict] = {}
 
         async def _capture_cc_details(resp: object) -> None:
@@ -1904,14 +1946,21 @@ class NBEScraper(BankScraper):
                     for card in data.get("creditcards2", []):
                         masked = str(card.get("maskedcardno", ""))
                         if masked:
+                            # paymentDueDetFinal carries the real due date and stmt amount
+                            # when top-level paymentduedate/minamountdue are null.
+                            due_det = card.get("paymentDueDetFinal") or {}
+                            payment_date = card.get("paymentduedate") or due_det.get(
+                                "paymentdate", ""
+                            )
+                            min_amt = card.get("minamountdue") or due_det.get("minamt", "0")
                             cc_api_data[masked] = {
                                 "totalbilledamount": card.get("totalbilledamount", "0"),
                                 "totalunbilledamount": card.get("totalunbilledamount", "0"),
                                 "creditlimit": card.get("creditlimit", "0"),
                                 "currency": card.get("cardcurrency", "EGP"),
                                 "accountreferenceno": card.get("accountreferenceno", ""),
-                                "minamountdue": card.get("minamountdue", "0"),
-                                "paymentduedate": card.get("paymentduedate", ""),
+                                "minamountdue": min_amt,
+                                "paymentduedate": payment_date,
                             }
                             logger.info(
                                 "NBE: CC details API → masked=%s billed=%s unbilled=%s "

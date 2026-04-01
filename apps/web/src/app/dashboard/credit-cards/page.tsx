@@ -73,30 +73,15 @@ function buildPerCardData(
 ): CreditCardData {
   const cardTx = allTransactions.filter((tx) => tx.account_id === account.id);
 
-  // Unbilled: current billing cycle (payment_due_date - 27 days)
-  const cycleStartDate = (() => {
-    const dueDate = account.payment_due_date;
-    if (dueDate) {
-      const d = new Date(dueDate);
-      d.setDate(d.getDate() - 27);
-      return d.toISOString().slice(0, 10);
-    }
-    const fallback = new Date();
-    fallback.setDate(fallback.getDate() - 30);
-    return fallback.toISOString().slice(0, 10);
-  })();
-
+  // Use source tags written by the scraper — NBE already decides which transactions
+  // are unbilled vs unsettled; we must not second-guess that with date arithmetic.
+  // raw_data.source: 'nbe_cc_unbilled' | 'nbe_cc_unsettled' | 'nbe_cc_statement'
   const unbilledTx = cardTx
-    .filter((tx) => tx.transaction_date > cycleStartDate)
+    .filter((tx) => (tx.raw_data as Record<string, unknown> | null)?.source === 'nbe_cc_unbilled')
     .map(toCardTx);
 
   const unsettledTx = cardTx
-    .filter(
-      (tx) =>
-        tx.transaction_type === 'unsettled' ||
-        tx.description.toLowerCase().includes('pending') ||
-        tx.description.toLowerCase().includes('unsettled'),
-    )
+    .filter((tx) => (tx.raw_data as Record<string, unknown> | null)?.source === 'nbe_cc_unsettled')
     .map(toCardTx);
 
   return {
