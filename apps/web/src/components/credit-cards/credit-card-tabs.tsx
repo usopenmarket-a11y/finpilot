@@ -28,6 +28,7 @@ interface CreditCardTabsProps {
   last6MonthsData: MonthlySpend[];
   unbilledTx: CreditCardTransaction[];
   unsettledTx: CreditCardTransaction[];
+  allCardTx: CreditCardTransaction[];     // BDC: all transactions; NBE: empty
   statementTx: CreditCardTransaction[];
   billedAmount?: number | null;
   creditLimit?: number | null;
@@ -45,15 +46,40 @@ interface CreditCardTabsProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type TabKey = 'details' | 'repayment' | 'unbilled' | 'unsettled' | 'last6';
+const BDC_BANK_NAMES = new Set(['BDC', 'BDC_RETAIL', 'Banque Du Caire (ibanking)', 'Banque Du Caire (Retail)']);
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'details', label: 'Card Details' },
-  { key: 'repayment', label: 'Repayment Tracker' },
-  { key: 'unbilled', label: 'Unbilled Transactions' },
-  { key: 'unsettled', label: 'Unsettled' },
-  { key: 'last6', label: 'Monthly Spend' },
-];
+function isBDCCard(bankName: string): boolean {
+  return BDC_BANK_NAMES.has(bankName);
+}
+
+// Fawry description prefix per bank
+function fawryPrefix(bankName: string): string {
+  return isBDCCard(bankName) ? 'MY FAWRY' : 'MY FAWRY CAIRO EGY';
+}
+
+function isFawry(tx: CreditCardTransaction, bankName: string): boolean {
+  const prefix = fawryPrefix(bankName);
+  return tx.description.toUpperCase().startsWith(prefix);
+}
+
+type TabKey = 'details' | 'repayment' | 'unbilled' | 'unsettled' | 'transactions' | 'last6';
+
+function buildTabs(bankName: string): { key: TabKey; label: string }[] {
+  if (isBDCCard(bankName)) {
+    return [
+      { key: 'details', label: 'Card Details' },
+      { key: 'transactions', label: 'Transactions' },
+      { key: 'last6', label: 'Monthly Spend' },
+    ];
+  }
+  return [
+    { key: 'details', label: 'Card Details' },
+    { key: 'repayment', label: 'Repayment Tracker' },
+    { key: 'unbilled', label: 'Unbilled Transactions' },
+    { key: 'unsettled', label: 'Unsettled' },
+    { key: 'last6', label: 'Monthly Spend' },
+  ];
+}
 
 function formatEGP(amount: number): string {
   return new Intl.NumberFormat('en-EG', {
@@ -119,10 +145,8 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
 // Fawry breakdown — shown in Unbilled tab
 // ---------------------------------------------------------------------------
 
-function FawryBreakdown({ transactions }: { transactions: CreditCardTransaction[] }) {
-  const fawryTx = transactions.filter((tx) =>
-    tx.description.toUpperCase().includes('FAWRY'),
-  );
+function FawryBreakdown({ transactions, bankName }: { transactions: CreditCardTransaction[]; bankName: string }) {
+  const fawryTx = transactions.filter((tx) => isFawry(tx, bankName));
 
   if (fawryTx.length === 0) return null;
 
@@ -183,6 +207,7 @@ interface RepaymentTrackerPanelProps {
   billedAmount?: number | null;
   minimumPayment?: number | null;
   paymentDueDate?: string | null;
+  bankName: string;
 }
 
 function RepaymentTrackerPanel({
@@ -191,6 +216,7 @@ function RepaymentTrackerPanel({
   billedAmount,
   minimumPayment,
   paymentDueDate,
+  bankName,
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
@@ -204,10 +230,8 @@ function RepaymentTrackerPanel({
   const remaining = closingBalance - totalPaid;
   const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
 
-  // MY FAWRY totals from unbilled transactions
-  const fawryTx = unbilledTx.filter((tx) =>
-    tx.description.toUpperCase().includes('MY FAWRY'),
-  );
+  // Fawry totals from unbilled transactions (bank-specific description prefix)
+  const fawryTx = unbilledTx.filter((tx) => isFawry(tx, bankName));
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
   const fawryInterest = totalFawry * 0.008;
 
@@ -276,7 +300,7 @@ function RepaymentTrackerPanel({
       {totalFawry > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <KpiCard
-            label="MY FAWRY Charges (total)"
+            label="Fawry Charges (total)"
             value={`EGP ${formatEGP(totalFawry)}`}
             valueColor="text-blue-600 dark:text-blue-400"
           />
@@ -481,6 +505,7 @@ export function CreditCardTabs({
   last6MonthsData,
   unbilledTx,
   unsettledTx,
+  allCardTx,
   statementTx,
   billedAmount,
   creditLimit,
@@ -492,7 +517,8 @@ export function CreditCardTabs({
   cardBalance,
   unbilledAmount,
 }: CreditCardTabsProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>('details');
+  const tabs = buildTabs(cardBankName);
+  const [activeTab, setActiveTab] = useState<TabKey>(tabs[0]!.key);
 
   const totalUnbilled = unbilledTx
     .filter((tx) => tx.transaction_type === 'debit')
@@ -502,12 +528,16 @@ export function CreditCardTabs({
     .filter((tx) => tx.transaction_type === 'debit')
     .reduce((s, tx) => s + tx.amount, 0);
 
+  const totalAllCard = allCardTx
+    .filter((tx) => tx.transaction_type === 'debit')
+    .reduce((s, tx) => s + tx.amount, 0);
+
   return (
     <Card>
       {/* Tab bar */}
       <div className="border-b border-gray-200 dark:border-gray-800">
         <div className="flex overflow-x-auto">
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
@@ -541,7 +571,7 @@ export function CreditCardTabs({
           />
         )}
 
-        {/* Repayment Tracker */}
+        {/* Repayment Tracker — NBE only */}
         {activeTab === 'repayment' && (
           <RepaymentTrackerPanel
             statementTx={statementTx}
@@ -549,10 +579,11 @@ export function CreditCardTabs({
             billedAmount={billedAmount}
             minimumPayment={minimumPayment}
             paymentDueDate={paymentDueDate}
+            bankName={cardBankName}
           />
         )}
 
-        {/* Unbilled Transactions — current month spending + Fawry breakdown */}
+        {/* Unbilled Transactions — NBE only */}
         {activeTab === 'unbilled' && (
           <div>
             <div className="mb-4 flex items-center justify-between">
@@ -564,11 +595,11 @@ export function CreditCardTabs({
               </p>
             </div>
             <TransactionList transactions={unbilledTx} />
-            <FawryBreakdown transactions={unbilledTx} />
+            <FawryBreakdown transactions={unbilledTx} bankName={cardBankName} />
           </div>
         )}
 
-        {/* Unsettled */}
+        {/* Unsettled — NBE only */}
         {activeTab === 'unsettled' && (
           <div>
             <div className="mb-4 flex items-center justify-between">
@@ -580,6 +611,22 @@ export function CreditCardTabs({
               </p>
             </div>
             <TransactionList transactions={unsettledTx} />
+          </div>
+        )}
+
+        {/* Transactions — BDC only (all card transactions) */}
+        {activeTab === 'transactions' && (
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {allCardTx.length} transaction{allCardTx.length !== 1 ? 's' : ''}
+              </p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                Total spend: EGP {formatEGP(totalAllCard)}
+              </p>
+            </div>
+            <TransactionList transactions={allCardTx} />
+            <FawryBreakdown transactions={allCardTx} bankName={cardBankName} />
           </div>
         )}
 

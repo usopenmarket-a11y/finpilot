@@ -68,6 +68,19 @@ function toCardTx(row: TransactionRow): CreditCardTransaction {
   };
 }
 
+// Banks that tag transactions with unbilled/unsettled source fields via scraper.
+// BDC doesn't distinguish — show all transactions in a single list.
+const NBE_BANK_CODES = new Set(['NBE', 'National Bank of Egypt']);
+const BDC_BANK_CODES = new Set(['BDC', 'BDC_RETAIL', 'Banque Du Caire (ibanking)', 'Banque Du Caire (Retail)']);
+
+function isBDC(bankName: string): boolean {
+  return BDC_BANK_CODES.has(bankName);
+}
+
+function isNBE(bankName: string): boolean {
+  return NBE_BANK_CODES.has(bankName);
+}
+
 function buildPerCardData(
   account: BankAccountRow,
   allTransactions: TransactionRow[],
@@ -77,14 +90,24 @@ function buildPerCardData(
   const source = (tx: TransactionRow) =>
     (tx.raw_data as Record<string, unknown> | null)?.source as string | undefined;
 
-  // Use source tags written by the scraper — NBE already decides which transactions
-  // are unbilled vs unsettled vs statement; we must not second-guess with date math.
-  const unbilledTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_unbilled').map(toCardTx);
-  const unsettledTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_unsettled').map(toCardTx);
+  let unbilledTx: CreditCardTransaction[];
+  let unsettledTx: CreditCardTransaction[];
+  let allCardTx: CreditCardTransaction[];
 
-  // Statement transactions: payments made against the last bill live here as credits.
-  // We pass them to the repayment tracker so it can compute how much has been paid
-  // off since the statement was issued.
+  if (isBDC(account.bank_name)) {
+    // BDC doesn't mark transactions as unbilled/unsettled — show everything.
+    unbilledTx = [];
+    unsettledTx = [];
+    allCardTx = [...cardTx].sort((a, b) => b.transaction_date.localeCompare(a.transaction_date)).map(toCardTx);
+  } else {
+    // NBE (and any future bank) uses source tags set by the scraper.
+    unbilledTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_unbilled').map(toCardTx);
+    unsettledTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_unsettled').map(toCardTx);
+    allCardTx = [];
+  }
+
+  // Statement transactions used for monthly spend chart (NBE only, currently empty since
+  // monthly statement loop was removed — kept for future use).
   const statementTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_statement');
 
   return {
@@ -101,6 +124,7 @@ function buildPerCardData(
     payment_due_date: account.payment_due_date ?? null,
     unbilledTx,
     unsettledTx,
+    allCardTx,
     statementTx: statementTx.map(toCardTx),
     last6MonthsData: buildLast6MonthsData(statementTx),
   };
