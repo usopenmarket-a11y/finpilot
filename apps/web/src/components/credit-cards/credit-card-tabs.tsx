@@ -194,19 +194,10 @@ function RepaymentTrackerPanel({
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
-  // Payments against the current statement appear as credit transactions in
-  // the statement source (nbe_cc_statement). Filter to only those posted after
-  // the statement date — i.e., after the most recent debit transaction date.
-  const latestDebitDate = statementTx
-    .filter((tx) => tx.transaction_type === 'debit')
-    .reduce((max, tx) => (tx.transaction_date > max ? tx.transaction_date : max), '');
-
-  const totalPaid = statementTx
-    .filter(
-      (tx) =>
-        tx.transaction_type === 'credit' &&
-        (latestDebitDate === '' || tx.transaction_date >= latestDebitDate),
-    )
+  // Payments made against the current statement appear as credit transactions
+  // in the unbilled tab — NBE posts payments there until the next statement cuts.
+  const totalPaid = unbilledTx
+    .filter((tx) => tx.transaction_type === 'credit')
     .reduce((s, tx) => s + tx.amount, 0);
 
   // Remaining = closing balance - total paid

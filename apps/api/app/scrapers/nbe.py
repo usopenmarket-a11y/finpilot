@@ -2162,21 +2162,7 @@ class NBEScraper(BankScraper):
         if not cc_accounts:
             return []
 
-        logger.info(
-            "NBE: scraping CC statement transactions for last %d months", _CC_STATEMENT_MONTHS
-        )
-
-        # Months to try: last 6 completed + current, newest first
-        now = datetime.now(UTC)
-        months_to_try: list[tuple[int, int]] = []
-        for delta in range(_CC_STATEMENT_MONTHS):
-            # Walk back month by month
-            m = now.month - delta
-            y = now.year
-            while m <= 0:
-                m += 12
-                y -= 1
-            months_to_try.append((y, m))
+        logger.info("NBE: scraping CC unbilled + unsettled transactions")
 
         all_txns: list[Transaction] = []
 
@@ -2274,9 +2260,10 @@ class NBEScraper(BankScraper):
             return []
         logger.info("NBE: on CC statement page — year/month selectors ready")
 
-        # Set up response interception ONCE — we'll collect responses across all month selections
-        # Also intercepts unbilled/unsettled transaction API responses.
-        captured_responses: dict[str, str] = {}  # url → body
+        # We only scrape UBT (Unbilled) and UNS (Unsettled) tabs.
+        # Monthly statement history is not scraped — it is slow (7 months × ~6s each)
+        # and the UI only shows unbilled + unsettled to the user.
+        captured_responses: dict[str, str] = {}  # unused but kept for the summary backfill path
         captured_ubt_uns: dict[str, str] = {}  # url → body for unbilled/unsettled
 
         async def _capture_statement_response(resp: object) -> None:
@@ -2340,73 +2327,9 @@ class NBEScraper(BankScraper):
         page.on("response", _capture_statement_response)
 
         try:
-            for year, month in months_to_try:
-                logger.info("NBE: requesting CC statement for %04d/%02d", year, month)
-                year_str = str(year)
-
-                try:
-                    # Select year
-                    await page.click("#oj-select-choice-selectYear")
-                    await self._random_delay(0.5, 1.0)
-                    year_opt = (
-                        page.locator("#oj-listbox-results-selectYear li")
-                        .filter(has_text=year_str)
-                        .first
-                    )
-                    if not await year_opt.count():
-                        logger.debug("NBE: CC statement year %s not available — skipping", year_str)
-                        await page.keyboard.press("Escape")
-                        await self._random_delay(0.3, 0.6)
-                        continue
-                    await year_opt.click()
-                    await self._random_delay(0.5, 1.0)
-
-                    # Select month (1=Jan, 2=Feb, etc.)
-                    month_names = [
-                        "Jan",
-                        "Feb",
-                        "Mar",
-                        "Apr",
-                        "May",
-                        "Jun",
-                        "Jul",
-                        "Aug",
-                        "Sep",
-                        "Oct",
-                        "Nov",
-                        "Dec",
-                    ]
-                    month_name = month_names[month - 1]
-                    await page.click("#oj-select-choice-selectMonth")
-                    await self._random_delay(0.5, 1.0)
-                    month_opt = (
-                        page.locator("#oj-listbox-results-selectMonth li")
-                        .filter(has_text=month_name)
-                        .first
-                    )
-                    if not await month_opt.count():
-                        logger.debug(
-                            "NBE: CC statement month %s not available — skipping", month_name
-                        )
-                        await page.keyboard.press("Escape")
-                        await self._random_delay(0.3, 0.6)
-                        continue
-                    await month_opt.click()
-                    await self._random_delay(0.5, 1.0)
-
-                    # Click Submit
-                    await page.click("button:has-text('Submit')")
-                    # Wait for the AJAX response (generous timeout for Egypt RTT)
-                    await self._random_delay(5.0, 7.0)
-
-                except PlaywrightTimeoutError as e:
-                    logger.debug(
-                        "NBE: timeout selecting CC statement %04d/%02d: %s", year, month, e
-                    )
-                    continue
-                except Exception as e:
-                    logger.debug("NBE: error selecting CC statement %04d/%02d: %s", year, month, e)
-                    continue
+            # Monthly statement loop is intentionally skipped — we only need UBT + UNS.
+            # Scraping 7 months of statements via the Playwright UI takes ~5 min and
+            # the frontend only displays unbilled and unsettled transactions.
 
             # --- Scrape Unbilled Transactions (UBT tab) and Unsettled (UNS tab) ---
             # The same card-statement page has a "View" select (#oj-select-1) with options:
