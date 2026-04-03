@@ -1971,8 +1971,8 @@ class NBEScraper(BankScraper):
                                 card.get("minamountdue"),
                                 card.get("paymentduedate"),
                             )
-                except Exception:
-                    pass
+                except Exception as _capture_exc:
+                    logger.debug("NBE: error parsing creditcarddetails response: %s", _capture_exc)
 
         page.on("response", _capture_cc_details)
         _cc_rows_loaded = False
@@ -1983,6 +1983,19 @@ class NBEScraper(BankScraper):
             # response may arrive after the click delay.
             await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
             _cc_rows_loaded = True
+            # The creditcarddetails API response may arrive after the DOM rows render —
+            # wait up to 10s for it so billed_amount / credit_limit are captured.
+            if not cc_api_data:
+                _api_wait_start = asyncio.get_event_loop().time()
+                while (asyncio.get_event_loop().time() - _api_wait_start) < 10:
+                    if cc_api_data:
+                        break
+                    await asyncio.sleep(0.5)
+                if not cc_api_data:
+                    logger.warning(
+                        "NBE: creditcarddetails API response not captured within 10s — "
+                        "billed_amount/credit_limit will be missing"
+                    )
         except PlaywrightTimeoutError:
             pass
         finally:
@@ -2025,7 +2038,22 @@ class NBEScraper(BankScraper):
 
             # Try to get authoritative balance from the creditcarddetails API intercept.
             # The API uses maskedcardno format like "544111******1204" which matches raw_card_number.
+            # Fallback: match by last-4-digits in case the API format differs from the DOM format.
             api_entry = cc_api_data.get(raw_card_number, {})
+            if not api_entry and cc_api_data:
+                raw_digits = "".join(c for c in raw_card_number if c.isdigit())
+                raw_last4 = raw_digits[-4:] if len(raw_digits) >= 4 else raw_digits
+                for api_key, api_val in cc_api_data.items():
+                    api_digits = "".join(c for c in api_key if c.isdigit())
+                    if api_digits[-4:] == raw_last4:
+                        api_entry = api_val
+                        logger.info(
+                            "NBE: CC row %d matched API entry by last-4 (%s) — key=%r",
+                            row_idx,
+                            raw_last4,
+                            api_key,
+                        )
+                        break
             if api_entry:
                 # Use totalbilledamount (what the cardholder owes) as the balance
                 billed = api_entry.get("totalbilledamount", "0")
