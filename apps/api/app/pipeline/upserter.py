@@ -94,9 +94,7 @@ async def upsert_account(
     # and stripping null billing keys so they are excluded from the UPDATE clause.
     _BILLING_FIELDS = {"billed_amount", "minimum_payment", "payment_due_date", "credit_limit"}
     account_data = {
-        k: v
-        for k, v in account_data.items()
-        if k not in _BILLING_FIELDS or v is not None
+        k: v for k, v in account_data.items() if k not in _BILLING_FIELDS or v is not None
     }
 
     response = await supabase_client.table("bank_accounts").upsert(account_data).execute()
