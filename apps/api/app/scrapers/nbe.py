@@ -2355,9 +2355,68 @@ class NBEScraper(BankScraper):
         page.on("response", _capture_statement_response)
 
         try:
-            # Monthly statement loop is intentionally skipped — we only need UBT + UNS.
-            # Scraping 7 months of statements via the Playwright UI takes ~5 min and
-            # the frontend only displays unbilled and unsettled transactions.
+            # --- Scrape previous month's statement (BT tab) ---
+            # Select the most recently completed statement month (e.g. March if we're in April).
+            # This gives us closingbal / minamt / duedate via viewtxnSummary and statement txns.
+            now_dt = datetime.now(UTC)
+            stmt_month = now_dt.month - 1 or 12
+            stmt_year = now_dt.year if now_dt.month > 1 else now_dt.year - 1
+            month_names = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+            ]
+            stmt_month_name = month_names[stmt_month - 1]
+            logger.info("NBE: selecting BT (Statement) tab for %s %d", stmt_month_name, stmt_year)
+            try:
+                # Select the year
+                await page.click("#oj-select-choice-selectYear", timeout=_SHORT_TIMEOUT_MS)
+                await self._random_delay(0.5, 1.0)
+                year_opt = (
+                    page.locator("#oj-listbox-results-selectYear li")
+                    .filter(has_text=str(stmt_year))
+                    .first
+                )
+                if await year_opt.count():
+                    await year_opt.click()
+                    await self._random_delay(0.5, 1.0)
+                    # Select the month
+                    await page.click("#oj-select-choice-selectMonth", timeout=_SHORT_TIMEOUT_MS)
+                    await self._random_delay(0.5, 1.0)
+                    month_opt = (
+                        page.locator("#oj-listbox-results-selectMonth li")
+                        .filter(has_text=stmt_month_name)
+                        .first
+                    )
+                    if await month_opt.count():
+                        await month_opt.click()
+                        await self._random_delay(0.5, 1.0)
+                        await page.click("button:has-text('Submit')")
+                        await self._random_delay(5.0, 7.0)
+                        logger.info(
+                            "NBE: BT statement %s %d submitted — waiting for API response",
+                            stmt_month_name,
+                            stmt_year,
+                        )
+                    else:
+                        logger.debug("NBE: month %s not available in dropdown", stmt_month_name)
+                        await page.keyboard.press("Escape")
+                else:
+                    logger.debug("NBE: year %d not available in dropdown", stmt_year)
+                    await page.keyboard.press("Escape")
+            except PlaywrightTimeoutError as e:
+                logger.debug("NBE: timeout selecting BT statement tab: %s", e)
+            except Exception as e:
+                logger.debug("NBE: error selecting BT statement tab: %s", e)
 
             # --- Scrape Unbilled Transactions (UBT tab) and Unsettled (UNS tab) ---
             # The same card-statement page has a "View" select (#oj-select-1) with options:
@@ -2614,6 +2673,8 @@ class NBEScraper(BankScraper):
                     for stmt in stmt_items:
                         txn = self._parse_cc_statement_item(stmt, cc_accounts[0], txn_time)
                         if txn is not None:
+                            if txn.raw_data is not None:
+                                txn.raw_data["source"] = "nbe_cc_statement"
                             all_txns.append(txn)
 
             # Backfill CC account with billing details from the most recent statement

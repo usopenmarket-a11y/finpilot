@@ -185,6 +185,33 @@ async def insert_transactions(
     return inserted_count
 
 
+async def delete_ephemeral_transactions(
+    account_id: UUID,
+    sources: tuple[str, ...],
+    supabase_client: AsyncClient,
+) -> int:
+    """Delete transactions with the given source tags for an account.
+
+    Used for UBT/UNS/statement transactions that are replaced on every sync
+    rather than accumulated. Returns the number of rows deleted.
+    """
+    response = (
+        await supabase_client.table("transactions")
+        .delete()
+        .eq("account_id", str(account_id))
+        .in_("raw_data->>source", list(sources))
+        .execute()
+    )
+    deleted = len(response.data) if response.data else 0
+    logger.info(
+        "Deleted %d ephemeral transaction(s) for account_id=%s sources=%s",
+        deleted,
+        account_id,
+        sources,
+    )
+    return deleted
+
+
 def _transaction_to_dict(txn: Transaction) -> dict:
     """Convert a Transaction object to a dictionary for database insertion.
 
