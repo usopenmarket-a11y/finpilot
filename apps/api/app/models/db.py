@@ -101,6 +101,10 @@ class BankAccount(BaseModel):
         default=None,
         description="Bank product name for the certificate/deposit (e.g. 'شهادة بلاتينية') — certificate/deposit accounts only",
     )
+    credential_label: str | None = Field(
+        default=None,
+        description="Label of the bank credential that produced this account (e.g. 'NBE-Fady')",
+    )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
 

@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit manually.
 // Regenerate with: Supabase MCP → generate_typescript_types
-// Last generated: 2026-03-25
+// Last generated: 2026-04-04
 
 export type Json =
   | string
@@ -26,6 +26,7 @@ export type Database = {
           bank_name: string
           billed_amount: number | null
           created_at: string
+          credential_label: string | null
           credit_limit: number | null
           currency: string
           id: string
@@ -48,6 +49,7 @@ export type Database = {
           bank_name: string
           billed_amount?: number | null
           created_at?: string
+          credential_label?: string | null
           credit_limit?: number | null
           currency?: string
           id?: string
@@ -70,6 +72,7 @@ export type Database = {
           bank_name?: string
           billed_amount?: number | null
           created_at?: string
+          credential_label?: string | null
           credit_limit?: number | null
           currency?: string
           id?: string

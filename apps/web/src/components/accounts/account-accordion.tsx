@@ -246,7 +246,7 @@ export function AccountAccordion({ accounts: initialAccounts, transactions, cred
                 isOpen={openId === account.id}
                 onToggle={() => handleToggle(account.id)}
                 onHide={handleHide}
-                credentialLabel={credentialLabels[account.bank_name]}
+                credentialLabel={account.credential_label ?? credentialLabels[account.bank_name]}
               />
             ))}
           </div>

@@ -193,7 +193,7 @@ async def _background_sync_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password")
+                .select("encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
             )
@@ -217,6 +217,7 @@ async def _background_sync_task(
         assert isinstance(row, dict)
         enc_username: str = row["encrypted_username"]
         enc_password: str = row["encrypted_password"]
+        cred_label: str | None = row.get("label")
 
         # ------------------------------------------------------------------
         # Step 2 — decrypt credentials.
@@ -306,7 +307,8 @@ async def _background_sync_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client
+                result, user_id=user_id, supabase_client=pipeline_client,
+                credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
@@ -391,7 +393,7 @@ async def _background_sync_accounts_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password")
+                .select("encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
             )
@@ -415,6 +417,7 @@ async def _background_sync_accounts_task(
         assert isinstance(row, dict)
         enc_username: str = row["encrypted_username"]
         enc_password: str = row["encrypted_password"]
+        cred_label: str | None = row.get("label")
 
         username: str | None = None
         password: str | None = None
@@ -500,7 +503,8 @@ async def _background_sync_accounts_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client
+                result, user_id=user_id, supabase_client=pipeline_client,
+                credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
@@ -576,7 +580,7 @@ async def _background_sync_cc_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password")
+                .select("encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
             )
@@ -600,6 +604,7 @@ async def _background_sync_cc_task(
         assert isinstance(row, dict)
         enc_username = row["encrypted_username"]
         enc_password = row["encrypted_password"]
+        cred_label: str | None = row.get("label")
 
         username: str | None = None
         password: str | None = None
@@ -678,7 +683,8 @@ async def _background_sync_cc_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client
+                result, user_id=user_id, supabase_client=pipeline_client,
+                credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
@@ -764,7 +770,7 @@ async def _background_sync_certificates_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password")
+                .select("encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
             )
@@ -788,6 +794,7 @@ async def _background_sync_certificates_task(
         assert isinstance(row, dict)
         enc_username = row["encrypted_username"]
         enc_password = row["encrypted_password"]
+        cred_label: str | None = row.get("label")
 
         username: str | None = None
         password: str | None = None
@@ -874,7 +881,8 @@ async def _background_sync_certificates_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client
+                result, user_id=user_id, supabase_client=pipeline_client,
+                credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:

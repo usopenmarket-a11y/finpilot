@@ -74,6 +74,7 @@ async def run_pipeline(
     result: ScraperResult,
     user_id: UUID,
     supabase_client: AsyncClient,
+    credential_label: str | None = None,
 ) -> PipelineRunResult:
     """Execute the full ETL pipeline on a ScraperResult.
 
@@ -130,6 +131,8 @@ async def run_pipeline(
         # ------------------------------------------------------------------
         placeholder_account_id = UUID(int=0)
         normalized_account = normalize_account(raw_account, user_id, placeholder_account_id)
+        if credential_label is not None:
+            normalized_account.credential_label = credential_label
 
         # ------------------------------------------------------------------
         # Stage 2: Upsert account → real account_id

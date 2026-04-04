@@ -85,6 +85,7 @@ async def upsert_account(
         else None,
         "opened_date": account.opened_date.isoformat() if account.opened_date is not None else None,
         "product_name": account.product_name if account.product_name is not None else None,
+        "credential_label": account.credential_label if account.credential_label is not None else None,
     }
 
     # Use ignoreMergeColumns for billing fields that should not be overwritten
