@@ -27,11 +27,8 @@ function monthLabel(date: Date): string {
 }
 
 function buildLast6MonthsData(
-  statementTx: TransactionRow[],
+  txRows: TransactionRow[],
 ): MonthlySpend[] {
-  // Only use statement transactions (nbe_cc_statement source) — these are the
-  // monthly statement items that NBE has actually billed. Unbilled/unsettled are
-  // current-cycle and shown separately.
   const now = new Date();
   const months: MonthlySpend[] = [];
 
@@ -41,7 +38,7 @@ function buildLast6MonthsData(
     const start = d.toISOString().slice(0, 10);
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 
-    const total = statementTx
+    const total = txRows
       .filter(
         (tx) =>
           tx.transaction_type === 'debit' &&
@@ -94,6 +91,8 @@ function buildPerCardData(
   let unsettledTx: CreditCardTransaction[];
   let allCardTx: CreditCardTransaction[];
 
+  const statementTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_statement');
+
   if (isBDC(account.bank_name)) {
     // BDC doesn't mark transactions as unbilled/unsettled — show everything.
     unbilledTx = [];
@@ -106,9 +105,8 @@ function buildPerCardData(
     allCardTx = [];
   }
 
-  // Statement transactions used for monthly spend chart (NBE only, currently empty since
-  // monthly statement loop was removed — kept for future use).
-  const statementTx = cardTx.filter((tx) => source(tx) === 'nbe_cc_statement');
+  // Monthly spend: NBE uses statement transactions; BDC uses all card transactions.
+  const monthlySpendTx = isBDC(account.bank_name) ? cardTx : statementTx;
 
   return {
     id: account.id,
@@ -126,7 +124,7 @@ function buildPerCardData(
     unsettledTx,
     allCardTx,
     statementTx: statementTx.map(toCardTx),
-    last6MonthsData: buildLast6MonthsData(statementTx),
+    last6MonthsData: buildLast6MonthsData(monthlySpendTx),
   };
 }
 

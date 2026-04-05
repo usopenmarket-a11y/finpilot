@@ -68,6 +68,7 @@ function buildTabs(bankName: string): { key: TabKey; label: string }[] {
   if (isBDCCard(bankName)) {
     return [
       { key: 'details', label: 'Card Details' },
+      { key: 'repayment', label: 'Repayment Tracker' },
       { key: 'transactions', label: 'Transactions' },
       { key: 'last6', label: 'Monthly Spend' },
     ];
@@ -204,6 +205,7 @@ function FawryBreakdown({ transactions, bankName }: { transactions: CreditCardTr
 interface RepaymentTrackerPanelProps {
   statementTx: CreditCardTransaction[];
   unbilledTx: CreditCardTransaction[];
+  allCardTx: CreditCardTransaction[];
   billedAmount?: number | null;
   minimumPayment?: number | null;
   paymentDueDate?: string | null;
@@ -213,6 +215,7 @@ interface RepaymentTrackerPanelProps {
 function RepaymentTrackerPanel({
   statementTx,
   unbilledTx,
+  allCardTx,
   billedAmount,
   minimumPayment,
   paymentDueDate,
@@ -220,9 +223,10 @@ function RepaymentTrackerPanel({
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
-  // Payments made against the current statement appear as credit transactions
-  // in the unbilled tab — NBE posts payments there until the next statement cuts.
-  const totalPaid = unbilledTx
+  // For NBE: payments appear as credit transactions in unbilled tab.
+  // For BDC: no unbilled/unsettled split — use allCardTx credits instead.
+  const paymentSourceTx = isBDCCard(bankName) ? allCardTx : unbilledTx;
+  const totalPaid = paymentSourceTx
     .filter((tx) => tx.transaction_type === 'credit')
     .reduce((s, tx) => s + tx.amount, 0);
 
@@ -230,8 +234,8 @@ function RepaymentTrackerPanel({
   const remaining = closingBalance - totalPaid;
   const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
 
-  // Fawry totals from unbilled transactions (bank-specific description prefix)
-  const fawryTx = unbilledTx.filter((tx) => isFawry(tx, bankName));
+  // Fawry totals from relevant transactions (bank-specific description prefix)
+  const fawryTx = paymentSourceTx.filter((tx) => isFawry(tx, bankName));
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
   const fawryInterest = totalFawry * 0.008;
 
@@ -571,11 +575,12 @@ export function CreditCardTabs({
           />
         )}
 
-        {/* Repayment Tracker — NBE only */}
+        {/* Repayment Tracker */}
         {activeTab === 'repayment' && (
           <RepaymentTrackerPanel
             statementTx={statementTx}
             unbilledTx={unbilledTx}
+            allCardTx={allCardTx}
             billedAmount={billedAmount}
             minimumPayment={minimumPayment}
             paymentDueDate={paymentDueDate}
