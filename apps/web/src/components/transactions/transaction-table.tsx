@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { recategorizeTransactions } from '@/lib/api-client';
+import { createClient } from '@/lib/supabase/client';
 import type { Transaction } from '@/lib/types';
 import type { AccountOption } from '@/app/dashboard/transactions/page';
 
@@ -18,11 +20,22 @@ const CATEGORY_OPTIONS = [
   { value: '', label: 'All Categories' },
   { value: 'Income', label: 'Income' },
   { value: 'Food & Dining', label: 'Food & Dining' },
-  { value: 'Transport', label: 'Transport' },
-  { value: 'Entertainment', label: 'Entertainment' },
+  { value: 'Groceries', label: 'Groceries' },
+  { value: 'Transportation', label: 'Transportation' },
   { value: 'Shopping', label: 'Shopping' },
   { value: 'Utilities', label: 'Utilities' },
-  { value: 'Cash', label: 'Cash' },
+  { value: 'Entertainment', label: 'Entertainment' },
+  { value: 'Healthcare', label: 'Healthcare' },
+  { value: 'Education', label: 'Education' },
+  { value: 'Travel', label: 'Travel' },
+  { value: 'Rent & Housing', label: 'Rent & Housing' },
+  { value: 'Transfers', label: 'Transfers' },
+  { value: 'ATM & Cash', label: 'ATM & Cash' },
+  { value: 'Loan Repayment', label: 'Loan Repayment' },
+  { value: 'Subscriptions', label: 'Subscriptions' },
+  { value: 'Government & Fees', label: 'Government & Fees' },
+  { value: 'Insurance', label: 'Insurance' },
+  { value: 'Investment', label: 'Investment' },
   { value: 'Other', label: 'Other' },
 ];
 
@@ -63,6 +76,24 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
   const [page, setPage] = useState(1);
   const [sortField, setSortField] = useState<SortField>('transaction_date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [recategorizing, setRecategorizing] = useState(false);
+  const [recatResult, setRecatResult] = useState<string | null>(null);
+
+  async function handleRecategorize() {
+    setRecategorizing(true);
+    setRecatResult(null);
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const result = await recategorizeTransactions(user.id);
+      setRecatResult(`Done — ${result.updated} of ${result.processed} transactions updated. Refresh to see changes.`);
+    } catch {
+      setRecatResult('Recategorization failed. Please try again.');
+    } finally {
+      setRecategorizing(false);
+    }
+  }
 
   const accountSelectOptions = useMemo(() => [
     { value: '', label: 'All Accounts' },
@@ -140,8 +171,24 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Filters */}
+      {/* Filters + Recategorize */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Filters</p>
+          <div className="flex items-center gap-2">
+            {recatResult && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">{recatResult}</p>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleRecategorize}
+              disabled={recategorizing}
+            >
+              {recategorizing ? 'Categorizing…' : 'Re-categorize All'}
+            </Button>
+          </div>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           <Input
             placeholder="Search transactions…"

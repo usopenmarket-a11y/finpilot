@@ -30,7 +30,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import anthropic
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.analytics.categorizer import categorize_batch
@@ -172,6 +172,122 @@ async def categorize_transactions(
         )
         for r in results
     ]
+
+
+# ---------------------------------------------------------------------------
+# /analytics/recategorize — bulk re-categorize all transactions for a user
+# ---------------------------------------------------------------------------
+
+
+class RecategorizeResponse(BaseModel):
+    processed: int
+    updated: int
+
+
+@router.post(
+    "/analytics/recategorize",
+    response_model=RecategorizeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Re-categorize all transactions for a user using updated rules + AI",
+)
+async def recategorize_all(
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> RecategorizeResponse:
+    """Re-run categorization on every transaction for the given user.
+
+    Reads all transactions from Supabase, runs them through the rule engine
+    (and AI fallback), then bulk-updates the category/sub_category fields.
+    Safe to run repeatedly — idempotent.
+    """
+    import uuid as _uuid_mod
+    from datetime import datetime
+    from uuid import UUID as _UUID
+
+    from supabase import acreate_client
+
+    from app.analytics.categorizer import categorize_batch
+    from app.models.db import Transaction
+
+    if not x_user_id:
+        raise HTTPException(status_code=400, detail="x-user-id header is required")
+    try:
+        user_uuid = _UUID(x_user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid x-user-id header")
+
+    supabase = await acreate_client(
+        settings.supabase_url,
+        settings.supabase_service_role_key.get_secret_value(),
+    )
+
+    # Fetch all transactions for the user
+    response = (
+        await supabase.table("transactions")
+        .select("*")
+        .eq("user_id", str(user_uuid))
+        .execute()
+    )
+    rows = response.data or []
+
+    if not rows:
+        return RecategorizeResponse(processed=0, updated=0)
+
+    _now = datetime.now()
+
+    transactions: list[Transaction] = []
+    for row in rows:
+        try:
+            transactions.append(
+                Transaction(
+                    id=_UUID(row["id"]),
+                    user_id=user_uuid,
+                    account_id=_UUID(row["account_id"]),
+                    external_id=row.get("external_id", row["id"]),
+                    amount=Decimal(str(row["amount"])),
+                    currency=row.get("currency", "EGP"),
+                    transaction_type=row["transaction_type"],
+                    description=row["description"],
+                    category=row.get("category"),
+                    transaction_date=date.fromisoformat(row["transaction_date"]),
+                    is_categorized=bool(row.get("is_categorized", False)),
+                    raw_data=row.get("raw_data") or {},
+                    created_at=_now,
+                    updated_at=_now,
+                )
+            )
+        except Exception:
+            continue
+
+    ai_client = anthropic.AsyncAnthropic(
+        api_key=settings.claude_api_key.get_secret_value() or None,
+    )
+
+    logger.info("Bulk recategorize started: user_id=%s txn_count=%d", user_uuid, len(transactions))
+
+    results = await categorize_batch(transactions, ai_client)
+
+    updated = 0
+    for txn, result in zip(transactions, results, strict=False):
+        if result.category == "Other" and result.confidence < 0.5:
+            continue
+        det_id = str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_OID, f"{txn.account_id}:{txn.external_id}"))
+        try:
+            await (
+                supabase.table("transactions")
+                .update({
+                    "category": result.category,
+                    "sub_category": result.sub_category,
+                    "is_categorized": True,
+                })
+                .eq("id", det_id)
+                .execute()
+            )
+            updated += 1
+        except Exception:
+            logger.exception("Failed to update category for txn %s", det_id)
+
+    logger.info("Bulk recategorize done: updated=%d/%d", updated, len(transactions))
+    return RecategorizeResponse(processed=len(transactions), updated=updated)
 
 
 # ---------------------------------------------------------------------------

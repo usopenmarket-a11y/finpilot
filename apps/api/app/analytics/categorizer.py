@@ -39,6 +39,8 @@ CATEGORIES: list[str] = [
     "Government & Fees",
     "Insurance",
     "Investment",
+    "Loan Repayment",
+    "Subscriptions",
     "Income",
     "Other",
 ]
@@ -65,14 +67,122 @@ class CategorizationResult:
 # Rule-based patterns (compiled once at import time)
 # ---------------------------------------------------------------------------
 
-_RE_ATM_CASH: re.Pattern[str] = re.compile(r"\b(atm|cash)\b", re.IGNORECASE)
-_RE_SALARY: re.Pattern[str] = re.compile(
-    r"(salary|payroll|راتب|مرتب|أجر|نقد من|monthly pay|remittance|compensation)",
+# ATM / Cash
+_RE_ATM_CASH = re.compile(
+    r"\b(atm|cash withdrawal|debit card cash deposit)\b",
     re.IGNORECASE,
 )
-_RE_TRANSFER: re.Pattern[str] = re.compile(r"(transfer|تحويل|from acct)", re.IGNORECASE)
 
-_LARGE_CREDIT_THRESHOLD = Decimal("5000")
+# Income
+_RE_SALARY = re.compile(
+    r"(salary|payroll|staffpayroll|راتب|مرتب|أجر|monthly pay|remittance|compensation)",
+    re.IGNORECASE,
+)
+_RE_REWARDS = re.compile(r"\brewards\b", re.IGNORECASE)
+
+# Transfers — internal/external
+_RE_TRANSFER = re.compile(
+    r"(account to account transfer|ipn transfer|ipn charges|outgoing transfer|"
+    r"incoming ach transfer|incoming transfer|from acct|تحويل|"
+    r"credit card payment via internet banking|eb-00cc.*card payment|"
+    r"\beb-0cc\b.*card payment)",
+    re.IGNORECASE,
+)
+_RE_IPN_BARE = re.compile(r"^\s*IPN\s*$", re.IGNORECASE)
+
+# Loan repayment
+_RE_LOAN = re.compile(
+    r"(loan interest payment|loan principle payment|loan principal payment)",
+    re.IGNORECASE,
+)
+
+# Investment / certificates
+_RE_INVESTMENT = re.compile(
+    r"(certificate.*interest|term deposit.*interest|deposit.*interest|"
+    r"investment.*return|maturity proceeds)",
+    re.IGNORECASE,
+)
+
+# Transportation
+_RE_TRANSPORT = re.compile(
+    r"\b(uber|careem|didi|lyft|taxi|bolt|indrive|"
+    r"cairo metro|metro ticket|bus ticket)\b",
+    re.IGNORECASE,
+)
+
+# Food & Dining
+_RE_FOOD = re.compile(
+    r"\b(cafe|coffee|restaurant|pizza|burger|kfc|mcdonald|"
+    r"hardee|popeyes|cinnabon|dunkin|starbucks|"
+    r"paymob\*cake|dining)\b",
+    re.IGNORECASE,
+)
+
+# Groceries
+_RE_GROCERIES = re.compile(
+    r"\b(seoudi|carrefour|spinneys|hyper one|metro market|"
+    r"kheir zaman|el-foul|hypermarket|supermarket|"
+    r"imtenan|new penni|fresh market|kazyon|"
+    r"el tayeb|breadfast|talabat groceries)\b",
+    re.IGNORECASE,
+)
+
+# Shopping
+_RE_SHOPPING = re.compile(
+    r"\b(lc waikiki|zara|h&m|shoe room|valu|adidas|nike|"
+    r"amazon|noon|jumia|mothercare|ikea|home center|"
+    r"carrefour fashion|urart|gumruksuz|shopping)\b",
+    re.IGNORECASE,
+)
+
+# Utilities / Bill payments
+_RE_UTILITIES = re.compile(
+    r"\b(my fawry|fawry|sahl|we telecom|vodafone|orange|etisalat|"
+    r"electricity|water bill|gas bill|cairo electricity|"
+    r"telecom egypt|egynet|nge|utility)\b",
+    re.IGNORECASE,
+)
+
+# Government & Fees
+_RE_FEES = re.compile(
+    r"(stamp tax|paper statement fee|annual fee|annual fees|"
+    r"maintenance fee|service charge|bank charge|"
+    r"outgoing transfer fees|ipn.*charges|sms.*fee|"
+    r"card.*fee|account.*fee)",
+    re.IGNORECASE,
+)
+
+# Subscriptions
+_RE_SUBSCRIPTIONS = re.compile(
+    r"\b(netflix|spotify|apple|google play|microsoft|"
+    r"adobe|claude\.ai|anthropic|chatgpt|openai|"
+    r"amazon prime|youtube premium|canva|dropbox|"
+    r"subscription|مدفوعات شهرية)\b",
+    re.IGNORECASE,
+)
+
+# Healthcare
+_RE_HEALTHCARE = re.compile(
+    r"\b(pharmacy|eczane|hospital|clinic|doctor|lab|"
+    r"medical|صيدلية|عيادة|مستشفى|dawaya)\b",
+    re.IGNORECASE,
+)
+
+# Entertainment
+_RE_ENTERTAINMENT = re.compile(
+    r"\b(cinema|movie|theatre|concert|vod|"
+    r"grand cinema|empire cinema|cine|"
+    r"playstation|steam|xbox|gaming)\b",
+    re.IGNORECASE,
+)
+
+# Travel
+_RE_TRAVEL = re.compile(
+    r"\b(airline|airways|airport|hotel|booking\.com|"
+    r"airbnb|expedia|trivago|egyptair|flydubai|"
+    r"turkish airlines|travel agency|سياحة)\b",
+    re.IGNORECASE,
+)
 
 
 def _apply_rules(
@@ -83,24 +193,77 @@ def _apply_rules(
     """Return (category, sub_category) if a rule matches, else None.
 
     Rules are evaluated in priority order.  The first match wins.
+    More specific patterns come before general ones.
     """
-    if _RE_ATM_CASH.search(description):
-        return ("ATM & Cash", "Withdrawal")
+    # --- Loan repayment (before transfer catch-all) ---
+    if _RE_LOAN.search(description):
+        if "interest" in description.lower():
+            return ("Loan Repayment", "Interest Payment")
+        return ("Loan Repayment", "Principal Payment")
 
+    # --- Investment income ---
+    if _RE_INVESTMENT.search(description):
+        return ("Investment", "Interest Income")
+
+    # --- Salary / payroll ---
     if _RE_SALARY.search(description):
         return ("Income", "Salary")
 
-    if _RE_TRANSFER.search(description):
-        return ("Transfers", "Transfer")
+    # --- Rewards ---
+    if _RE_REWARDS.search(description):
+        return ("Income", "Rewards")
 
-    # Only apply large-credit catch-all when the description explicitly suggests
-    # an incoming transfer — avoids misclassifying payroll credits.
-    if (
-        transaction_type == "credit"
-        and amount > _LARGE_CREDIT_THRESHOLD
-        and _RE_TRANSFER.search(description)
-    ):
-        return ("Transfers", "Incoming Transfer")
+    # --- ATM / cash (debit card cash deposit counts as ATM) ---
+    if _RE_ATM_CASH.search(description):
+        if transaction_type == "credit":
+            return ("ATM & Cash", "Cash Deposit")
+        return ("ATM & Cash", "Withdrawal")
+
+    # --- Transfers (card payments, IPN, A2A) ---
+    if _RE_TRANSFER.search(description) or _RE_IPN_BARE.search(description):
+        if transaction_type == "credit":
+            return ("Transfers", "Incoming Transfer")
+        return ("Transfers", "Outgoing Transfer")
+
+    # --- Government fees & bank charges ---
+    if _RE_FEES.search(description):
+        return ("Government & Fees", "Bank Fees")
+
+    # --- Subscriptions ---
+    if _RE_SUBSCRIPTIONS.search(description):
+        return ("Subscriptions", "Digital Subscription")
+
+    # --- Transportation ---
+    if _RE_TRANSPORT.search(description):
+        return ("Transportation", "Ride-hailing")
+
+    # --- Food & Dining ---
+    if _RE_FOOD.search(description):
+        return ("Food & Dining", "Restaurant")
+
+    # --- Groceries ---
+    if _RE_GROCERIES.search(description):
+        return ("Groceries", "Supermarket")
+
+    # --- Shopping ---
+    if _RE_SHOPPING.search(description):
+        return ("Shopping", "Retail")
+
+    # --- Utilities ---
+    if _RE_UTILITIES.search(description):
+        return ("Utilities", "Bill Payment")
+
+    # --- Healthcare ---
+    if _RE_HEALTHCARE.search(description):
+        return ("Healthcare", "Medical")
+
+    # --- Entertainment ---
+    if _RE_ENTERTAINMENT.search(description):
+        return ("Entertainment", "Leisure")
+
+    # --- Travel ---
+    if _RE_TRAVEL.search(description):
+        return ("Travel", "Travel")
 
     return None
 

@@ -310,3 +310,10 @@ export type ClearDataScope = 'all' | 'accounts' | 'credit_cards' | 'certificates
 export async function clearData(userId: string, scope: ClearDataScope = 'all'): Promise<void> {
   return apiFetch<void>(`/api/v1/data?scope=${scope}`, { method: 'DELETE', userId });
 }
+
+export async function recategorizeTransactions(userId: string): Promise<{ processed: number; updated: number }> {
+  return apiFetch<{ processed: number; updated: number }>('/api/v1/analytics/recategorize', {
+    method: 'POST',
+    userId,
+  });
+}
