@@ -61,10 +61,10 @@ export default async function AccountsPage() {
   const accounts: BankAccountRow[] = accountData ?? [];
   const transactions = txData ?? [];
 
-  const bankNameToLabel: Record<string, string> = {};
+  // Key by bank code (e.g. "NBE") so the accordion can look up by account.bank_name
+  const bankCodeToLabel: Record<string, string> = {};
   for (const cred of ((credData ?? []) as Pick<BankCredentialRow, 'bank' | 'label'>[]) ) {
-    const displayName = BANK_CODE_TO_NAME[cred.bank] ?? cred.bank;
-    bankNameToLabel[displayName] = cred.label ?? cred.bank;
+    if (cred.label) bankCodeToLabel[cred.bank] = cred.label;
   }
 
   const bankAccounts = accounts.filter(
@@ -103,7 +103,7 @@ export default async function AccountsPage() {
       {bankAccounts.length > 0 ? (
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">All Accounts</h2>
-          <AccountAccordion accounts={bankAccounts} transactions={transactions} credentialLabels={bankNameToLabel} />
+          <AccountAccordion accounts={bankAccounts} transactions={transactions} credentialLabels={bankCodeToLabel} />
         </div>
       ) : (
         <Card>
