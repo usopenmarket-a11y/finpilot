@@ -103,50 +103,51 @@ _RE_INVESTMENT = re.compile(
     re.IGNORECASE,
 )
 
-# Transportation
+# Transportation — card descriptions pad merchant names with spaces e.g.
+# "Uber                     Cairo        EGY" so use start-of-string anchors.
 _RE_TRANSPORT = re.compile(
-    r"\b(uber|careem|didi|lyft|taxi|bolt|indrive|"
-    r"cairo metro|metro ticket|bus ticket)\b",
+    r"^(uber|careem|didi|lyft|taxi|bolt|indrive|"
+    r"cairo metro|metro ticket|bus ticket)",
     re.IGNORECASE,
 )
 
 # Food & Dining
 _RE_FOOD = re.compile(
-    r"\b(cafe|coffee|restaurant|pizza|burger|kfc|mcdonald|"
-    r"hardee|popeyes|cinnabon|dunkin|starbucks|"
-    r"paymob\*cake|dining)\b",
+    r"(^cafe|^coffee|^restaurant|^pizza|^burger|^bistro|"
+    r"kfc|mcdonald|hardee|popeyes|cinnabon|dunkin|starbucks|"
+    r"paymob\*?cake|krispy\s*kreme|dining)",
     re.IGNORECASE,
 )
 
-# Groceries
+# Groceries — card descriptions e.g. "Spinneys                 Giza         EGY"
 _RE_GROCERIES = re.compile(
-    r"\b(seoudi|carrefour|spinneys|hyper one|metro market|"
-    r"kheir zaman|el-foul|hypermarket|supermarket|"
-    r"imtenan|new penni|fresh market|kazyon|"
-    r"el tayeb|breadfast|talabat groceries)\b",
+    r"(^seoudi|^spinneys|spinneys|carrefour|hyper one|metro market|"
+    r"kheir zaman|hypermarket|supermarket|"
+    r"^imtenan|new penni|fresh market|kazyon|"
+    r"breadfast|^elabd|talabat groceries)",
     re.IGNORECASE,
 )
 
-# Shopping
+# Shopping — card descriptions e.g. "Valu                     Giza         EGY"
 _RE_SHOPPING = re.compile(
-    r"\b(lc waikiki|zara|h&m|shoe room|valu|adidas|nike|"
-    r"amazon|noon|jumia|mothercare|ikea|home center|"
-    r"carrefour fashion|urart|gumruksuz|shopping)\b",
+    r"(^lc waikiki|^zara\s|^h&m|^shoe room|^valu\s|adidas|nike|"
+    r"^amazon\b|noon|jumia|mothercare|ikea|home center|"
+    r"^urart|gumruksuz|^decathlon|^or clothes)",
     re.IGNORECASE,
 )
 
-# Utilities / Bill payments
+# Utilities — "MY FAWRY                 CAIRO        EGY", "myfawry", "SAHL                     GIZA"
 _RE_UTILITIES = re.compile(
-    r"\b(my fawry|fawry|sahl|we telecom|vodafone|orange|etisalat|"
+    r"(^my fawry|^myfawry|fawry\*|^sahl\s|we telecom|vodafone|orange|etisalat|"
     r"electricity|water bill|gas bill|cairo electricity|"
-    r"telecom egypt|egynet|nge|utility)\b",
+    r"telecom egypt|egynet|utility)",
     re.IGNORECASE,
 )
 
 # Government & Fees
 _RE_FEES = re.compile(
     r"(stamp tax|paper statement fee|annual fee|annual fees|"
-    r"maintenance fee|service charge|bank charge|"
+    r"maintenance fee|service charge|bank charge|account statement charges|"
     r"outgoing transfer fees|ipn.*charges|sms.*fee|"
     r"card.*fee|account.*fee)",
     re.IGNORECASE,
@@ -154,17 +155,18 @@ _RE_FEES = re.compile(
 
 # Subscriptions
 _RE_SUBSCRIPTIONS = re.compile(
-    r"\b(netflix|spotify|apple|google play|microsoft|"
+    r"(netflix|spotify|^apple\s|google play|microsoft|"
     r"adobe|claude\.ai|anthropic|chatgpt|openai|"
     r"amazon prime|youtube premium|canva|dropbox|"
-    r"subscription|مدفوعات شهرية)\b",
+    r"subscription|مدفوعات شهرية)",
     re.IGNORECASE,
 )
 
-# Healthcare
+# Healthcare — e.g. "GEIDEAE*Pure pharmacy", "AMAN*HANAA PHARMACY", "AFS-MEDICA"
 _RE_HEALTHCARE = re.compile(
-    r"\b(pharmacy|eczane|hospital|clinic|doctor|lab|"
-    r"medical|صيدلية|عيادة|مستشفى|dawaya)\b",
+    r"(pharmacy|eczane|hospital|clinic|doctor|lab|"
+    r"medical|geideae|aman\*hanaa|afs-medica|"
+    r"صيدلية|عيادة|مستشفى|dawaya)",
     re.IGNORECASE,
 )
 
