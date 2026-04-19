@@ -223,41 +223,107 @@ function RepaymentTrackerPanel({
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
-  // For NBE: payments appear as credit transactions in unbilled tab.
-  // For BDC: no unbilled/unsettled split — use allCardTx credits instead.
+  // BDC billing cycle: closes on the 5th of each month, payment due on 28th/29th/30th.
+  // Safe payment window: 6th → due date. Credits from the 6th of the previous month
+  // (i.e. the day after the prior closing) count toward the current cycle.
+  // NBE: unbilledTx is already scoped to the current cycle by the scraper.
+  function bdcCycleStart(dueDateStr: string | null | undefined): string | null {
+    if (!dueDateStr) return null;
+    const due = new Date(dueDateStr);
+    // Closing was the 5th of the due-date month → cycle opened on the 6th of prev month
+    const prevMonth = new Date(due.getFullYear(), due.getMonth() - 1, 6);
+    return prevMonth.toISOString().slice(0, 10);
+  }
+
   const paymentSourceTx = isBDCCard(bankName) ? allCardTx : unbilledTx;
-  const totalPaid = paymentSourceTx
+  const cycleStart = isBDCCard(bankName) ? bdcCycleStart(paymentDueDate) : null;
+
+  const currentCycleTx = cycleStart
+    ? paymentSourceTx.filter((tx) => tx.transaction_date >= cycleStart)
+    : paymentSourceTx;
+
+  const totalPaid = currentCycleTx
     .filter((tx) => tx.transaction_type === 'credit')
     .reduce((s, tx) => s + tx.amount, 0);
 
-  // Remaining = closing balance - total paid
   const remaining = closingBalance - totalPaid;
   const isOverpaid = totalPaid > closingBalance && closingBalance > 0;
 
-  // Fawry totals from relevant transactions (bank-specific description prefix)
-  const fawryTx = paymentSourceTx.filter((tx) => isFawry(tx, bankName));
+  // Fawry totals from current-cycle transactions
+  const fawryTx = currentCycleTx.filter((tx) => isFawry(tx, bankName));
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
   const fawryInterest = totalFawry * 0.008;
+
+  // BDC payment status relative to today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDate = paymentDueDate ? new Date(paymentDueDate) : null;
+  if (dueDate) dueDate.setHours(0, 0, 0, 0);
+
+  // Next closing date = 5th of the month after due date
+  const nextClosing = dueDate
+    ? new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 5)
+    : null;
+
+  const isPastDue = dueDate && today > dueDate && (!nextClosing || today <= nextClosing);
+  const isInGracePeriod = nextClosing && today > (dueDate ?? today) && today <= nextClosing;
+  const bdcInterestCharge = closingBalance > 0 ? closingBalance * 0.041 : 0;
 
   // Progress
   const rawProgress = closingBalance > 0 ? (totalPaid / closingBalance) * 100 : 0;
   const progress = Math.min(100, rawProgress);
   const progressBarColor =
-    progress >= 50 ? 'bg-green-500' : progress >= 25 ? 'bg-yellow-500' : 'bg-red-500';
+    progress >= 100 ? 'bg-green-500' : progress >= 50 ? 'bg-green-500' : progress >= 25 ? 'bg-yellow-500' : 'bg-red-500';
 
-  // Format payment due date
   const dueDateDisplay = paymentDueDate
     ? new Intl.DateTimeFormat('en-EG', { day: 'numeric', month: 'short', year: 'numeric' }).format(
         new Date(paymentDueDate),
       )
     : null;
 
+  const nextClosingDisplay = nextClosing
+    ? new Intl.DateTimeFormat('en-EG', { day: 'numeric', month: 'short', year: 'numeric' }).format(nextClosing)
+    : null;
+
   return (
     <div className="space-y-6">
+
+      {/* BDC: late payment warning */}
+      {isBDCCard(bankName) && isPastDue && remaining > 0 && (
+        <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 p-4 flex gap-3">
+          <svg className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400">Payment overdue — interest accruing</p>
+            <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">
+              4.1% interest on closing balance applies until {nextClosingDisplay ?? 'the 5th of next month'}.
+              Estimated charge: <span className="font-semibold">EGP {formatEGP(bdcInterestCharge)}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* BDC: safe payment window reminder (not yet due, balance unpaid) */}
+      {isBDCCard(bankName) && !isPastDue && !isInGracePeriod && closingBalance > 0 && remaining > 0 && (
+        <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950 p-4 flex gap-3">
+          <svg className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">Pay before {dueDateDisplay} to avoid interest</p>
+            <p className="text-xs text-blue-600 dark:text-blue-500 mt-0.5">
+              BDC charges 4.1% on the full closing balance if payment is late (after due date until the 5th of next month).
+              Potential charge if missed: <span className="font-semibold">EGP {formatEGP(bdcInterestCharge)}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 4 KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
-          label="Closing Balance"
+          label="Closing Balance (5th)"
           value={closingBalance > 0 ? `EGP ${formatEGP(closingBalance)}` : '—'}
           valueColor="text-gray-900 dark:text-white"
         />
@@ -271,7 +337,7 @@ function RepaymentTrackerPanel({
           valueColor="text-yellow-600 dark:text-yellow-400"
         />
         <KpiCard
-          label="Total Paid"
+          label="Total Paid (this cycle)"
           value={`EGP ${formatEGP(totalPaid)}`}
           valueColor="text-green-600 dark:text-green-400"
         />
@@ -288,17 +354,6 @@ function RepaymentTrackerPanel({
           badge={isOverpaid ? <Badge variant="success">Overpaid</Badge> : null}
         />
       </div>
-
-      {/* Total Credits */}
-      {totalPaid > 0 && (
-        <div className="grid grid-cols-1 gap-3">
-          <KpiCard
-            label="Total Credits (sum of all credit transactions)"
-            value={`EGP ${formatEGP(totalPaid)}`}
-            valueColor="text-green-600 dark:text-green-400"
-          />
-        </div>
-      )}
 
       {/* Fawry row */}
       {totalFawry > 0 && (
