@@ -307,7 +307,9 @@ async def _background_sync_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client,
+                result,
+                user_id=user_id,
+                supabase_client=pipeline_client,
                 credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
@@ -503,7 +505,9 @@ async def _background_sync_accounts_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client,
+                result,
+                user_id=user_id,
+                supabase_client=pipeline_client,
                 credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
@@ -683,7 +687,9 @@ async def _background_sync_cc_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client,
+                result,
+                user_id=user_id,
+                supabase_client=pipeline_client,
                 credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new
@@ -881,7 +887,9 @@ async def _background_sync_certificates_task(
                 settings.supabase_service_role_key.get_secret_value(),
             )
             pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=pipeline_client,
+                result,
+                user_id=user_id,
+                supabase_client=pipeline_client,
                 credential_label=cred_label,
             )
             transactions_saved = pipeline_result.transactions_new

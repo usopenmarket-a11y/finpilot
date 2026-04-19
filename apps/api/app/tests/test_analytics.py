@@ -362,7 +362,7 @@ class TestCategorizerAIPath:
         client.messages.create = AsyncMock(return_value=fenced_message)
 
         result = await categorize_transaction(
-            description="Carrefour supermarket",
+            description="ZXQUNKNOWN MERCHANT 999",
             amount=Decimal("250.00"),
             transaction_type="debit",
             client=client,

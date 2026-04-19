@@ -222,10 +222,7 @@ async def recategorize_all(
 
     # Fetch all transactions for the user
     response = (
-        await supabase.table("transactions")
-        .select("*")
-        .eq("user_id", str(user_uuid))
-        .execute()
+        await supabase.table("transactions").select("*").eq("user_id", str(user_uuid)).execute()
     )
     rows = response.data or []
 
@@ -270,15 +267,19 @@ async def recategorize_all(
     for txn, result in zip(transactions, results, strict=False):
         if result.category == "Other" and result.confidence < 0.5:
             continue
-        det_id = str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_OID, f"{txn.account_id}:{txn.external_id}"))
+        det_id = str(
+            _uuid_mod.uuid5(_uuid_mod.NAMESPACE_OID, f"{txn.account_id}:{txn.external_id}")
+        )
         try:
             await (
                 supabase.table("transactions")
-                .update({
-                    "category": result.category,
-                    "sub_category": result.sub_category,
-                    "is_categorized": True,
-                })
+                .update(
+                    {
+                        "category": result.category,
+                        "sub_category": result.sub_category,
+                        "is_categorized": True,
+                    }
+                )
                 .eq("id", det_id)
                 .execute()
             )
