@@ -224,15 +224,15 @@ function RepaymentTrackerPanel({
   const closingBalance = billedAmount ?? 0;
 
   // BDC billing cycle: closes on the 5th of each month, payment due on 28th/29th/30th.
-  // Safe payment window: 6th → due date. Credits from the 6th of the previous month
-  // (i.e. the day after the prior closing) count toward the current cycle.
+  // Day 1–5: payments still belong to the PREVIOUS cycle (last chance before new closing).
+  // Day 6–30: payments count toward the CURRENT cycle statement.
+  // So current-cycle payments = credits from the 6th of the same month as the due date.
   // NBE: unbilledTx is already scoped to the current cycle by the scraper.
   function bdcCycleStart(dueDateStr: string | null | undefined): string | null {
     if (!dueDateStr) return null;
     const due = new Date(dueDateStr);
-    // Closing was the 5th of the due-date month → cycle opened on the 6th of prev month
-    const prevMonth = new Date(due.getFullYear(), due.getMonth() - 1, 6);
-    return prevMonth.toISOString().slice(0, 10);
+    // Cycle opens on 6th of the due-date month (day after the 5th closing)
+    return `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-06`;
   }
 
   const paymentSourceTx = isBDCCard(bankName) ? allCardTx : unbilledTx;
@@ -260,13 +260,19 @@ function RepaymentTrackerPanel({
   const dueDate = paymentDueDate ? new Date(paymentDueDate) : null;
   if (dueDate) dueDate.setHours(0, 0, 0, 0);
 
-  // Next closing date = 5th of the month after due date
+  // Next closing date = 5th of the month after due date (new statement cuts here)
   const nextClosing = dueDate
     ? new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 5)
     : null;
 
-  const isPastDue = dueDate && today > dueDate && (!nextClosing || today <= nextClosing);
-  const isInGracePeriod = nextClosing && today > (dueDate ?? today) && today <= nextClosing;
+  // Day 1–5 of due-date month: previous cycle's late window (interest if not paid by closing)
+  const cycleOpenDate = dueDate
+    ? new Date(dueDate.getFullYear(), dueDate.getMonth(), 6)
+    : null;
+  const isInPrevCycleLateWindow = cycleOpenDate && today < cycleOpenDate;
+
+  // Day after due date → day 5 of next month: current cycle overdue
+  const isPastDue = dueDate && today > dueDate && nextClosing && today <= nextClosing;
   const bdcInterestCharge = closingBalance > 0 ? closingBalance * 0.041 : 0;
 
   // Progress
@@ -288,7 +294,24 @@ function RepaymentTrackerPanel({
   return (
     <div className="space-y-6">
 
-      {/* BDC: late payment warning */}
+      {/* BDC day 1–5: previous cycle late window — interest charges if not fully paid */}
+      {isBDCCard(bankName) && isInPrevCycleLateWindow && closingBalance > 0 && remaining > 0 && (
+        <div className="rounded-xl border border-orange-200 dark:border-orange-900 bg-orange-50 dark:bg-orange-950 p-4 flex gap-3">
+          <svg className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">Pay now — closing date is the 5th</p>
+            <p className="text-xs text-orange-600 dark:text-orange-500 mt-0.5">
+              Payments made today (day 1–5) still count toward the <span className="font-semibold">previous cycle</span>.
+              If the full balance is not paid by the 5th, BDC will charge 4.1% interest on the remaining EGP {formatEGP(remaining)}.
+              Potential charge: <span className="font-semibold">EGP {formatEGP(remaining * 0.041)}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* BDC: current cycle overdue (after due date, before next closing on 5th) */}
       {isBDCCard(bankName) && isPastDue && remaining > 0 && (
         <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 p-4 flex gap-3">
           <svg className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -297,15 +320,15 @@ function RepaymentTrackerPanel({
           <div>
             <p className="text-sm font-semibold text-red-700 dark:text-red-400">Payment overdue — interest accruing</p>
             <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">
-              4.1% interest on closing balance applies until {nextClosingDisplay ?? 'the 5th of next month'}.
+              4.1% interest on the closing balance applies until the 5th of next month.
               Estimated charge: <span className="font-semibold">EGP {formatEGP(bdcInterestCharge)}</span>
             </p>
           </div>
         </div>
       )}
 
-      {/* BDC: safe payment window reminder (not yet due, balance unpaid) */}
-      {isBDCCard(bankName) && !isPastDue && !isInGracePeriod && closingBalance > 0 && remaining > 0 && (
+      {/* BDC: safe payment window (day 6–due date, balance unpaid) */}
+      {isBDCCard(bankName) && !isPastDue && !isInPrevCycleLateWindow && closingBalance > 0 && remaining > 0 && (
         <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950 p-4 flex gap-3">
           <svg className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
@@ -313,7 +336,7 @@ function RepaymentTrackerPanel({
           <div>
             <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">Pay before {dueDateDisplay} to avoid interest</p>
             <p className="text-xs text-blue-600 dark:text-blue-500 mt-0.5">
-              BDC charges 4.1% on the full closing balance if payment is late (after due date until the 5th of next month).
+              BDC charges 4.1% on the full closing balance if payment is late.
               Potential charge if missed: <span className="font-semibold">EGP {formatEGP(bdcInterestCharge)}</span>
             </p>
           </div>
