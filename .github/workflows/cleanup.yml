@@ -1,0 +1,69 @@
+name: Cleanup
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # every Sunday at 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete old workflow runs (keep last 10 per workflow)
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 30
+          keep_minimum_runs: 10
+
+      - name: Delete stale artifacts (older than 7 days)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: { artifacts } } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+
+            const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const stale = artifacts.filter(a => new Date(a.created_at).getTime() < cutoff);
+
+            for (const artifact of stale) {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+              console.log(`Deleted artifact: ${artifact.name} (${artifact.id})`);
+            }
+
+            console.log(`Deleted ${stale.length} artifact(s).`);
+
+      - name: Delete stale caches (older than 7 days)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: { actions_caches } } = await github.rest.actions.getActionsCacheList({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+
+            const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const stale = actions_caches.filter(c => new Date(c.last_accessed_at).getTime() < cutoff);
+
+            for (const cache of stale) {
+              await github.rest.actions.deleteActionsCacheById({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                cache_id: cache.id,
+              });
+              console.log(`Deleted cache: ${cache.key} (${cache.id})`);
+            }
+
+            console.log(`Deleted ${stale.length} cache(s).`);
