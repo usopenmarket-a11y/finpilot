@@ -32,6 +32,7 @@ export interface CreditCardData {
 
 interface CreditCardSelectorProps {
   cards: CreditCardData[];
+  fawryRate?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ function CreditCardRow({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function CreditCardSelector({ cards }: CreditCardSelectorProps) {
+export function CreditCardSelector({ cards, fawryRate }: CreditCardSelectorProps) {
   const [selectedId, setSelectedId] = useState<string>('');
 
   return (
@@ -146,6 +147,7 @@ export function CreditCardSelector({ cards }: CreditCardSelectorProps) {
                 cardBankName={card.bank_name}
                 cardBalance={card.balance}
                 unbilledAmount={card.unbilled_amount}
+                fawryRate={fawryRate}
               />
             </div>
           )}

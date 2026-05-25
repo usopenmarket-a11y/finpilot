@@ -34,6 +34,7 @@ interface CreditCardTabsProps {
   creditLimit?: number | null;
   minimumPayment?: number | null;
   paymentDueDate?: string | null;
+  fawryRate?: number;                     // e.g. 0.01 for 1% — configurable in Settings
   // Card Details props
   cardAccountNumber: string;
   cardIsActive: boolean;
@@ -146,13 +147,13 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
 // Fawry breakdown — shown in Unbilled tab
 // ---------------------------------------------------------------------------
 
-function FawryBreakdown({ transactions, bankName }: { transactions: CreditCardTransaction[]; bankName: string }) {
+function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: CreditCardTransaction[]; bankName: string; fawryRate: number }) {
   const fawryTx = transactions.filter((tx) => isFawry(tx, bankName));
 
   if (fawryTx.length === 0) return null;
 
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
-  const fawryCost = totalFawry * 0.008;
+  const fawryCost = totalFawry * fawryRate;
 
   return (
     <div className="mt-6 space-y-3">
@@ -163,7 +164,7 @@ function FawryBreakdown({ transactions, bankName }: { transactions: CreditCardTr
         <div className="grid grid-cols-2 gap-4">
           <CostStat label="Fawry charges total" value={`EGP ${formatEGP(totalFawry)}`} />
           <CostStat
-            label="Fawry interest (0.8%)"
+            label={`Fawry interest (${(fawryRate * 100).toFixed(2)}%)`}
             value={`EGP ${formatEGP(fawryCost)}`}
             valueColor="text-red-500 dark:text-red-400"
           />
@@ -210,6 +211,7 @@ interface RepaymentTrackerPanelProps {
   minimumPayment?: number | null;
   paymentDueDate?: string | null;
   bankName: string;
+  fawryRate: number;
 }
 
 function RepaymentTrackerPanel({
@@ -220,6 +222,7 @@ function RepaymentTrackerPanel({
   minimumPayment,
   paymentDueDate,
   bankName,
+  fawryRate,
 }: RepaymentTrackerPanelProps) {
   const closingBalance = billedAmount ?? 0;
 
@@ -252,7 +255,7 @@ function RepaymentTrackerPanel({
   // Fawry totals from current-cycle transactions
   const fawryTx = currentCycleTx.filter((tx) => isFawry(tx, bankName));
   const totalFawry = fawryTx.reduce((s, tx) => s + tx.amount, 0);
-  const fawryInterest = totalFawry * 0.008;
+  const fawryInterest = totalFawry * fawryRate;
 
   // BDC payment status relative to today
   const today = new Date();
@@ -387,7 +390,7 @@ function RepaymentTrackerPanel({
             valueColor="text-blue-600 dark:text-blue-400"
           />
           <KpiCard
-            label="Fawry Interest (0.8%)"
+            label={`Fawry Interest (${(fawryRate * 100).toFixed(2)}%)`}
             value={`EGP ${formatEGP(fawryInterest)}`}
             valueColor="text-red-500 dark:text-red-400"
           />
@@ -593,6 +596,7 @@ export function CreditCardTabs({
   creditLimit,
   minimumPayment,
   paymentDueDate,
+  fawryRate = 0.01,
   cardAccountNumber,
   cardIsActive,
   cardBankName,
@@ -663,6 +667,7 @@ export function CreditCardTabs({
             minimumPayment={minimumPayment}
             paymentDueDate={paymentDueDate}
             bankName={cardBankName}
+            fawryRate={fawryRate}
           />
         )}
 
@@ -678,7 +683,7 @@ export function CreditCardTabs({
               </p>
             </div>
             <TransactionList transactions={unbilledTx} />
-            <FawryBreakdown transactions={unbilledTx} bankName={cardBankName} />
+            <FawryBreakdown transactions={unbilledTx} bankName={cardBankName} fawryRate={fawryRate} />
           </div>
         )}
 
@@ -709,7 +714,7 @@ export function CreditCardTabs({
               </p>
             </div>
             <TransactionList transactions={allCardTx} />
-            <FawryBreakdown transactions={allCardTx} bankName={cardBankName} />
+            <FawryBreakdown transactions={allCardTx} bankName={cardBankName} fawryRate={fawryRate} />
           </div>
         )}
 

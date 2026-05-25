@@ -17,9 +17,15 @@ export default function SettingsPage() {
   const [clearingScope, setClearingScope] = useState<ClearDataScope | null>(null);
   const [confirmScope, setConfirmScope] = useState<ClearDataScope | null>(null);
   const [clearMsg, setClearMsg] = useState<string | null>(null);
+
+  // Credit card preferences
+  const [fawryRatePct, setFawryRatePct] = useState('1');
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefsMsg, setPrefsMsg] = useState<string | null>(null);
+
   useEffect(() => {
     const supabase = createClient();
-    void supabase.auth.getUser().then((result: { data: { user: { id: string; email?: string; user_metadata: Record<string, unknown> } | null } }) => {
+    void supabase.auth.getUser().then(async (result: { data: { user: { id: string; email?: string; user_metadata: Record<string, unknown> } | null } }) => {
       const user = result.data.user;
       if (user) {
         setUserId(user.id);
@@ -28,9 +34,39 @@ export default function SettingsPage() {
           ? user.user_metadata.display_name
           : '';
         setDisplayName(name);
+
+        // Load preferences
+        const { data: profile } = await (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('user_profiles')
+          .select('preferences')
+          .eq('id', user.id)
+          .maybeSingle();
+        const prefs = ((profile as Record<string, unknown> | null)?.preferences ?? {}) as Record<string, unknown>;
+        if (typeof prefs.fawry_rate === 'number') {
+          setFawryRatePct((prefs.fawry_rate * 100).toFixed(2));
+        }
       }
     });
   }, []);
+
+  const handleSavePreferences = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) return;
+    setSavingPrefs(true);
+    setPrefsMsg(null);
+    try {
+      const rate = parseFloat(fawryRatePct);
+      if (isNaN(rate) || rate < 0 || rate > 100) throw new Error('Enter a valid percentage between 0 and 100');
+      const supabase = createClient();
+      const { error } = await (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('user_profiles')
+        .upsert({ id: userId, preferences: { fawry_rate: rate / 100 } }, { onConflict: 'id' });
+      if (error) throw error;
+      setPrefsMsg('Preferences saved.');
+    } catch (err) {
+      setPrefsMsg(err instanceof Error ? err.message : 'Failed to save preferences.');
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +132,39 @@ export default function SettingsPage() {
               <Button type="submit" loading={saving}>
                 Save Profile
               </Button>
+            </div>
+          </form>
+        </CardBody>
+      </Card>
+
+      {/* Credit Card Preferences */}
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Credit Card Preferences</h2>
+        </CardHeader>
+        <CardBody>
+          <form onSubmit={handleSavePreferences} className="flex flex-col gap-4">
+            <Input
+              label="Fawry Interest Rate (%)"
+              type="number"
+              value={fawryRatePct}
+              onChange={(e) => setFawryRatePct(e.target.value)}
+              min="0"
+              max="100"
+              step="0.01"
+              helperText="Applied to Fawry charges in the Repayment Tracker (e.g. 1 for 1%)"
+            />
+            {prefsMsg && (
+              <p className={`text-sm px-3 py-2 rounded-lg ${
+                prefsMsg.startsWith('Failed') || prefsMsg.startsWith('Enter')
+                  ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+                  : 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+              }`}>
+                {prefsMsg}
+              </p>
+            )}
+            <div className="flex justify-end">
+              <Button type="submit" loading={savingPrefs}>Save Preferences</Button>
             </div>
           </form>
         </CardBody>

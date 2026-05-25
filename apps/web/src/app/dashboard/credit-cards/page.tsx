@@ -150,7 +150,7 @@ export default async function CreditCardsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
-  const [accountsResult, transactionsResult, credentialsResult] = await Promise.all([
+  const [accountsResult, transactionsResult, credentialsResult, profileResult] = await Promise.all([
     supabase
       .from('bank_accounts')
       .select('*')
@@ -167,10 +167,17 @@ export default async function CreditCardsPage() {
       .from('bank_credentials')
       .select('bank, label')
       .eq('user_id', userId),
+    (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('user_profiles')
+      .select('preferences')
+      .eq('id', userId)
+      .maybeSingle(),
   ]);
 
   const creditCardAccounts: BankAccountRow[] = accountsResult.data ?? [];
   const allTransactions: TransactionRow[] = transactionsResult.data ?? [];
+  const profileData = profileResult.data as Record<string, unknown> | null;
+  const preferences = (profileData?.preferences ?? {}) as Record<string, unknown>;
+  const fawryRate = typeof preferences.fawry_rate === 'number' ? preferences.fawry_rate : 0.01;
 
   const bankNameToLabel: Record<string, string> = {};
   for (const cred of ((credentialsResult.data ?? []) as Pick<BankCredentialRow, 'bank' | 'label'>[]) ) {
@@ -239,7 +246,7 @@ export default async function CreditCardsPage() {
       </div>
 
       {/* Card selector + tabs */}
-      <CreditCardSelector cards={cards} />
+      <CreditCardSelector cards={cards} fawryRate={fawryRate} />
     </div>
   );
 }
