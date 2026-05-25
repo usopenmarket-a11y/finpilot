@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit manually.
 // Regenerate with: Supabase MCP → generate_typescript_types
-// Last generated: 2026-04-04
+// Last generated: 2026-04-19
 
 export type Json =
   | string
@@ -18,6 +18,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      assets: {
+        Row: {
+          asset_type: Database["public"]["Enums"]["asset_type_enum"]
+          created_at: string
+          current_value_egp: number | null
+          id: string
+          name: string
+          notes: string | null
+          purchase_date: string
+          purchase_price_egp: number
+          quantity: number
+          unit: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_type?: Database["public"]["Enums"]["asset_type_enum"]
+          created_at?: string
+          current_value_egp?: number | null
+          id?: string
+          name: string
+          notes?: string | null
+          purchase_date: string
+          purchase_price_egp: number
+          quantity?: number
+          unit?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_type?: Database["public"]["Enums"]["asset_type_enum"]
+          created_at?: string
+          current_value_egp?: number | null
+          id?: string
+          name?: string
+          notes?: string | null
+          purchase_date?: string
+          purchase_price_egp?: number
+          quantity?: number
+          unit?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       bank_accounts: {
         Row: {
           account_number_masked: string
@@ -416,7 +461,14 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      asset_type_enum:
+        | "gold"
+        | "silver"
+        | "car"
+        | "property"
+        | "foreign_currency"
+        | "stock"
+        | "other"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -543,6 +595,16 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      asset_type_enum: [
+        "gold",
+        "silver",
+        "car",
+        "property",
+        "foreign_currency",
+        "stock",
+        "other",
+      ],
+    },
   },
 } as const

@@ -84,12 +84,21 @@ function InstallmentsIcon() {
   );
 }
 
+function AssetsIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { href: '/dashboard/accounts', label: 'Accounts', icon: <AccountsIcon /> },
   { href: '/dashboard/transactions', label: 'Transactions', icon: <TransactionsIcon /> },
   { href: '/dashboard/credit-cards', label: 'Credit Cards', icon: <CreditCardIcon /> },
   { href: '/dashboard/certificates', label: 'Certificates & Deposits', icon: <CertificateIcon /> },
+  { href: '/dashboard/assets', label: 'Assets', icon: <AssetsIcon /> },
   { href: '/dashboard/debts', label: 'Debts', icon: <DebtsIcon /> },
   { href: '/dashboard/installments', label: 'Installments', icon: <InstallmentsIcon /> },
   { href: '/dashboard/recommendations', label: 'Recommendations', icon: <RecommendationsIcon /> },
