@@ -10,6 +10,7 @@ export interface Asset {
   purchase_price_egp: number;
   purchase_date: string;
   current_value_egp: number | null;
+  is_gift: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -59,4 +60,9 @@ export function resolveCurrentValue(asset: Asset, livePrices: Record<string, num
 
 export function gainLoss(asset: Asset, livePrices: Record<string, number>): number {
   return resolveCurrentValue(asset, livePrices) - asset.purchase_price_egp;
+}
+
+export function gainLossPct(asset: Asset, livePrices: Record<string, number>): number | null {
+  if (asset.is_gift || asset.purchase_price_egp === 0) return null; // no meaningful %
+  return (gainLoss(asset, livePrices) / asset.purchase_price_egp) * 100;
 }

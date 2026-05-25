@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import type { Asset } from './types';
-import { resolveCurrentValue, gainLoss, ASSET_TYPE_LABELS, ASSET_TYPE_ICONS, AUTO_PRICE_TYPES } from './types';
+import { resolveCurrentValue, gainLoss, gainLossPct, ASSET_TYPE_LABELS, ASSET_TYPE_ICONS, AUTO_PRICE_TYPES } from './types';
 
 function formatEGP(n: number) {
   return new Intl.NumberFormat('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -54,7 +54,7 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
             {group.map((asset) => {
               const currentValue = resolveCurrentValue(asset, livePrices);
               const gl = gainLoss(asset, livePrices);
-              const glPct = asset.purchase_price_egp > 0 ? (gl / asset.purchase_price_egp) * 100 : 0;
+              const glPct = gainLossPct(asset, livePrices);
               const isAutoPrice = AUTO_PRICE_TYPES.has(asset.asset_type) && !!livePrices[asset.asset_type];
 
               return (
@@ -63,14 +63,13 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900 dark:text-white">{asset.name}</span>
-                        {isAutoPrice && (
-                          <Badge variant="default">Live price</Badge>
-                        )}
+                        {asset.is_gift && <Badge variant="warning">🎁 Gift</Badge>}
+                        {isAutoPrice && <Badge variant="default">Live price</Badge>}
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gray-400 dark:text-gray-500">
                         <span>{asset.quantity} {asset.unit}</span>
-                        <span>Bought {formatDate(asset.purchase_date)}</span>
-                        <span>Cost EGP {formatEGP(asset.purchase_price_egp)}</span>
+                        <span>{asset.is_gift ? 'Received' : 'Bought'} {formatDate(asset.purchase_date)}</span>
+                        {!asset.is_gift && <span>Cost EGP {formatEGP(asset.purchase_price_egp)}</span>}
                       </div>
                       {asset.notes && (
                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">{asset.notes}</p>
@@ -82,7 +81,7 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                         EGP {formatEGP(currentValue)}
                       </p>
                       <p className={`text-xs font-semibold tabular-nums ${gl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                        {gl >= 0 ? '+' : ''}{formatEGP(gl)} ({glPct >= 0 ? '+' : ''}{glPct.toFixed(1)}%)
+                        {gl >= 0 ? '+' : ''}{formatEGP(gl)}{glPct !== null ? ` (${glPct >= 0 ? '+' : ''}${glPct.toFixed(1)}%)` : ' (gift)'}
                       </p>
                     </div>
                   </div>

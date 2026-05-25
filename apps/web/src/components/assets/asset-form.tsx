@@ -24,6 +24,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
   const [purchasePrice, setPurchasePrice] = useState(asset?.purchase_price_egp.toString() ?? '');
   const [purchaseDate, setPurchaseDate] = useState(asset?.purchase_date ?? new Date().toISOString().slice(0, 10));
   const [currentValue, setCurrentValue] = useState(asset?.current_value_egp?.toString() ?? '');
+  const [isGift, setIsGift] = useState(asset?.is_gift ?? false);
   const [notes, setNotes] = useState(asset?.notes ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,12 +41,12 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
     setError(null);
 
     const qtyNum = parseFloat(quantity);
-    const priceNum = parseFloat(purchasePrice);
+    const priceNum = isGift ? 0 : parseFloat(purchasePrice);
     const currentNum = currentValue.trim() ? parseFloat(currentValue) : null;
 
     if (!name.trim()) { setError('Name is required'); return; }
     if (isNaN(qtyNum) || qtyNum <= 0) { setError('Quantity must be a positive number'); return; }
-    if (isNaN(priceNum) || priceNum <= 0) { setError('Purchase price must be a positive number'); return; }
+    if (!isGift && (isNaN(priceNum) || priceNum < 0)) { setError('Purchase price must be 0 or more'); return; }
 
     setSaving(true);
     const supabase = createClient();
@@ -61,6 +62,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       purchase_price_egp: priceNum,
       purchase_date: purchaseDate,
       current_value_egp: isAuto ? null : currentNum,
+      is_gift: isGift,
       notes: notes.trim() || null,
     };
 
@@ -98,6 +100,23 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
           ))}
         </div>
       </div>
+
+      {/* Gift toggle */}
+      <label className="flex items-center gap-3 cursor-pointer select-none">
+        <div className="relative">
+          <input
+            type="checkbox"
+            checked={isGift}
+            onChange={(e) => setIsGift(e.target.checked)}
+            className="sr-only"
+          />
+          <div className={`w-10 h-5 rounded-full transition-colors ${isGift ? 'bg-brand-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
+          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isGift ? 'translate-x-5' : ''}`} />
+        </div>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          🎁 This was a gift <span className="text-xs font-normal text-gray-400">(cost = EGP 0)</span>
+        </span>
+      </label>
 
       {/* Name */}
       <div>
@@ -137,21 +156,25 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       </div>
 
       {/* Purchase price + date */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-3 ${isGift ? 'grid-cols-1' : 'grid-cols-2'}`}>
+        {!isGift && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Purchase Price (EGP total)</label>
+            <input
+              type="number"
+              value={purchasePrice}
+              onChange={(e) => setPurchasePrice(e.target.value)}
+              min="0"
+              step="any"
+              placeholder="0.00"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+        )}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Purchase Price (EGP total)</label>
-          <input
-            type="number"
-            value={purchasePrice}
-            onChange={(e) => setPurchasePrice(e.target.value)}
-            min="0"
-            step="any"
-            placeholder="0.00"
-            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Purchase Date</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            {isGift ? 'Date Received' : 'Purchase Date'}
+          </label>
           <input
             type="date"
             value={purchaseDate}

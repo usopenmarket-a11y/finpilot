@@ -24,6 +24,7 @@ export type Database = {
           created_at: string
           current_value_egp: number | null
           id: string
+          is_gift: boolean
           name: string
           notes: string | null
           purchase_date: string
@@ -38,6 +39,7 @@ export type Database = {
           created_at?: string
           current_value_egp?: number | null
           id?: string
+          is_gift?: boolean
           name: string
           notes?: string | null
           purchase_date: string
@@ -52,6 +54,7 @@ export type Database = {
           created_at?: string
           current_value_egp?: number | null
           id?: string
+          is_gift?: boolean
           name?: string
           notes?: string | null
           purchase_date?: string
