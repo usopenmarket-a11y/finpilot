@@ -64,11 +64,12 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       notes: notes.trim() || null,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const table = supabase.from('assets') as any;
     const { error: dbErr } = isEdit
-      ? await table.update(payload).eq('id', asset.id)
-      : await table.insert(payload);
+      ? await (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('assets')
+          .update(payload)
+          .eq('id', asset.id)
+      : await (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('assets')
+          .insert(payload);
 
     if (dbErr) { setError(dbErr.message); setSaving(false); return; }
     onSaved();
