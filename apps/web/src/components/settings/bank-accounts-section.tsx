@@ -134,6 +134,10 @@ function getDomainCountLabel(count: number): string {
   return `${count} items`;
 }
 
+function getDomainSyncTimeLabel(iso: string | null): string {
+  return iso ? `Last synced: ${formatDate(iso)}` : 'No sync time';
+}
+
 function SyncCoverageBar({
   summary,
   syncingDomains,
@@ -145,15 +149,17 @@ function SyncCoverageBar({
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-1 h-2.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
         {SYNC_DOMAINS.map((domain) => {
-          const isSynced = summary[domain.key].count > 0;
+          const domainSummary = summary[domain.key];
+          const isSynced = domainSummary.count > 0;
           const isSyncing = syncingDomains.has(domain.key);
+          const syncTimeLabel = getDomainSyncTimeLabel(domainSummary.lastSyncedAt);
           return (
             <div
               key={domain.key}
               className={`h-full transition-colors ${
                 isSynced ? domain.completeClass : 'bg-gray-200 dark:bg-gray-700'
               } ${isSyncing ? 'sync-bar-animated' : ''}`}
-              title={`${domain.label}: ${getDomainCountLabel(summary[domain.key].count)}`}
+              title={`${domain.label}: ${getDomainCountLabel(domainSummary.count)} - ${syncTimeLabel}`}
             />
           );
         })}
@@ -162,6 +168,7 @@ function SyncCoverageBar({
         {SYNC_DOMAINS.map((domain) => {
           const domainSummary = summary[domain.key];
           const isSynced = domainSummary.count > 0;
+          const syncTimeLabel = getDomainSyncTimeLabel(domainSummary.lastSyncedAt);
           return (
             <div key={domain.key} className="min-w-0">
               <div className="flex items-center gap-1.5">
@@ -176,6 +183,12 @@ function SyncCoverageBar({
               </div>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                 {getDomainCountLabel(domainSummary.count)}
+              </p>
+              <p
+                className="text-[11px] text-gray-500 dark:text-gray-400 truncate"
+                title={syncTimeLabel}
+              >
+                {syncTimeLabel}
               </p>
             </div>
           );
