@@ -133,20 +133,20 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide, creden
       <button
         type="button"
         onClick={onToggle}
-        className={`w-full flex items-center justify-between px-5 py-4 rounded-xl border transition-colors text-left ${
+        className={`w-full flex flex-col gap-4 px-4 py-4 rounded-xl border transition-colors text-left sm:flex-row sm:items-center sm:justify-between sm:px-5 ${
           isOpen
             ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-500'
             : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-700'
         }`}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:gap-4">
           <div className={`h-10 w-16 rounded-md bg-gradient-to-br ${accountGradient(account.account_type)} flex items-center justify-center flex-shrink-0`}>
             <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
               {credentialLabel ? `${account.bank_name} - ${credentialLabel}` : account.bank_name}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
@@ -154,10 +154,10 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide, creden
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-4">
+          <div className="text-left sm:text-right">
             <p className="text-xs text-gray-500 dark:text-gray-400">Balance</p>
-            <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+            <p className="break-words text-sm font-bold text-gray-900 dark:text-white tabular-nums">
               {account.currency} {formatEGP(balance)}
             </p>
           </div>

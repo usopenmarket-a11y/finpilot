@@ -173,9 +173,9 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
     <div className="flex flex-col gap-4">
       {/* Filters + Recategorize */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-gray-500 dark:text-gray-400">Filters</p>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {recatResult && (
               <p className="text-xs text-gray-500 dark:text-gray-400">{recatResult}</p>
             )}
@@ -216,7 +216,7 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
             onChange={(e) => { setType(e.target.value); setPage(1); }}
             aria-label="Filter by type"
           />
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               type="date"
               value={dateFrom}
@@ -248,8 +248,44 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800 md:hidden">
+            {paginated.map((tx) => (
+              <div key={tx.id} className="px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {tx.description}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatDate(tx.transaction_date)}
+                      </span>
+                      {tx.category ? (
+                        <Badge variant="default">{tx.category}</Badge>
+                      ) : (
+                        <span className="text-xs text-gray-400 dark:text-gray-600">Uncategorized</span>
+                      )}
+                      <Badge variant={tx.transaction_type === 'credit' ? 'success' : 'danger'}>
+                        {tx.transaction_type === 'credit' ? 'Credit' : 'Debit'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <span
+                    className={`max-w-[44%] flex-shrink-0 text-right text-sm font-semibold tabular-nums ${
+                      tx.transaction_type === 'credit'
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-red-500 dark:text-red-400'
+                    }`}
+                  >
+                    {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[680px] text-sm">
               <thead className="border-b border-gray-200 dark:border-gray-800">
                 <tr>
                   <th
@@ -324,11 +360,12 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         {/* Pagination */}
         {sorted.length > 0 && (
-          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
+          <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {sorted.length} transaction{sorted.length !== 1 ? 's' : ''}
               {' '}&mdash; Page {page} of {totalPages}

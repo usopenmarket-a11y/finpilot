@@ -81,8 +81,8 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
       {/* Main row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col justify-between gap-4 px-4 py-4 sm:flex-row sm:items-center sm:px-5">
+        <div className="flex min-w-0 items-center gap-4">
           {/* Icon */}
           <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
             <svg
@@ -96,25 +96,25 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
             </svg>
           </div>
 
-          <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
               {productName ?? account.bank_name}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
               {account.bank_name} · <span className="font-mono">{account.account_number_masked}</span>
             </p>
             {credentialLabel && (
-              <span className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full mt-1">
+              <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
-                {credentialLabel}
+                <span className="truncate">{credentialLabel}</span>
               </span>
             )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+        <div className="flex w-full flex-wrap items-center justify-between gap-4 sm:w-auto sm:justify-end sm:gap-6">
           <Badge variant={typeBadgeVariant(account.account_type)}>
             {typeLabel(account.account_type)}
           </Badge>
@@ -128,7 +128,7 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
           )}
           <div className="text-right">
             <p className="text-xs text-gray-500 dark:text-gray-400">Principal</p>
-            <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+            <p className="break-words text-sm font-bold tabular-nums text-gray-900 dark:text-white">
               {formatCurrency(balance, account.currency)}
             </p>
           </div>
@@ -227,9 +227,9 @@ export default async function CertificatesPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             Certificates &amp; Deposits
@@ -239,7 +239,7 @@ export default async function CertificatesPage() {
           </p>
         </div>
         {accounts.length > 0 && (
-          <div className="text-right">
+          <div className="sm:text-right">
             <p className="text-xs text-gray-500 dark:text-gray-400">Total Value</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">
               EGP {formatEGP(totalValue)}
@@ -273,7 +273,7 @@ export default async function CertificatesPage() {
         <>
           {/* Summary by currency */}
           {Object.keys(byCurrency).length > 1 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {Object.entries(byCurrency).map(([currency, total]) => (
                 <div
                   key={currency}
@@ -282,7 +282,7 @@ export default async function CertificatesPage() {
                   <p className="text-xs text-amber-700 dark:text-amber-400 font-medium mb-1">
                     {currency}
                   </p>
-                  <p className="text-lg font-bold text-amber-900 dark:text-amber-300 tabular-nums">
+                  <p className="break-words text-lg font-bold tabular-nums text-amber-900 dark:text-amber-300">
                     {formatEGP(total)}
                   </p>
                 </div>
@@ -293,7 +293,7 @@ export default async function CertificatesPage() {
           {/* Account list */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">
                   All Instruments
                 </h2>

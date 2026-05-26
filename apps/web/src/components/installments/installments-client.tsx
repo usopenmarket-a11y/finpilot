@@ -149,7 +149,7 @@ function InstallmentForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className={labelCls}>Category *</label>
           <select
@@ -178,7 +178,7 @@ function InstallmentForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className={labelCls}>Down Payment (EGP)</label>
           <input
@@ -206,7 +206,7 @@ function InstallmentForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <label className={labelCls}>Start Date *</label>
           <input
@@ -253,7 +253,7 @@ function InstallmentForm({
         />
       </div>
 
-      <div className="flex gap-3 pt-2">
+      <div className="flex flex-col gap-3 pt-2 sm:flex-row">
         <button
           type="submit"
           disabled={saving}
@@ -301,7 +301,7 @@ function InstallmentCard({
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">
@@ -342,7 +342,7 @@ function InstallmentCard({
       </div>
 
       {/* Key numbers */}
-      <div className="grid grid-cols-3 gap-2 text-center">
+      <div className="grid grid-cols-1 gap-2 text-center sm:grid-cols-3">
         <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
           <p className="text-xs text-gray-500 dark:text-gray-400">Monthly</p>
           <p className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
@@ -491,7 +491,7 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
   return (
     <div className="space-y-6">
       {/* Summary + add button */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {items.length > 0
@@ -501,7 +501,7 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
         </div>
         <button
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 sm:w-auto"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />

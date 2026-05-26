@@ -189,7 +189,7 @@ export default async function CreditCardsPage() {
 
   if (creditCardAccounts.length === 0) {
     return (
-      <div className="p-6 lg:p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Credit Cards</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -225,16 +225,16 @@ export default async function CreditCardsPage() {
   }));
 
   return (
-    <div className="p-6 lg:p-8 space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Credit Cards</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Manage and monitor your credit card activity
           </p>
         </div>
-        <div className="text-right">
+        <div className="sm:text-right">
           <p className="text-xs text-gray-500 dark:text-gray-400">Total Outstanding</p>
           <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">
             EGP {formatEGP(totalBalance)}

@@ -76,7 +76,7 @@ export default async function AccountsPage() {
   );
 
   return (
-    <div className="p-6 lg:p-8 space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       {/* Page heading */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Accounts</h1>
@@ -88,7 +88,7 @@ export default async function AccountsPage() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-1 sm:grid-cols-1 gap-4 max-w-sm">
+      <div className="grid grid-cols-1 gap-4 sm:max-w-sm">
         <AccountCard
           label="Total Liquid Balance"
           amount={liquidBalance}

@@ -61,7 +61,7 @@ export default function ResetPasswordPage() {
   const isLoading = status === 'loading'
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+    <main className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 px-4 py-8">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-50">
@@ -72,7 +72,7 @@ export default function ResetPasswordPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm sm:p-6">
           {status === 'success' ? (
             <div className="space-y-4 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900">

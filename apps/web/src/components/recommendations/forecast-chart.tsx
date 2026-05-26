@@ -49,7 +49,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
       </CardHeader>
       <CardBody>
         {/* Legend */}
-        <div className="flex items-center gap-5 mb-6">
+        <div className="mb-6 flex flex-wrap items-center gap-4 sm:gap-5">
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-sm bg-green-500 inline-block" />
             <span className="text-xs text-gray-500 dark:text-gray-400">Income</span>
@@ -65,7 +65,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
         </div>
 
         {/* Chart */}
-        <div className="flex items-end gap-6 justify-around" style={{ height: BAR_MAX_HEIGHT_PX + 40 }}>
+        <div className="flex items-end justify-around gap-3 sm:gap-6" style={{ height: BAR_MAX_HEIGHT_PX + 40 }}>
           {forecasts.map((point) => {
             const incomeH = Math.round((point.projected_income / maxValue) * BAR_MAX_HEIGHT_PX);
             const expenseH = Math.round((point.projected_expenses / maxValue) * BAR_MAX_HEIGHT_PX);
@@ -75,7 +75,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
             const monthLabel = MONTH_ABBR[(point.month - 1) % 12];
 
             return (
-              <div key={`${point.year}-${point.month}`} className="flex flex-col items-center gap-2 flex-1">
+              <div key={`${point.year}-${point.month}`} className="flex min-w-0 flex-1 flex-col items-center gap-2">
                 {/* Bars */}
                 <div
                   className="flex items-end gap-1 w-full justify-center"
@@ -83,7 +83,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
                 >
                   {/* Income bar */}
                   <div
-                    className="w-5 sm:w-7 rounded-t-sm bg-green-500"
+                    className="w-4 rounded-t-sm bg-green-500 sm:w-7"
                     style={{ height: incomeH }}
                     title={`Income: ${formatEGP(point.projected_income)}`}
                     role="img"
@@ -91,7 +91,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
                   />
                   {/* Expenses bar */}
                   <div
-                    className="w-5 sm:w-7 rounded-t-sm bg-red-400"
+                    className="w-4 rounded-t-sm bg-red-400 sm:w-7"
                     style={{ height: expenseH }}
                     title={`Expenses: ${formatEGP(point.projected_expenses)}`}
                     role="img"
@@ -99,7 +99,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
                   />
                   {/* Net bar */}
                   <div
-                    className={`w-5 sm:w-7 rounded-t-sm ${netPositive ? 'bg-blue-500' : 'bg-blue-300'}`}
+                    className={`w-4 rounded-t-sm sm:w-7 ${netPositive ? 'bg-blue-500' : 'bg-blue-300'}`}
                     style={{ height: netH }}
                     title={`Net: ${formatEGP(point.projected_net)}`}
                     role="img"
@@ -114,7 +114,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
 
                 {/* Net value */}
                 <span
-                  className={`text-xs font-semibold tabular-nums ${
+                  className={`text-center text-xs font-semibold tabular-nums ${
                     netPositive
                       ? 'text-green-600 dark:text-green-400'
                       : 'text-red-500 dark:text-red-400'

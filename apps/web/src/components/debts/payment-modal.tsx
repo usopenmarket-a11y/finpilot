@@ -142,7 +142,7 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
   return (
     <Modal open={open} onClose={handleClose} title={title}>
       {debt && (
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        <p className="mb-4 break-words text-sm text-gray-500 dark:text-gray-400">
           Outstanding balance:{' '}
           <span className="font-semibold text-gray-900 dark:text-white">
             {debt.currency} {debt.outstanding_balance.toFixed(2)}
@@ -193,7 +193,7 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
           </p>
         )}
 
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-end">
           <Button type="button" variant="ghost" onClick={handleClose} disabled={submitting}>
             Cancel
           </Button>

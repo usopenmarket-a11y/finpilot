@@ -544,17 +544,18 @@ export function BankAccountsSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
             Connected Bank Accounts
           </h2>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
             {syncAllSummary && !syncAllRunning && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">{syncAllSummary}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400 sm:text-right">{syncAllSummary}</span>
             )}
             <Button
               size="sm"
               variant="secondary"
+              className="w-full sm:w-auto"
               loading={syncAllRunning}
               disabled={syncAllRunning || isAnySyncingGlobal || loadingList || credentials.length === 0}
               onClick={() => void handleSyncAll()}
@@ -682,13 +683,13 @@ export function BankAccountsSection() {
 
                 return (
                   <li key={cred.id} className="py-4 first:pt-0 last:pb-0">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                       {/* Bank info */}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                           {cred.label ?? (BANK_LABELS[cred.bank as Bank] ?? cred.bank)}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        <p className="mt-0.5 break-words text-xs text-gray-500 dark:text-gray-400">
                           {BANK_LABELS[cred.bank as Bank] ?? cred.bank} &middot; Last synced: {formatDate(cred.last_synced_at)}
                         </p>
                         {/* Non-NBE single sync feedback */}
@@ -746,7 +747,7 @@ export function BankAccountsSection() {
                       </span>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
                         {isNBE ? (
                           <>
                             <Button
@@ -853,6 +854,7 @@ export function BankAccountsSection() {
                         <div className="flex justify-end">
                           <Button
                             size="sm"
+                            className="w-full sm:w-auto"
                             loading={updating}
                             disabled={updating}
                             onClick={() => void handleUpdate(cred)}
@@ -935,6 +937,7 @@ export function BankAccountsSection() {
             <div className="flex justify-end">
               <Button
                 type="submit"
+                className="w-full sm:w-auto"
                 loading={saving}
                 disabled={!selectedBank || !username || !password}
               >

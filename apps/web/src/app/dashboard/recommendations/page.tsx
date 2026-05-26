@@ -72,7 +72,7 @@ const MOCK_FORECAST: ForecastPoint[] = [
 
 export default function RecommendationsPage() {
   return (
-    <div className="p-6 lg:p-8 space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Recommendations</h1>
@@ -82,7 +82,7 @@ export default function RecommendationsPage() {
       </div>
 
       {/* Two-column layout on large screens */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:gap-8">
         {/* Left: monthly plan */}
         <div className="space-y-6">
           <MonthlyPlanCard plan={MOCK_PLAN} />

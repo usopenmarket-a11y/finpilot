@@ -37,7 +37,7 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? 'modal-title' : undefined}
@@ -52,17 +52,17 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
       {/* Panel */}
       <div
         className={`
-          relative w-full max-w-lg flex flex-col rounded-2xl
+          relative w-full max-w-lg flex flex-col rounded-t-2xl sm:rounded-2xl
           bg-white dark:bg-gray-900
           border border-gray-200 dark:border-gray-800
-          shadow-xl max-h-[90vh]
+          shadow-xl max-h-[92vh] sm:max-h-[90vh]
           ${className}
         `}
       >
         {/* Header */}
         {title && (
-          <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-            <h2 id="modal-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-4 sm:px-6 border-b border-gray-200 dark:border-gray-800">
+            <h2 id="modal-title" className="min-w-0 text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
               {title}
             </h2>
             <button
@@ -78,7 +78,7 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
         )}
 
         {/* Body — scrollable */}
-        <div className="overflow-y-auto px-6 py-4">{children}</div>
+        <div className="overflow-y-auto px-4 py-4 sm:px-6">{children}</div>
       </div>
     </div>
   );

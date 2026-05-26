@@ -187,7 +187,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
   return (
     <>
       {/* Mobile top bar */}
-      <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+      <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 lg:hidden">
         <span className="text-lg font-bold text-gray-900 dark:text-white">
           Fin<span className="text-brand-500">Pilot</span>
         </span>
@@ -217,7 +217,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
             onClick={() => setMobileOpen(false)}
             aria-hidden="true"
           />
-          <div className="relative w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
+          <div className="relative w-80 max-w-[85vw] bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
             {sidebarContent}
           </div>
         </div>

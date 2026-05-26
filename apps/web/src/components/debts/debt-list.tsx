@@ -87,7 +87,7 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
             className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 flex flex-col gap-4"
           >
             {/* Header */}
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="font-semibold text-gray-900 dark:text-white truncate">
                   {debt.counterparty_name}
@@ -103,7 +103,7 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
                   )}
                 </p>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-1 sm:flex-shrink-0 sm:justify-end">
                 {/* Edit button */}
                 <button
                   onClick={() => onEditDebt(debt)}
@@ -158,16 +158,16 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
             </div>
 
             {/* Amounts */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Original</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5 tabular-nums">
+                <p className="mt-0.5 break-words text-sm font-semibold tabular-nums text-gray-900 dark:text-white">
                   {debt.currency} {formatEGP(debt.original_amount)}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Outstanding</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-white mt-0.5 tabular-nums">
+                <p className="mt-0.5 break-words text-sm font-semibold tabular-nums text-gray-900 dark:text-white">
                   {debt.currency} {formatEGP(debt.outstanding_balance)}
                 </p>
               </div>
@@ -215,7 +215,7 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
             )}
 
             {/* Actions */}
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="secondary"
                 size="sm"

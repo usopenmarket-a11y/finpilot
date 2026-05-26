@@ -57,13 +57,13 @@ export function AccountCard({
 }: AccountCardProps) {
   return (
     <Card>
-      <CardBody className="p-5">
+      <CardBody className="p-4 sm:p-5">
         <div className="flex items-start justify-between mb-3">
           <div className="p-2 rounded-lg bg-brand-500/10 text-brand-500">{icon}</div>
           <TrendArrow trend={trend} changePercent={changePercent} />
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
+        <p className="break-words text-xl font-bold text-gray-900 dark:text-white tracking-tight sm:text-2xl">
           {currency} {formatAmount(amount, currency)}
         </p>
       </CardBody>

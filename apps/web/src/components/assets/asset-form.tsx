@@ -87,7 +87,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       {/* Asset type */}
       <div>
         <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Asset Type</label>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ASSET_TYPES.map((t) => (
             <button
               key={t}
@@ -160,7 +160,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       </div>
 
       {/* Quantity + Unit */}
-      <div className={`grid gap-3 ${isFx ? 'grid-cols-1' : 'grid-cols-2'}`}>
+      <div className={`grid gap-3 ${isFx ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             {isFx ? `Amount (${currencyCode})` : 'Quantity'}
@@ -189,7 +189,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       </div>
 
       {/* Purchase price + date */}
-      <div className={`grid gap-3 ${isGift ? 'grid-cols-1' : 'grid-cols-2'}`}>
+      <div className={`grid gap-3 ${isGift ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
         {!isGift && (
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Purchase Price (EGP total)</label>
@@ -257,7 +257,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
 
       {error && <p className="text-xs text-red-500">{error}</p>}
 
-      <div className="flex gap-3 pt-1">
+      <div className="flex flex-col gap-3 pt-1 sm:flex-row">
         <Button type="submit" disabled={saving} className="flex-1">
           {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Asset'}
         </Button>

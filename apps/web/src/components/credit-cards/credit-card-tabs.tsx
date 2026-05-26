@@ -114,12 +114,12 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
   return (
     <div className="divide-y divide-gray-100 dark:divide-gray-800">
       {transactions.map((tx) => (
-        <div key={tx.id} className="flex items-center justify-between py-3 px-1">
+        <div key={tx.id} className="flex items-start justify-between gap-3 py-3 px-1">
           <div className="flex flex-col gap-0.5 min-w-0">
             <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
               {tx.description}
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 {formatDate(tx.transaction_date)}
               </span>
@@ -129,7 +129,7 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
             </div>
           </div>
           <span
-            className={`text-sm font-semibold tabular-nums ml-4 flex-shrink-0 ${
+            className={`max-w-[45%] flex-shrink-0 text-right text-sm font-semibold tabular-nums ${
               tx.transaction_type === 'credit'
                 ? 'text-green-600 dark:text-green-400'
                 : 'text-red-500 dark:text-red-400'
@@ -161,7 +161,7 @@ function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: C
         <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
           Fawry Breakdown
         </p>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <CostStat label="Fawry charges total" value={`EGP ${formatEGP(totalFawry)}`} />
           <CostStat
             label={`Fawry interest (${(fawryRate * 100).toFixed(2)}%)`}
@@ -179,7 +179,7 @@ function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: C
           {[...fawryTx]
             .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
             .map((tx) => (
-              <div key={tx.id} className="flex items-center justify-between py-3 px-1 gap-3">
+              <div key={tx.id} className="flex items-start justify-between gap-3 py-3 px-1">
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                     {tx.description}
@@ -188,7 +188,7 @@ function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: C
                     {formatDate(tx.transaction_date)}
                   </span>
                 </div>
-                <span className="text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400 flex-shrink-0">
+                <span className="max-w-[45%] flex-shrink-0 text-right text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">
                   - EGP {formatEGP(tx.amount)}
                 </span>
               </div>
@@ -347,7 +347,7 @@ function RepaymentTrackerPanel({
       )}
 
       {/* 4 KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Closing Balance (5th)"
           value={closingBalance > 0 ? `EGP ${formatEGP(closingBalance)}` : '—'}
@@ -383,7 +383,7 @@ function RepaymentTrackerPanel({
 
       {/* Fawry row */}
       {totalFawry > 0 && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <KpiCard
             label="Fawry Charges (total)"
             value={`EGP ${formatEGP(totalFawry)}`}
@@ -412,7 +412,7 @@ function RepaymentTrackerPanel({
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium text-gray-700 dark:text-gray-300">Repayment Progress</span>
-            <span className="font-semibold text-gray-900 dark:text-white">
+            <span className="text-right font-semibold text-gray-900 dark:text-white">
               {progress.toFixed(1)}% repaid
             </span>
           </div>
@@ -453,7 +453,7 @@ function KpiCard({ label, value, valueColor = 'text-gray-900 dark:text-white', b
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
       <div className="flex items-center gap-2 flex-wrap">
-        <p className={`text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
+        <p className={`break-words text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
         {badge}
       </div>
     </div>
@@ -469,7 +469,7 @@ interface CostStatProps {
 function CostStat({ label, value, valueColor = 'text-gray-900 dark:text-white' }: CostStatProps) {
   return (
     <div className="text-center">
-      <p className={`text-sm font-semibold tabular-nums ${valueColor}`}>{value}</p>
+      <p className={`break-words text-sm font-semibold tabular-nums ${valueColor}`}>{value}</p>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</p>
     </div>
   );
@@ -494,10 +494,10 @@ interface CardDetailsPanelProps {
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   const display = value != null && value !== '' ? value : null;
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
+    <div className="flex flex-col gap-1 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0 sm:flex-row sm:items-center sm:justify-between">
       <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
       {display != null ? (
-        <span className="text-sm font-semibold text-gray-900 dark:text-white text-right">{display}</span>
+        <span className="break-words text-sm font-semibold text-gray-900 dark:text-white sm:text-right">{display}</span>
       ) : (
         <span className="text-sm font-semibold text-gray-400 dark:text-gray-600">—</span>
       )}
@@ -548,7 +548,7 @@ function CardDetailsPanel({
         <DetailRow label="Card Number" value={accountNumber} />
         <DetailRow label="Product Name" value="MasterCard Titanium Credit" />
         <DetailRow label="Card Currency" value="EGP" />
-        <div className="flex items-center justify-between py-2.5 border-b border-gray-100 dark:border-gray-800">
+        <div className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-100 dark:border-gray-800">
           <span className="text-sm text-gray-500 dark:text-gray-400">Card Status</span>
           <div>
             {isActive ? (
@@ -674,7 +674,7 @@ export function CreditCardTabs({
         {/* Unbilled Transactions — NBE only */}
         {activeTab === 'unbilled' && (
           <div>
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {unbilledTx.length} transaction{unbilledTx.length !== 1 ? 's' : ''}
               </p>
@@ -690,7 +690,7 @@ export function CreditCardTabs({
         {/* Unsettled — NBE only */}
         {activeTab === 'unsettled' && (
           <div>
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {unsettledTx.length} transaction{unsettledTx.length !== 1 ? 's' : ''}
               </p>
@@ -705,7 +705,7 @@ export function CreditCardTabs({
         {/* Transactions — BDC only (all card transactions) */}
         {activeTab === 'transactions' && (
           <div>
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {allCardTx.length} transaction{allCardTx.length !== 1 ? 's' : ''}
               </p>

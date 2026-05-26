@@ -250,7 +250,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
   return (
     <div className="flex flex-col gap-4">
       {/* Debt summary line */}
-      <p className="text-sm text-gray-500 dark:text-gray-400">
+      <p className="break-words text-sm text-gray-500 dark:text-gray-400">
         <span className="font-medium text-gray-900 dark:text-white">{debt.counterparty_name}</span>
         {' — '}
         {debt.currency} {formatAmount(debt.original_amount)} original &bull; {debt.currency}{' '}
@@ -282,7 +282,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
               >
                 {/* Normal row */}
                 {!isEditing && (
-                  <div className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex flex-col gap-0.5 min-w-0">
                       <span className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
                         {debt.currency} {formatAmount(payment.amount)}
@@ -297,7 +297,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex flex-wrap items-center gap-1 sm:flex-shrink-0 sm:justify-end">
                       {isConfirmDelete ? (
                         <div className="flex items-center gap-1">
                           <button
@@ -348,7 +348,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
                 {/* Inline edit form */}
                 {isEditing && (
                   <div className="px-4 py-3 flex flex-col gap-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Input
                         label="Amount"
                         type="number"
@@ -382,7 +382,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
                         setEditValues((prev) => ({ ...prev, notes: e.target.value }))
                       }
                     />
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                       <Button
                         type="button"
                         variant="ghost"

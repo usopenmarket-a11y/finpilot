@@ -36,16 +36,16 @@ export function SpendingChart({ categories }: SpendingChartProps) {
             const pct = total > 0 ? (cat.amount / total) * 100 : 0;
             return (
               <div key={cat.name}>
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-start justify-between gap-3 mb-1">
                   <div className="flex items-center gap-2">
                     <span
                       className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: cat.color }}
                       aria-hidden="true"
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{cat.name}</span>
+                    <span className="min-w-0 text-sm text-gray-700 dark:text-gray-300">{cat.name}</span>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-3">
                     <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
                       {pct.toFixed(1)}%
                     </span>

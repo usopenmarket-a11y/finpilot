@@ -59,7 +59,7 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
 
               return (
                 <div key={asset.id} className="px-4 py-4">
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900 dark:text-white">{asset.name}</span>
@@ -80,7 +80,7 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                       )}
                     </div>
 
-                    <div className="flex-shrink-0 text-right">
+                    <div className="flex-shrink-0 sm:text-right">
                       <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-white">
                         EGP {formatEGP(currentValue)}
                       </p>

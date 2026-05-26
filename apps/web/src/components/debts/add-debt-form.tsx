@@ -133,7 +133,7 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
         value={values.debt_type}
         onChange={set('debt_type')}
       />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Input
           label="Amount"
           type="number"
@@ -179,7 +179,7 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
         </p>
       )}
 
-      <div className="flex items-center justify-end gap-3 pt-2">
+      <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-end">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={submitting}>
           Cancel
         </Button>

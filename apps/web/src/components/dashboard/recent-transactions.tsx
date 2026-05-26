@@ -49,7 +49,39 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
         </div>
       </CardHeader>
       <CardBody className="p-0">
-        <div className="overflow-x-auto">
+        <div className="divide-y divide-gray-100 dark:divide-gray-800 sm:hidden">
+          {transactions.map((tx) => (
+            <div key={tx.id} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {tx.description}
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {formatDate(tx.transaction_date)}
+                    </span>
+                    {tx.category && (
+                      <Badge variant={categoryBadgeVariant(tx.category)}>
+                        {tx.category}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <span
+                  className={`max-w-[45%] shrink-0 text-right text-sm font-semibold tabular-nums ${
+                    tx.transaction_type === 'credit'
+                      ? 'text-green-600 dark:text-green-400'
+                      : 'text-red-500 dark:text-red-400'
+                  }`}
+                >
+                  {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-800">

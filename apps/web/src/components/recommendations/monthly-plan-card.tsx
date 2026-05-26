@@ -32,8 +32,8 @@ function formatEGP(amount: number): string {
 
 function ActionItemRow({ item }: { item: ActionItem }) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
-      <div className="flex-shrink-0 mt-0.5">
+    <div className="flex flex-col gap-2 border-b border-gray-100 py-3 last:border-0 dark:border-gray-800 sm:flex-row sm:items-start sm:gap-3">
+      <div className="mt-0.5 flex-shrink-0">
         <Badge variant={priorityVariant(item.priority)}>
           {item.priority.charAt(0).toUpperCase() + item.priority.slice(1)}
         </Badge>
@@ -62,7 +62,7 @@ export function MonthlyPlanCard({ plan }: MonthlyPlanCardProps) {
       {/* Summary */}
       <Card>
         <CardBody>
-          <div className="flex items-start justify-between mb-3">
+          <div className="mb-3 flex items-start justify-between">
             <div>
               <h2 className="text-base font-semibold text-gray-900 dark:text-white">
                 {monthName} {plan.year} Plan

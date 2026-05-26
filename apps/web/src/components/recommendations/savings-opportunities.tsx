@@ -66,7 +66,7 @@ export function SavingsOpportunities({ opportunities }: SavingsOpportunitiesProp
                 </p>
               </div>
             </div>
-            <div className="bg-brand-500/10 rounded-lg px-3 py-2 text-sm">
+            <div className="rounded-lg bg-brand-500/10 px-3 py-2 text-sm">
               <span className="text-gray-600 dark:text-gray-300">Est. monthly saving: </span>
               <span className="font-bold text-brand-500">
                 EGP {formatEGP(opp.estimated_monthly_saving)}

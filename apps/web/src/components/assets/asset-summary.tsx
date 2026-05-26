@@ -26,7 +26,7 @@ export function AssetSummary({ assets, livePrices }: AssetSummaryProps) {
   return (
     <div className="space-y-4">
       {/* Top KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Total Portfolio" value={`EGP ${formatEGP(totalValue)}`} valueColor="text-gray-900 dark:text-white" />
         <KpiCard label="Total Cost" value={`EGP ${formatEGP(totalCost)}`} valueColor="text-gray-500 dark:text-gray-400" />
         <KpiCard
@@ -51,11 +51,11 @@ export function AssetSummary({ assets, livePrices }: AssetSummaryProps) {
               const pct = totalValue > 0 ? (value / totalValue) * 100 : 0;
               return (
                 <div key={type}>
-                  <div className="flex items-center justify-between text-sm mb-1">
+                  <div className="mb-1 flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-gray-700 dark:text-gray-300">
                       {ASSET_TYPE_ICONS[type as keyof typeof ASSET_TYPE_ICONS]} {ASSET_TYPE_LABELS[type as keyof typeof ASSET_TYPE_LABELS]} ({count})
                     </span>
-                    <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                    <span className="font-semibold tabular-nums text-gray-900 dark:text-white sm:text-right">
                       EGP {formatEGP(value)} <span className="text-gray-400 font-normal">({pct.toFixed(1)}%)</span>
                     </span>
                   </div>
@@ -75,7 +75,7 @@ function KpiCard({ label, value, valueColor }: { label: string; value: string; v
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-      <p className={`text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
+      <p className={`break-words text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
     </div>
   );
 }

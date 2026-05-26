@@ -63,21 +63,21 @@ function CreditCardRow({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center justify-between px-5 py-4 rounded-xl border transition-colors text-left ${
+      className={`w-full flex flex-col gap-4 px-4 py-4 rounded-xl border transition-colors text-left sm:flex-row sm:items-center sm:justify-between sm:px-5 ${
         selected
           ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-500'
           : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-700'
       }`}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:gap-4">
         {/* Card icon */}
         <div className="h-10 w-16 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
           <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
           </svg>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">{card.bank_name}</p>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{card.bank_name}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
             {card.account_number_masked}
           </p>
@@ -91,10 +91,10 @@ function CreditCardRow({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-6">
-        <div className="text-right">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-6">
+        <div className="text-left sm:text-right">
           <p className="text-xs text-gray-500 dark:text-gray-400">Current Balance</p>
-          <p className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+          <p className="break-words text-sm font-bold text-gray-900 dark:text-white tabular-nums">
             {card.currency} {formatEGP(card.balance)}
           </p>
         </div>

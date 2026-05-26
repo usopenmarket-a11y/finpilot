@@ -59,9 +59,9 @@ export function HealthScore({ score }: HealthScoreProps) {
         <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
           Financial Health Score
         </h2>
-        <div className="flex items-center gap-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
           {/* Circular SVG gauge */}
-          <div className="flex-shrink-0 relative" style={{ width: size, height: size }}>
+          <div className="relative mx-auto flex-shrink-0 sm:mx-0" style={{ width: size, height: size }}>
             <svg
               width={size}
               height={size}
