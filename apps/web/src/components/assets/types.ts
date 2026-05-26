@@ -10,6 +10,7 @@ export interface Asset {
   purchase_price_egp: number;
   purchase_date: string;
   current_value_egp: number | null;
+  currency_code: string | null;
   is_gift: boolean;
   notes: string | null;
   created_at: string;
@@ -17,7 +18,8 @@ export interface Asset {
 }
 
 // Asset types that support live price calculation (price per unit from API)
-export const AUTO_PRICE_TYPES = new Set<AssetType>(['gold', 'silver']);
+// foreign_currency uses livePrices[currency_code] keyed by ISO code (e.g. 'USD')
+export const AUTO_PRICE_TYPES = new Set<AssetType>(['gold', 'silver', 'foreign_currency']);
 
 export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   gold: 'Gold',
@@ -50,7 +52,10 @@ export const DEFAULT_UNITS: Record<AssetType, string> = {
 };
 
 export function resolveCurrentValue(asset: Asset, livePrices: Record<string, number>): number {
-  if (AUTO_PRICE_TYPES.has(asset.asset_type)) {
+  if (asset.asset_type === 'foreign_currency' && asset.currency_code) {
+    const rate = livePrices[asset.currency_code];
+    if (rate) return asset.quantity * rate;
+  } else if (asset.asset_type === 'gold' || asset.asset_type === 'silver') {
     const pricePerGram = livePrices[asset.asset_type];
     if (pricePerGram) return asset.quantity * pricePerGram;
   }

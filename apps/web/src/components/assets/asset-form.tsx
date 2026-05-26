@@ -14,6 +14,8 @@ interface AssetFormProps {
 
 const ASSET_TYPES: AssetType[] = ['gold', 'silver', 'car', 'property', 'foreign_currency', 'stock', 'other'];
 
+const COMMON_CURRENCIES = ['USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR', 'BHD', 'OMR', 'JPY', 'CNY', 'CHF', 'CAD', 'AUD'];
+
 export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
   const isEdit = !!asset;
 
@@ -21,6 +23,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
   const [assetType, setAssetType] = useState<AssetType>(asset?.asset_type ?? 'gold');
   const [quantity, setQuantity] = useState(asset?.quantity.toString() ?? '1');
   const [unit, setUnit] = useState(asset?.unit ?? DEFAULT_UNITS['gold']);
+  const [currencyCode, setCurrencyCode] = useState(asset?.currency_code ?? 'USD');
   const [purchasePrice, setPurchasePrice] = useState(asset?.purchase_price_egp.toString() ?? '');
   const [purchaseDate, setPurchaseDate] = useState(asset?.purchase_date ?? new Date().toISOString().slice(0, 10));
   const [currentValue, setCurrentValue] = useState(asset?.current_value_egp?.toString() ?? '');
@@ -30,10 +33,11 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   const isAuto = AUTO_PRICE_TYPES.has(assetType);
+  const isFx = assetType === 'foreign_currency';
 
   const handleTypeChange = (t: AssetType) => {
     setAssetType(t);
-    setUnit(DEFAULT_UNITS[t]);
+    setUnit(t === 'foreign_currency' ? currencyCode : DEFAULT_UNITS[t]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,7 +62,8 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       name: name.trim(),
       asset_type: assetType as string,
       quantity: qtyNum,
-      unit: unit.trim() || DEFAULT_UNITS[assetType],
+      unit: isFx ? currencyCode : (unit.trim() || DEFAULT_UNITS[assetType]),
+      currency_code: isFx ? currencyCode : null,
       purchase_price_egp: priceNum,
       purchase_date: purchaseDate,
       current_value_egp: isAuto ? null : currentNum,
@@ -101,6 +106,30 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
         </div>
       </div>
 
+      {/* Currency selector — only for foreign_currency */}
+      {isFx && (
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Currency</label>
+          <div className="flex flex-wrap gap-2">
+            {COMMON_CURRENCIES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => { setCurrencyCode(c); setUnit(c); }}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                  currencyCode === c
+                    ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-gray-400">Not listed? Type it in the Notes field.</p>
+        </div>
+      )}
+
       {/* Gift toggle */}
       <label className="flex items-center gap-3 cursor-pointer select-none">
         <div className="relative">
@@ -131,9 +160,11 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       </div>
 
       {/* Quantity + Unit */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-3 ${isFx ? 'grid-cols-1' : 'grid-cols-2'}`}>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            {isFx ? `Amount (${currencyCode})` : 'Quantity'}
+          </label>
           <input
             type="number"
             value={quantity}
@@ -143,16 +174,18 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
             className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Unit</label>
-          <input
-            type="text"
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-            placeholder="grams, sqm, units…"
-            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+        {!isFx && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Unit</label>
+            <input
+              type="text"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              placeholder="grams, sqm, units…"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+        )}
       </div>
 
       {/* Purchase price + date */}
@@ -204,7 +237,9 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
 
       {isAuto && (
         <p className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 rounded-lg px-3 py-2">
-          Current value is calculated automatically using live {ASSET_TYPE_LABELS[assetType]} prices.
+          {isFx
+            ? `EGP value is calculated automatically using the live ${currencyCode}/EGP exchange rate.`
+            : `Current value is calculated automatically using live ${ASSET_TYPE_LABELS[assetType]} prices.`}
         </p>
       )}
 

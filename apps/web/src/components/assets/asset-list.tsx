@@ -68,6 +68,10 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gray-400 dark:text-gray-500">
                         <span>{asset.quantity} {asset.unit}</span>
+                        {asset.asset_type === 'foreign_currency' && asset.currency_code && (() => {
+                          const rate = livePrices[asset.currency_code!];
+                          return rate ? <span>@ EGP {rate.toFixed(2)}/{asset.currency_code}</span> : null;
+                        })()}
                         <span>{asset.is_gift ? 'Received' : 'Bought'} {formatDate(asset.purchase_date)}</span>
                         {!asset.is_gift && <span>Cost EGP {formatEGP(asset.purchase_price_egp)}</span>}
                       </div>

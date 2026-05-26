@@ -22,6 +22,7 @@ export type Database = {
         Row: {
           asset_type: Database["public"]["Enums"]["asset_type_enum"]
           created_at: string
+          currency_code: string | null
           current_value_egp: number | null
           id: string
           is_gift: boolean
@@ -37,6 +38,7 @@ export type Database = {
         Insert: {
           asset_type?: Database["public"]["Enums"]["asset_type_enum"]
           created_at?: string
+          currency_code?: string | null
           current_value_egp?: number | null
           id?: string
           is_gift?: boolean
@@ -52,6 +54,7 @@ export type Database = {
         Update: {
           asset_type?: Database["public"]["Enums"]["asset_type_enum"]
           created_at?: string
+          currency_code?: string | null
           current_value_egp?: number | null
           id?: string
           is_gift?: boolean

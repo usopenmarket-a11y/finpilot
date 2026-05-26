@@ -29,34 +29,53 @@ export default function AssetsPage() {
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
-    setAssets((data ?? []) as Asset[]);
+    const fetched = (data ?? []) as Asset[];
+    setAssets(fetched);
     setLoading(false);
+    return fetched;
   }, []);
 
-  const fetchLivePrices = useCallback(async () => {
+  const fetchLivePrices = useCallback(async (currentAssets?: Asset[]) => {
     setPriceLoading(true);
     setPriceError(null);
     try {
-      // metals.live — free, no API key, returns USD prices per troy oz
-      // XAU = gold, XAG = silver; 1 troy oz = 31.1035 grams
-      // USD/EGP rate from frankfurter.app (free, no key)
+      // Collect foreign currencies held by the user
+      const assetList = currentAssets ?? assets;
+      const fxCurrencies = [...new Set(
+        assetList
+          .filter((a) => a.asset_type === 'foreign_currency' && a.currency_code)
+          .map((a) => a.currency_code as string)
+      )];
+
+      // Always fetch USD/EGP for gold/silver pricing; add any held currencies
+      const allCurrencies = [...new Set(['USD', ...fxCurrencies])];
+
       const [metalsRes, fxRes] = await Promise.all([
-        fetch('https://metals.live/api/spot', { next: { revalidate: 3600 } }),
-        fetch('https://api.frankfurter.app/latest?from=USD&to=EGP'),
+        fetch('https://metals.live/api/spot'),
+        fetch(`https://api.frankfurter.app/latest?from=EGP&to=${allCurrencies.join(',')}`),
       ]);
 
       if (!metalsRes.ok || !fxRes.ok) throw new Error('Price fetch failed');
 
       const metals = await metalsRes.json() as Array<{ gold?: number; silver?: number }>;
-      const fx = await fxRes.json() as { rates: { EGP: number } };
-
-      const usdEgp = fx.rates.EGP;
-      const latestMetals = metals[0] ?? {};
-      const TROY_OZ_TO_GRAM = 31.1035;
+      // frankfurter returns rates FROM EGP, so invert to get X/EGP
+      const fxData = await fxRes.json() as { rates: Record<string, number> };
 
       const prices: Record<string, number> = {};
-      if (latestMetals.gold) prices['gold'] = (latestMetals.gold / TROY_OZ_TO_GRAM) * usdEgp;
-      if (latestMetals.silver) prices['silver'] = (latestMetals.silver / TROY_OZ_TO_GRAM) * usdEgp;
+
+      // Gold + silver — USD price per troy oz → EGP per gram
+      const usdPerEgp = fxData.rates['USD']; // how many USD per 1 EGP
+      const egpPerUsd = usdPerEgp ? 1 / usdPerEgp : 0;
+      const TROY_OZ_TO_GRAM = 31.1035;
+      const latestMetals = metals[0] ?? {};
+      if (latestMetals.gold && egpPerUsd) prices['gold'] = (latestMetals.gold / TROY_OZ_TO_GRAM) * egpPerUsd;
+      if (latestMetals.silver && egpPerUsd) prices['silver'] = (latestMetals.silver / TROY_OZ_TO_GRAM) * egpPerUsd;
+
+      // Foreign currencies — invert rates to get EGP per 1 unit of currency
+      for (const code of fxCurrencies) {
+        const ratePerEgp = fxData.rates[code];
+        if (ratePerEgp) prices[code] = 1 / ratePerEgp;
+      }
 
       setLivePrices(prices);
       setPriceUpdatedAt(new Date());
@@ -65,17 +84,20 @@ export default function AssetsPage() {
     } finally {
       setPriceLoading(false);
     }
-  }, []);
+  }, [assets]);
 
   useEffect(() => {
-    void fetchAssets();
-    void fetchLivePrices();
+    void fetchAssets().then((fetched) => {
+      void fetchLivePrices(fetched);
+    });
   }, [fetchAssets, fetchLivePrices]);
 
   const handleSaved = () => {
     setShowAddForm(false);
     setEditTarget(null);
-    void fetchAssets();
+    void fetchAssets().then((fetched) => {
+      void fetchLivePrices(fetched);
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -116,6 +138,10 @@ export default function AssetsPage() {
           Prices updated {priceUpdatedAt.toLocaleTimeString('en-EG')}
           {livePrices['gold'] ? ` · Gold EGP ${livePrices['gold'].toFixed(2)}/g` : ''}
           {livePrices['silver'] ? ` · Silver EGP ${livePrices['silver'].toFixed(2)}/g` : ''}
+          {Object.entries(livePrices)
+            .filter(([k]) => !['gold', 'silver'].includes(k))
+            .map(([code, rate]) => ` · ${code}/EGP ${rate.toFixed(2)}`)
+            .join('')}
         </p>
       )}
 
