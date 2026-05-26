@@ -35,19 +35,16 @@ export default function AssetsPage() {
     return fetched;
   }, []);
 
-  const fetchLivePrices = useCallback(async (currentAssets?: Asset[]) => {
+  const fetchLivePrices = useCallback(async (currentAssets: Asset[]) => {
     setPriceLoading(true);
     setPriceError(null);
     try {
-      // Collect foreign currencies held by the user
-      const assetList = currentAssets ?? assets;
       const fxCurrencies = [...new Set(
-        assetList
+        currentAssets
           .filter((a) => a.asset_type === 'foreign_currency' && a.currency_code)
           .map((a) => a.currency_code as string)
       )];
 
-      // Always fetch USD/EGP for gold/silver pricing; add any held currencies
       const allCurrencies = [...new Set(['USD', ...fxCurrencies])];
 
       const [metalsRes, fxRes] = await Promise.all([
@@ -58,20 +55,17 @@ export default function AssetsPage() {
       if (!metalsRes.ok || !fxRes.ok) throw new Error('Price fetch failed');
 
       const metals = await metalsRes.json() as Array<{ gold?: number; silver?: number }>;
-      // frankfurter returns rates FROM EGP, so invert to get X/EGP
       const fxData = await fxRes.json() as { rates: Record<string, number> };
 
       const prices: Record<string, number> = {};
 
-      // Gold + silver — USD price per troy oz → EGP per gram
-      const usdPerEgp = fxData.rates['USD']; // how many USD per 1 EGP
+      const usdPerEgp = fxData.rates['USD'];
       const egpPerUsd = usdPerEgp ? 1 / usdPerEgp : 0;
       const TROY_OZ_TO_GRAM = 31.1035;
       const latestMetals = metals[0] ?? {};
       if (latestMetals.gold && egpPerUsd) prices['gold'] = (latestMetals.gold / TROY_OZ_TO_GRAM) * egpPerUsd;
       if (latestMetals.silver && egpPerUsd) prices['silver'] = (latestMetals.silver / TROY_OZ_TO_GRAM) * egpPerUsd;
 
-      // Foreign currencies — invert rates to get EGP per 1 unit of currency
       for (const code of fxCurrencies) {
         const ratePerEgp = fxData.rates[code];
         if (ratePerEgp) prices[code] = 1 / ratePerEgp;
@@ -84,11 +78,11 @@ export default function AssetsPage() {
     } finally {
       setPriceLoading(false);
     }
-  }, [assets]);
+  }, []); // no deps — always receives assets as argument, never closes over state
 
   useEffect(() => {
     void fetchAssets().then((fetched) => {
-      void fetchLivePrices(fetched);
+      void fetchLivePrices(fetched ?? []);
     });
   }, [fetchAssets, fetchLivePrices]);
 
@@ -96,7 +90,7 @@ export default function AssetsPage() {
     setShowAddForm(false);
     setEditTarget(null);
     void fetchAssets().then((fetched) => {
-      void fetchLivePrices(fetched);
+      void fetchLivePrices(fetched ?? []);
     });
   };
 
@@ -120,7 +114,7 @@ export default function AssetsPage() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void fetchLivePrices()}
+            onClick={() => void fetchLivePrices(assets)}
             disabled={priceLoading}
           >
             {priceLoading ? 'Refreshing…' : 'Refresh Prices'}

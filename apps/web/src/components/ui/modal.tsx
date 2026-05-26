@@ -52,16 +52,16 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
       {/* Panel */}
       <div
         className={`
-          relative w-full max-w-md rounded-2xl
+          relative w-full max-w-lg flex flex-col rounded-2xl
           bg-white dark:bg-gray-900
           border border-gray-200 dark:border-gray-800
-          shadow-xl
+          shadow-xl max-h-[90vh]
           ${className}
         `}
       >
         {/* Header */}
         {title && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
             <h2 id="modal-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               {title}
             </h2>
@@ -77,8 +77,8 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
           </div>
         )}
 
-        {/* Body */}
-        <div className="px-6 py-4">{children}</div>
+        {/* Body — scrollable */}
+        <div className="overflow-y-auto px-6 py-4">{children}</div>
       </div>
     </div>
   );
