@@ -47,25 +47,27 @@ export default function AssetsPage() {
 
       const allCurrencies = [...new Set(['USD', ...fxCurrencies])];
 
-      const [metalsRes, fxRes] = await Promise.all([
-        fetch('https://metals.live/api/spot'),
+      // Fetch metals and FX independently — a metals failure shouldn't block FX rates
+      const [metalsResult, fxRes] = await Promise.all([
+        fetch('https://metals.live/api/spot').then((r) => r.ok ? r.json() : null).catch(() => null),
         fetch(`https://api.frankfurter.app/latest?from=EGP&to=${allCurrencies.join(',')}`),
       ]);
 
-      if (!metalsRes.ok || !fxRes.ok) throw new Error('Price fetch failed');
+      if (!fxRes.ok) throw new Error('FX rate fetch failed');
 
-      const metals = await metalsRes.json() as Array<{ gold?: number; silver?: number }>;
       const fxData = await fxRes.json() as { rates: Record<string, number> };
-
       const prices: Record<string, number> = {};
 
+      // Gold + silver (only if metals API responded)
       const usdPerEgp = fxData.rates['USD'];
       const egpPerUsd = usdPerEgp ? 1 / usdPerEgp : 0;
       const TROY_OZ_TO_GRAM = 31.1035;
-      const latestMetals = metals[0] ?? {};
+      const metals = metalsResult as Array<{ gold?: number; silver?: number }> | null;
+      const latestMetals = metals?.[0] ?? {};
       if (latestMetals.gold && egpPerUsd) prices['gold'] = (latestMetals.gold / TROY_OZ_TO_GRAM) * egpPerUsd;
       if (latestMetals.silver && egpPerUsd) prices['silver'] = (latestMetals.silver / TROY_OZ_TO_GRAM) * egpPerUsd;
 
+      // Foreign currencies — invert EGP-base rates to get EGP per 1 unit
       for (const code of fxCurrencies) {
         const ratePerEgp = fxData.rates[code];
         if (ratePerEgp) prices[code] = 1 / ratePerEgp;
@@ -78,7 +80,7 @@ export default function AssetsPage() {
     } finally {
       setPriceLoading(false);
     }
-  }, []); // no deps — always receives assets as argument, never closes over state
+  }, []);
 
   useEffect(() => {
     void fetchAssets().then((fetched) => {

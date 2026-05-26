@@ -84,9 +84,15 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                       <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-white">
                         EGP {formatEGP(currentValue)}
                       </p>
-                      <p className={`text-xs font-semibold tabular-nums ${gl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                        {gl >= 0 ? '+' : ''}{formatEGP(gl)}{glPct !== null ? ` (${glPct >= 0 ? '+' : ''}${glPct.toFixed(1)}%)` : ' (gift)'}
-                      </p>
+                      {glPct !== null ? (
+                        <p className={`text-xs font-semibold tabular-nums ${gl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                          {gl >= 0 ? '+' : ''}{formatEGP(gl)} ({glPct >= 0 ? '+' : ''}{glPct.toFixed(1)}%)
+                        </p>
+                      ) : (
+                        <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                          🎁 gift · no cost basis
+                        </p>
+                      )}
                     </div>
                   </div>
 
