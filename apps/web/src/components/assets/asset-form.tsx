@@ -83,7 +83,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
   };
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
       {/* Asset type */}
       <div>
         <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Asset Type</label>
@@ -93,14 +93,14 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
               key={t}
               type="button"
               onClick={() => handleTypeChange(t)}
-              className={`flex flex-col items-center gap-1 rounded-lg border p-2 text-xs font-medium transition-colors ${
+              className={`flex flex-col items-center gap-0.5 rounded-lg border px-1.5 py-1.5 text-xs font-medium transition-colors ${
                 assetType === t
                   ? 'border-brand-500 bg-brand-500/10 text-brand-500'
                   : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
-              <span className="text-lg">{ASSET_TYPE_ICONS[t]}</span>
-              <span>{ASSET_TYPE_LABELS[t]}</span>
+              <span className="text-base">{ASSET_TYPE_ICONS[t]}</span>
+              <span className="leading-tight">{ASSET_TYPE_LABELS[t]}</span>
             </button>
           ))}
         </div>
@@ -110,13 +110,13 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       {isFx && (
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Currency</label>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {COMMON_CURRENCIES.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => { setCurrencyCode(c); setUnit(c); }}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                className={`px-2.5 py-1 rounded-md border text-xs font-semibold transition-colors ${
                   currencyCode === c
                     ? 'border-brand-500 bg-brand-500/10 text-brand-500'
                     : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
@@ -126,7 +126,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
               </button>
             ))}
           </div>
-          <p className="mt-1.5 text-xs text-gray-400">Not listed? Type it in the Notes field.</p>
+          <p className="mt-1 text-xs text-gray-400">Not listed? Type it in the Notes field.</p>
         </div>
       )}
 
