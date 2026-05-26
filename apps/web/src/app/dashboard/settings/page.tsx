@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { clearData, type ClearDataScope } from '@/lib/api-client';
+import {
+  clearData,
+  getPreferences,
+  savePreferences,
+  type ClearDataScope,
+} from '@/lib/api-client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
@@ -35,14 +40,13 @@ export default function SettingsPage() {
           : '';
         setDisplayName(name);
 
-        // Load preferences
-        const { data: profile } = await (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('user_profiles')
-          .select('preferences')
-          .eq('id', user.id)
-          .maybeSingle();
-        const prefs = ((profile as Record<string, unknown> | null)?.preferences ?? {}) as Record<string, unknown>;
-        if (typeof prefs.fawry_rate === 'number') {
-          setFawryRatePct((prefs.fawry_rate * 100).toFixed(2));
+        try {
+          const prefs = await getPreferences(user.id);
+          if (typeof prefs.fawry_rate === 'number') {
+            setFawryRatePct((prefs.fawry_rate * 100).toFixed(2));
+          }
+        } catch {
+          // Keep the default preference value if the API is unavailable.
         }
       }
     });
@@ -56,10 +60,7 @@ export default function SettingsPage() {
     try {
       const rate = parseFloat(fawryRatePct);
       if (isNaN(rate) || rate < 0 || rate > 100) throw new Error('Enter a valid percentage between 0 and 100');
-      const supabase = createClient();
-      const { error } = await (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('user_profiles')
-        .upsert({ id: userId, preferences: { fawry_rate: rate / 100 } }, { onConflict: 'id' });
-      if (error) throw error;
+      await savePreferences(userId, { fawry_rate: rate / 100 });
       setPrefsMsg('Preferences saved.');
     } catch (err) {
       setPrefsMsg(err instanceof Error ? err.message : 'Failed to save preferences.');
@@ -88,7 +89,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-6 lg:p-8 space-y-8 max-w-2xl">
+    <div className="p-6 lg:p-8 space-y-8 max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">

@@ -6,6 +6,7 @@ import { CreditCardSelector } from '@/components/credit-cards/credit-card-select
 import type { CreditCardData } from '@/components/credit-cards/credit-card-selector';
 import type { MonthlySpend, CreditCardTransaction } from '@/components/credit-cards/credit-card-tabs';
 import type { Database } from '@finpilot/shared';
+import { getPreferences } from '@/lib/api-client';
 
 type BankAccountRow = Database['public']['Tables']['bank_accounts']['Row'];
 type TransactionRow = Database['public']['Tables']['transactions']['Row'];
@@ -150,7 +151,7 @@ export default async function CreditCardsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
-  const [accountsResult, transactionsResult, credentialsResult, profileResult] = await Promise.all([
+  const [accountsResult, transactionsResult, credentialsResult, preferencesResult] = await Promise.all([
     supabase
       .from('bank_accounts')
       .select('*')
@@ -167,16 +168,12 @@ export default async function CreditCardsPage() {
       .from('bank_credentials')
       .select('bank, label')
       .eq('user_id', userId),
-    (supabase.from as (t: string) => ReturnType<typeof supabase.from>)('user_profiles')
-      .select('preferences')
-      .eq('id', userId)
-      .maybeSingle(),
+    userId ? getPreferences(userId).catch(() => ({})) : Promise.resolve({}),
   ]);
 
   const creditCardAccounts: BankAccountRow[] = accountsResult.data ?? [];
   const allTransactions: TransactionRow[] = transactionsResult.data ?? [];
-  const profileData = profileResult.data as Record<string, unknown> | null;
-  const preferences = (profileData?.preferences ?? {}) as Record<string, unknown>;
+  const preferences = preferencesResult as Record<string, unknown>;
   const fawryRate = typeof preferences.fawry_rate === 'number' ? preferences.fawry_rate : 0.01;
 
   const bankNameToLabel: Record<string, string> = {};

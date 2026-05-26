@@ -24,8 +24,8 @@ type Bank = 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB';
 const BANK_OPTIONS: { value: string; label: string }[] = [
   { value: 'NBE', label: 'National Bank of Egypt (NBE)' },
   { value: 'CIB', label: 'Commercial International Bank (CIB)' },
-  { value: 'BDC', label: 'Banque Du Caire — ibanking (BDC)' },
-  { value: 'BDC_RETAIL', label: 'Banque Du Caire — Retail (BDC Retail)' },
+  { value: 'BDC', label: 'Banque Du Caire - ibanking (BDC)' },
+  { value: 'BDC_RETAIL', label: 'Banque Du Caire - Retail (BDC Retail)' },
   { value: 'UB', label: 'United Bank (UB)' },
 ];
 
@@ -37,6 +37,37 @@ const BANK_LABELS: Record<Bank, string> = {
   UB: 'United Bank',
 };
 
+type SyncDomain = 'accounts' | 'cards' | 'certificates';
+
+interface BankAccountSyncRow {
+  bank_name: string;
+  account_type: string;
+  credential_label: string | null;
+  last_synced_at: string | null;
+}
+
+interface DomainSummary {
+  count: number;
+  lastSyncedAt: string | null;
+}
+
+type SyncSummary = Record<SyncDomain, DomainSummary>;
+
+const SYNC_DOMAINS: { key: SyncDomain; label: string; completeClass: string }[] = [
+  { key: 'accounts', label: 'Accounts', completeClass: 'bg-sky-500 dark:bg-sky-400' },
+  { key: 'cards', label: 'Cards', completeClass: 'bg-emerald-500 dark:bg-emerald-400' },
+  { key: 'certificates', label: 'Certificates', completeClass: 'bg-amber-500 dark:bg-amber-400' },
+];
+
+const EMPTY_SYNC_SUMMARY: SyncSummary = {
+  accounts: { count: 0, lastSyncedAt: null },
+  cards: { count: 0, lastSyncedAt: null },
+  certificates: { count: 0, lastSyncedAt: null },
+};
+
+const CERTIFICATE_TYPES = new Set(['certificate', 'deposit', 'term_deposit']);
+const DEMAND_ACCOUNT_TYPES = new Set(['savings', 'current', 'payroll']);
+
 function formatDate(iso: string | null): string {
   if (!iso) return 'Never';
   return new Intl.DateTimeFormat('en-EG', {
@@ -47,6 +78,111 @@ function formatDate(iso: string | null): string {
 
 function isValidBank(value: string): value is Bank {
   return ['NBE', 'CIB', 'BDC', 'BDC_RETAIL', 'UB'].includes(value);
+}
+
+function cloneEmptySyncSummary(): SyncSummary {
+  return {
+    accounts: { ...EMPTY_SYNC_SUMMARY.accounts },
+    cards: { ...EMPTY_SYNC_SUMMARY.cards },
+    certificates: { ...EMPTY_SYNC_SUMMARY.certificates },
+  };
+}
+
+function newerDate(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+function classifySyncDomain(accountType: string): SyncDomain | null {
+  if (accountType === 'credit_card') return 'cards';
+  if (CERTIFICATE_TYPES.has(accountType)) return 'certificates';
+  if (DEMAND_ACCOUNT_TYPES.has(accountType)) return 'accounts';
+  return null;
+}
+
+function bankAliases(bank: string): Set<string> {
+  const aliases = new Set<string>([bank]);
+  if (isValidBank(bank)) aliases.add(BANK_LABELS[bank]);
+  return aliases;
+}
+
+function rowBelongsToCredential(row: BankAccountSyncRow, cred: CredentialInfo): boolean {
+  if (!bankAliases(cred.bank).has(row.bank_name)) return false;
+  if (!row.credential_label || !cred.label) return true;
+  return row.credential_label === cred.label;
+}
+
+function buildSyncSummary(rows: BankAccountSyncRow[], cred?: CredentialInfo): SyncSummary {
+  const summary = cloneEmptySyncSummary();
+
+  for (const row of rows) {
+    if (cred && !rowBelongsToCredential(row, cred)) continue;
+    const domain = classifySyncDomain(row.account_type);
+    if (!domain) continue;
+
+    summary[domain].count += 1;
+    summary[domain].lastSyncedAt = newerDate(summary[domain].lastSyncedAt, row.last_synced_at);
+  }
+
+  return summary;
+}
+
+function getDomainCountLabel(count: number): string {
+  if (count === 0) return 'Not synced';
+  if (count === 1) return '1 item';
+  return `${count} items`;
+}
+
+function SyncCoverageBar({
+  summary,
+  syncingDomains,
+}: {
+  summary: SyncSummary;
+  syncingDomains: Set<SyncDomain>;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-1 h-2.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+        {SYNC_DOMAINS.map((domain) => {
+          const isSynced = summary[domain.key].count > 0;
+          const isSyncing = syncingDomains.has(domain.key);
+          return (
+            <div
+              key={domain.key}
+              className={`h-full transition-colors ${
+                isSynced ? domain.completeClass : 'bg-gray-200 dark:bg-gray-700'
+              } ${isSyncing ? 'sync-bar-animated' : ''}`}
+              title={`${domain.label}: ${getDomainCountLabel(summary[domain.key].count)}`}
+            />
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {SYNC_DOMAINS.map((domain) => {
+          const domainSummary = summary[domain.key];
+          const isSynced = domainSummary.count > 0;
+          return (
+            <div key={domain.key} className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    isSynced ? domain.completeClass : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {domain.label}
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                {getDomainCountLabel(domainSummary.count)}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 interface SyncState {
@@ -61,6 +197,8 @@ export function BankAccountsSection() {
   const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
+  const [syncedAccounts, setSyncedAccounts] = useState<BankAccountSyncRow[]>([]);
+  const [syncInventoryError, setSyncInventoryError] = useState<string | null>(null);
 
   // Add-form state
   const [selectedBank, setSelectedBank] = useState<string>('');
@@ -74,7 +212,7 @@ export function BankAccountsSection() {
   // Per-credential sync state keyed by credential id (or `${credId}_accounts` etc for NBE)
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({});
 
-  // Elapsed seconds counter — increments every second for any key currently loading
+  // Elapsed seconds counter - increments every second for any key currently loading
   const [elapsedSeconds, setElapsedSeconds] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -130,9 +268,46 @@ export function BankAccountsSection() {
     }
   }, []);
 
+  const fetchSyncedAccounts = useCallback(async (uid: string) => {
+    setSyncInventoryError(null);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('bank_name, account_type, credential_label, last_synced_at')
+        .eq('user_id', uid)
+        .eq('is_active', true);
+
+      if (error) {
+        const fallback = await supabase
+          .from('bank_accounts')
+          .select('bank_name, account_type, last_synced_at')
+          .eq('user_id', uid)
+          .eq('is_active', true);
+
+        if (fallback.error) throw error;
+        setSyncedAccounts(
+          ((fallback.data ?? []) as Omit<BankAccountSyncRow, 'credential_label'>[]).map((row) => ({
+            ...row,
+            credential_label: null,
+          })),
+        );
+        return;
+      }
+
+      setSyncedAccounts((data ?? []) as BankAccountSyncRow[]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load sync coverage';
+      setSyncInventoryError(message);
+    }
+  }, []);
+
   useEffect(() => {
-    if (userId) void fetchCredentials(userId);
-  }, [userId, fetchCredentials]);
+    if (userId) {
+      void fetchCredentials(userId);
+      void fetchSyncedAccounts(userId);
+    }
+  }, [userId, fetchCredentials, fetchSyncedAccounts]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,7 +340,7 @@ export function BankAccountsSection() {
       setSaveSuccess(true);
 
       // Refresh list
-      await fetchCredentials(userId);
+      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to save credentials';
       setSaveError(message);
@@ -180,6 +355,7 @@ export function BankAccountsSection() {
     try {
       await deleteCredential(userId, cred.id);
       setCredentials((prev) => prev.filter((c) => c.id !== cred.id));
+      await fetchSyncedAccounts(userId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to remove credentials';
       setListError(message);
@@ -212,7 +388,7 @@ export function BankAccountsSection() {
       setEditUsername('');
       setEditPassword('');
       setEditLabel('');
-      await fetchCredentials(userId);
+      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update credentials';
       setUpdateError(message);
@@ -241,8 +417,8 @@ export function BankAccountsSection() {
           startedAt: null,
         },
       }));
-      // Refresh list to update last_synced_at
-      await fetchCredentials(userId);
+      // Refresh list to update last_synced_at and synced-domain coverage.
+      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
@@ -288,7 +464,7 @@ export function BankAccountsSection() {
           startedAt: null,
         },
       }));
-      await fetchCredentials(userId);
+      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
@@ -329,7 +505,7 @@ export function BankAccountsSection() {
       setSyncAllProgress({ done, total });
     }
 
-    await fetchCredentials(userId);
+    await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
     setSyncAllRunning(false);
     setSyncAllProgress(null);
     if (failed === 0) {
@@ -338,6 +514,19 @@ export function BankAccountsSection() {
       setSyncAllSummary(`${done - failed} synced, ${failed} failed`);
     }
   };
+
+  const globalSummary = buildSyncSummary(syncedAccounts);
+  const globalSyncingDomains = new Set<SyncDomain>();
+  if (syncAllRunning) {
+    SYNC_DOMAINS.forEach((domain) => globalSyncingDomains.add(domain.key));
+  }
+  for (const [key, state] of Object.entries(syncStates)) {
+    if (!state.loading) continue;
+    if (key.endsWith('_accounts')) globalSyncingDomains.add('accounts');
+    else if (key.endsWith('_cc')) globalSyncingDomains.add('cards');
+    else if (key.endsWith('_certs')) globalSyncingDomains.add('certificates');
+    else SYNC_DOMAINS.forEach((domain) => globalSyncingDomains.add(domain.key));
+  }
 
   return (
     <Card>
@@ -358,7 +547,7 @@ export function BankAccountsSection() {
               onClick={() => void handleSyncAll()}
             >
               {syncAllRunning && syncAllProgress
-                ? `Syncing… (${syncAllProgress.done}/${syncAllProgress.total})`
+                ? `Syncing... (${syncAllProgress.done}/${syncAllProgress.total})`
                 : 'Sync All'}
             </Button>
           </div>
@@ -374,6 +563,24 @@ export function BankAccountsSection() {
             <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
               {listError}
             </p>
+          )}
+          {credentials.length > 0 && (
+            <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 p-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  Sync Coverage
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {syncedAccounts.length} synced item{syncedAccounts.length === 1 ? '' : 's'} found
+                </p>
+              </div>
+              <SyncCoverageBar summary={globalSummary} syncingDomains={globalSyncingDomains} />
+              {syncInventoryError && (
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-3">
+                  Sync coverage is unavailable: {syncInventoryError}
+                </p>
+              )}
+            </div>
           )}
           {!loadingList && credentials.length === 0 && !listError && (
             <div className="flex flex-col items-center py-6 gap-2 text-center">
@@ -451,6 +658,14 @@ export function BankAccountsSection() {
 
                 const hasPasswordChangeError = [cred.id, `${cred.id}_accounts`, `${cred.id}_cc`, `${cred.id}_certs`]
                   .some(k => syncStates[k]?.error?.toLowerCase().includes('password change'));
+                const credentialSummary = buildSyncSummary(syncedAccounts, cred);
+                const credentialSyncingDomains = new Set<SyncDomain>();
+                if (syncAllRunning || isSyncing) {
+                  SYNC_DOMAINS.forEach((domain) => credentialSyncingDomains.add(domain.key));
+                }
+                if (accountsState?.loading) credentialSyncingDomains.add('accounts');
+                if (ccState?.loading) credentialSyncingDomains.add('cards');
+                if (certsState?.loading) credentialSyncingDomains.add('certificates');
 
                 return (
                   <li key={cred.id} className="py-4 first:pt-0 last:pb-0">
@@ -498,6 +713,12 @@ export function BankAccountsSection() {
                             </p>
                           </div>
                         )}
+                        <div className="mt-3 max-w-md">
+                          <SyncCoverageBar
+                            summary={credentialSummary}
+                            syncingDomains={credentialSyncingDomains}
+                          />
+                        </div>
                       </div>
 
                       {/* Status badge */}
@@ -587,7 +808,7 @@ export function BankAccountsSection() {
                     {editingId === cred.id && (
                       <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 space-y-3">
                         <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                          Update credentials — leave blank to keep existing value
+                          Update credentials - leave blank to keep existing value
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <Input
@@ -630,7 +851,7 @@ export function BankAccountsSection() {
                     )}
                     {activeSyncKeys.length > 0 && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        Syncing... {maxElapsed}s — this can take 2-4 minutes
+                        Syncing... {maxElapsed}s - this can take 2-4 minutes
                       </p>
                     )}
                   </li>

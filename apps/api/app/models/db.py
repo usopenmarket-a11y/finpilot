@@ -31,6 +31,10 @@ class UserProfile(BaseModel):
 
     id: UUID = Field(description="FK to auth.users(id) — same value as the Supabase user UID")
     full_name: str | None = Field(default=None, description="User's display name")
+    preferences: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Application preferences stored as JSONB",
+    )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
 

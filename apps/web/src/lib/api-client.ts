@@ -42,6 +42,11 @@ export interface SyncJobStatusResponse {
   error: string | null;
 }
 
+export interface UserPreferences {
+  fawry_rate?: number;
+  [key: string]: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -154,13 +159,37 @@ export async function updateCredential(
 }
 
 // ---------------------------------------------------------------------------
-// Sync — async job pattern
+// User preferences
+// ---------------------------------------------------------------------------
+
+export async function getPreferences(userId: string): Promise<UserPreferences> {
+  const response = await apiFetch<{ preferences: UserPreferences }>('/api/v1/user/preferences', {
+    method: 'GET',
+    userId,
+  });
+  return response.preferences;
+}
+
+export async function savePreferences(
+  userId: string,
+  preferences: UserPreferences,
+): Promise<UserPreferences> {
+  const response = await apiFetch<{ preferences: UserPreferences }>('/api/v1/user/preferences', {
+    method: 'PATCH',
+    userId,
+    body: JSON.stringify({ preferences }),
+  });
+  return response.preferences;
+}
+
+// ---------------------------------------------------------------------------
+// Sync
 // ---------------------------------------------------------------------------
 
 /**
  * Poll a job until it reaches 'complete' or 'failed' status.
  *
- * Internal helper — not exported. All public sync functions delegate here.
+ * Internal helper - not exported. All public sync functions delegate here.
  */
 async function _pollSyncJob(
   userId: string,

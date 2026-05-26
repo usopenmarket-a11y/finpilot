@@ -13,6 +13,7 @@ from app.routers import (
     debts,
     health,
     installments,
+    preferences,
     recommendations,
     scrape,
     sync,
@@ -107,6 +108,7 @@ def create_app() -> FastAPI:
     app.include_router(utils.router, prefix="/api/v1")
     app.include_router(sync.router, prefix="/api/v1")
     app.include_router(installments.router, prefix="/api/v1")
+    app.include_router(preferences.router, prefix="/api/v1")
 
     return app
 
