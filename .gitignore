@@ -19,6 +19,7 @@ __pycache__/
 *.egg-info/
 .eggs/
 .venv/
+.venv-win/
 venv/
 .uv/
 *.dist-info/
@@ -52,3 +53,20 @@ htmlcov/
 
 # Type checking
 *.tsbuildinfo
+
+# Local tool state
+.claude/worktrees/
+.claude/agent-memory/bank-scraper/project_bdc_retail_portal.md
+.claude/agent-memory/finpilot-frontend-dev/project_m10_dashboard_accounts.md
+apps/api/.claude/
+apps/api/.venv-win/
+supabase/.temp/
+
+# Local scraper/debug scripts
+apps/api/recon_cc_menu.py
+apps/api/recon_login_step2.py
+apps/api/recon_ubt_uns.py
+apps/api/run_cc_scraper.py
+
+Screenshots/
+Banks/
