@@ -9,6 +9,13 @@ Security contract
   fields and prevent parameter-pollution attacks.
 * All monetary amounts in responses are typed as ``Decimal``; ``float`` is
   forbidden for financial values to prevent rounding-error bugs.
+* Every endpoint requires a verified Supabase Auth JWT via
+  ``Depends(get_current_user_id)`` (see ``app.deps``). The verified
+  ``user_id`` (the JWT ``sub`` claim) is stored on each debt at creation time
+  and used to filter every read/update/delete, so one user can never view or
+  mutate another user's debts — even though storage is in-memory rather than
+  Supabase-backed. This replaces a previous hardcoded sentinel user id that
+  caused ALL debts (across ALL users) to share a single namespace.
 
 Storage strategy
 ----------------
@@ -26,8 +33,10 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.deps import get_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -128,10 +137,6 @@ class DebtDetailResponse(DebtResponse):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-# Sentinel user_id used in place of a real JWT-extracted identity.  In
-# production this would come from the request's JWT claim.
-_SENTINEL_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
-
 
 def _is_valid_uuid(value: str) -> bool:
     try:
@@ -141,9 +146,15 @@ def _is_valid_uuid(value: str) -> bool:
         return False
 
 
-def _get_debt_or_404(debt_id: str) -> dict:
+def _get_debt_or_404(debt_id: str, user_id: UUID) -> dict:
+    """Look up a debt by id and verify it belongs to ``user_id``.
+
+    A debt that exists but belongs to a different user returns the same 404
+    as a nonexistent debt id, so the response does not leak the existence of
+    other users' records (avoids IDOR enumeration).
+    """
     debt = _debts.get(debt_id)
-    if debt is None:
+    if debt is None or debt["user_id"] != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Debt not found",
@@ -206,11 +217,15 @@ def _update_debt_status(debt: dict) -> None:
     status_code=status.HTTP_201_CREATED,
     summary="Create a new debt record (lent or borrowed)",
 )
-async def create_debt(body: DebtCreate) -> DebtResponse:
+async def create_debt(
+    body: DebtCreate,
+    user_id: UUID = Depends(get_current_user_id),
+) -> DebtResponse:
     """Record a new manual debt entry.
 
     HTTP error mapping
     ------------------
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure (malformed request body).
     """
     debt_id = uuid4()
@@ -220,7 +235,7 @@ async def create_debt(body: DebtCreate) -> DebtResponse:
 
     debt: dict = {
         "id": debt_id,
-        "user_id": _SENTINEL_USER_ID,
+        "user_id": user_id,
         "debt_type": body.debt_type,
         "counterparty_name": body.counterparty_name,
         "counterparty_phone": body.counterparty_phone,
@@ -256,8 +271,9 @@ async def create_debt(body: DebtCreate) -> DebtResponse:
 async def list_debts(
     status: str | None = None,
     debt_type: str | None = None,
+    user_id: UUID = Depends(get_current_user_id),
 ) -> list[DebtResponse]:
-    """Return all stored debts for the current user.
+    """Return all stored debts owned by the current user.
 
     Query parameters
     ----------------
@@ -267,6 +283,7 @@ async def list_debts(
     HTTP error mapping
     ------------------
     * 400 — invalid ``status`` or ``debt_type`` query parameter value.
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     """
     import re
@@ -282,7 +299,7 @@ async def list_debts(
             detail="Invalid debt_type value. Must be one of: lent, borrowed",
         )
 
-    debts = list(_debts.values())
+    debts = [d for d in _debts.values() if d["user_id"] == user_id]
 
     if status is not None:
         debts = [d for d in debts if d["status"] == status]
@@ -305,14 +322,18 @@ async def list_debts(
     status_code=status.HTTP_200_OK,
     summary="Retrieve a single debt record with its full payment history",
 )
-async def get_debt(debt_id: str) -> DebtDetailResponse:
+async def get_debt(
+    debt_id: str,
+    user_id: UUID = Depends(get_current_user_id),
+) -> DebtDetailResponse:
     """Fetch one debt by ID, including all associated payment records.
 
     HTTP error mapping
     ------------------
-    * 404 — debt not found.
+    * 401 — missing/invalid/expired JWT.
+    * 404 — debt not found, or it belongs to a different user.
     """
-    debt = _get_debt_or_404(debt_id)
+    debt = _get_debt_or_404(debt_id, user_id)
     payments = _payments.get(debt_id, [])
 
     logger.info("Debt retrieved", extra={"debt_id": debt_id})
@@ -334,7 +355,11 @@ async def get_debt(debt_id: str) -> DebtDetailResponse:
     status_code=status.HTTP_200_OK,
     summary="Update mutable fields on an existing debt record",
 )
-async def update_debt(debt_id: str, body: DebtUpdate) -> DebtResponse:
+async def update_debt(
+    debt_id: str,
+    body: DebtUpdate,
+    user_id: UUID = Depends(get_current_user_id),
+) -> DebtResponse:
     """Apply a partial update to a debt record.
 
     Only the fields present in the request body are modified; omitted fields
@@ -342,10 +367,11 @@ async def update_debt(debt_id: str, body: DebtUpdate) -> DebtResponse:
 
     HTTP error mapping
     ------------------
-    * 404 — debt not found.
+    * 401 — missing/invalid/expired JWT.
+    * 404 — debt not found, or it belongs to a different user.
     * 422 — Pydantic validation failure.
     """
-    debt = _get_debt_or_404(debt_id)
+    debt = _get_debt_or_404(debt_id, user_id)
 
     update_fields = body.model_dump(exclude_unset=True)
 
@@ -371,7 +397,10 @@ async def update_debt(debt_id: str, body: DebtUpdate) -> DebtResponse:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Soft-delete a debt by marking it as settled",
 )
-async def delete_debt(debt_id: str) -> None:
+async def delete_debt(
+    debt_id: str,
+    user_id: UUID = Depends(get_current_user_id),
+) -> None:
     """Mark a debt as ``settled`` without removing the record.
 
     This is a soft-delete: the row is retained for audit purposes but the
@@ -379,9 +408,10 @@ async def delete_debt(debt_id: str) -> None:
 
     HTTP error mapping
     ------------------
-    * 404 — debt not found.
+    * 401 — missing/invalid/expired JWT.
+    * 404 — debt not found, or it belongs to a different user.
     """
-    debt = _get_debt_or_404(debt_id)
+    debt = _get_debt_or_404(debt_id, user_id)
 
     debt["status"] = "settled"
     debt["outstanding_balance"] = Decimal("0")
@@ -401,7 +431,11 @@ async def delete_debt(debt_id: str) -> None:
     status_code=status.HTTP_201_CREATED,
     summary="Record a payment against a debt and recompute its status",
 )
-async def create_payment(debt_id: str, body: DebtPaymentCreate) -> DebtResponse:
+async def create_payment(
+    debt_id: str,
+    body: DebtPaymentCreate,
+    user_id: UUID = Depends(get_current_user_id),
+) -> DebtResponse:
     """Record a partial or full payment against a debt.
 
     Returns the updated debt record so the caller can immediately inspect the
@@ -418,10 +452,11 @@ async def create_payment(debt_id: str, body: DebtPaymentCreate) -> DebtResponse:
     HTTP error mapping
     ------------------
     * 400 — payment amount exceeds the current outstanding balance.
-    * 404 — debt not found.
+    * 401 — missing/invalid/expired JWT.
+    * 404 — debt not found, or it belongs to a different user.
     * 422 — Pydantic validation failure.
     """
-    debt = _get_debt_or_404(debt_id)
+    debt = _get_debt_or_404(debt_id, user_id)
 
     if body.amount > debt["outstanding_balance"]:
         raise HTTPException(

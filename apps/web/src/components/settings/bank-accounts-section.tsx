@@ -207,6 +207,7 @@ interface SyncState {
 
 export function BankAccountsSection() {
   const [userId, setUserId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -259,19 +260,22 @@ export function BankAccountsSection() {
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  // Fetch user id on mount
+  // Fetch user id and session access token on mount
   useEffect(() => {
     const supabase = createClient();
-    void supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setUserId(data.user.id);
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        setUserId(data.session.user.id);
+        setAccessToken(data.session.access_token);
+      }
     });
   }, []);
 
-  const fetchCredentials = useCallback(async (uid: string) => {
+  const fetchCredentials = useCallback(async (token: string) => {
     setLoadingList(true);
     setListError(null);
     try {
-      const list = await listCredentials(uid);
+      const list = await listCredentials(token);
       setCredentials(list);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load bank accounts';
@@ -316,15 +320,15 @@ export function BankAccountsSection() {
   }, []);
 
   useEffect(() => {
-    if (userId) {
-      void fetchCredentials(userId);
+    if (userId && accessToken) {
+      void fetchCredentials(accessToken);
       void fetchSyncedAccounts(userId);
     }
-  }, [userId, fetchCredentials, fetchSyncedAccounts]);
+  }, [userId, accessToken, fetchCredentials, fetchSyncedAccounts]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId || !isValidBank(selectedBank)) return;
+    if (!userId || !accessToken || !isValidBank(selectedBank)) return;
 
     setSaving(true);
     setSaveError(null);
@@ -333,12 +337,12 @@ export function BankAccountsSection() {
     try {
       // Encrypt credentials server-side so the key never touches the browser
       const [encUsername, encPassword] = await Promise.all([
-        encryptValue(username),
-        encryptValue(password),
+        encryptValue(accessToken, username),
+        encryptValue(accessToken, password),
       ]);
 
       await saveCredential(
-        userId,
+        accessToken,
         selectedBank,
         encUsername,
         encPassword,
@@ -353,7 +357,7 @@ export function BankAccountsSection() {
       setSaveSuccess(true);
 
       // Refresh list
-      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to save credentials';
       setSaveError(message);
@@ -363,10 +367,10 @@ export function BankAccountsSection() {
   };
 
   const handleRemove = async (cred: CredentialInfo) => {
-    if (!userId) return;
+    if (!userId || !accessToken) return;
     setRemovingId(cred.id);
     try {
-      await deleteCredential(userId, cred.id);
+      await deleteCredential(accessToken, cred.id);
       setCredentials((prev) => prev.filter((c) => c.id !== cred.id));
       await fetchSyncedAccounts(userId);
     } catch (err: unknown) {
@@ -378,16 +382,16 @@ export function BankAccountsSection() {
   };
 
   const handleUpdate = async (cred: CredentialInfo) => {
-    if (!userId) return;
+    if (!userId || !accessToken) return;
     setUpdating(true);
     setUpdateError(null);
     try {
       const updates: { encryptedUsername?: string; encryptedPassword?: string; label?: string } = {};
       if (editUsername.trim()) {
-        updates.encryptedUsername = await encryptValue(editUsername);
+        updates.encryptedUsername = await encryptValue(accessToken, editUsername);
       }
       if (editPassword.trim()) {
-        updates.encryptedPassword = await encryptValue(editPassword);
+        updates.encryptedPassword = await encryptValue(accessToken, editPassword);
       }
       if (editLabel.trim() !== cred.label) {
         updates.label = editLabel.trim();
@@ -396,12 +400,12 @@ export function BankAccountsSection() {
         setUpdateError('Enter a new username, password, or label to update');
         return;
       }
-      await updateCredential(userId, cred.id, updates);
+      await updateCredential(accessToken, cred.id, updates);
       setEditingId(null);
       setEditUsername('');
       setEditPassword('');
       setEditLabel('');
-      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update credentials';
       setUpdateError(message);
@@ -411,7 +415,7 @@ export function BankAccountsSection() {
   };
 
   const handleSync = async (cred: CredentialInfo) => {
-    if (!userId || !isValidBank(cred.bank)) return;
+    if (!userId || !accessToken || !isValidBank(cred.bank)) return;
     const key = cred.id;
 
     setSyncStates((prev) => ({
@@ -420,7 +424,7 @@ export function BankAccountsSection() {
     }));
 
     try {
-      const result = await syncBank(userId, cred.bank as Bank, cred.id);
+      const result = await syncBank(accessToken, cred.bank as Bank, cred.id);
       setSyncStates((prev) => ({
         ...prev,
         [key]: {
@@ -431,7 +435,7 @@ export function BankAccountsSection() {
         },
       }));
       // Refresh list to update last_synced_at and synced-domain coverage.
-      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
@@ -450,7 +454,7 @@ export function BankAccountsSection() {
     cred: CredentialInfo,
     domain: 'accounts' | 'cc' | 'certs',
   ) => {
-    if (!userId || !isValidBank(cred.bank)) return;
+    if (!userId || !accessToken || !isValidBank(cred.bank)) return;
     const key = `${cred.id}_${domain}`;
 
     setSyncStates((prev) => ({
@@ -461,11 +465,11 @@ export function BankAccountsSection() {
     try {
       let result;
       if (domain === 'accounts') {
-        result = await syncBankAccounts(userId, cred.bank as Bank, cred.id);
+        result = await syncBankAccounts(accessToken, cred.bank as Bank, cred.id);
       } else if (domain === 'cc') {
-        result = await syncBankCreditCards(userId, cred.bank as Bank, cred.id);
+        result = await syncBankCreditCards(accessToken, cred.bank as Bank, cred.id);
       } else {
-        result = await syncBankCertificates(userId, cred.bank as Bank, cred.id);
+        result = await syncBankCertificates(accessToken, cred.bank as Bank, cred.id);
       }
 
       setSyncStates((prev) => ({
@@ -477,7 +481,7 @@ export function BankAccountsSection() {
           startedAt: null,
         },
       }));
-      await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
@@ -494,7 +498,7 @@ export function BankAccountsSection() {
   const [syncAllSummary, setSyncAllSummary] = useState<string | null>(null);
 
   const handleSyncAll = async () => {
-    if (!userId || credentials.length === 0) return;
+    if (!userId || !accessToken || credentials.length === 0) return;
     setSyncAllRunning(true);
     setSyncAllSummary(null);
     const total = credentials.length;
@@ -510,7 +514,7 @@ export function BankAccountsSection() {
         continue;
       }
       try {
-        await syncBank(userId, cred.bank as Bank, cred.id);
+        await syncBank(accessToken, cred.bank as Bank, cred.id);
       } catch {
         failed++;
       }
@@ -518,7 +522,7 @@ export function BankAccountsSection() {
       setSyncAllProgress({ done, total });
     }
 
-    await Promise.all([fetchCredentials(userId), fetchSyncedAccounts(userId)]);
+    await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
     setSyncAllRunning(false);
     setSyncAllProgress(null);
     if (failed === 0) {

@@ -18,7 +18,7 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [clearingScope, setClearingScope] = useState<ClearDataScope | null>(null);
   const [confirmScope, setConfirmScope] = useState<ClearDataScope | null>(null);
   const [clearMsg, setClearMsg] = useState<string | null>(null);
@@ -30,10 +30,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    void supabase.auth.getUser().then(async (result: { data: { user: { id: string; email?: string; user_metadata: Record<string, unknown> } | null } }) => {
-      const user = result.data.user;
-      if (user) {
-        setUserId(user.id);
+    void supabase.auth.getSession().then(async (result: { data: { session: { access_token: string; user: { id: string; email?: string; user_metadata: Record<string, unknown> } } | null } }) => {
+      const session = result.data.session;
+      if (session) {
+        const user = session.user;
+        setAccessToken(session.access_token);
         setEmail(user.email ?? '');
         const name = typeof user.user_metadata?.display_name === 'string'
           ? user.user_metadata.display_name
@@ -41,7 +42,7 @@ export default function SettingsPage() {
         setDisplayName(name);
 
         try {
-          const prefs = await getPreferences(user.id);
+          const prefs = await getPreferences(session.access_token);
           if (typeof prefs.fawry_rate === 'number') {
             setFawryRatePct((prefs.fawry_rate * 100).toFixed(2));
           }
@@ -54,13 +55,13 @@ export default function SettingsPage() {
 
   const handleSavePreferences = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId) return;
+    if (!accessToken) return;
     setSavingPrefs(true);
     setPrefsMsg(null);
     try {
       const rate = parseFloat(fawryRatePct);
       if (isNaN(rate) || rate < 0 || rate > 100) throw new Error('Enter a valid percentage between 0 and 100');
-      await savePreferences(userId, { fawry_rate: rate / 100 });
+      await savePreferences(accessToken, { fawry_rate: rate / 100 });
       setPrefsMsg('Preferences saved.');
     } catch (err) {
       setPrefsMsg(err instanceof Error ? err.message : 'Failed to save preferences.');
@@ -215,11 +216,11 @@ export default function SettingsPage() {
                     loading={clearingScope === scope}
                     disabled={clearingScope !== null}
                     onClick={async () => {
-                      if (!userId) return;
+                      if (!accessToken) return;
                       setClearingScope(scope);
                       setClearMsg(null);
                       try {
-                        await clearData(userId, scope);
+                        await clearData(accessToken, scope);
                         setClearMsg(`${label} cleared successfully.`);
                         setConfirmScope(null);
                       } catch {

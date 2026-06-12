@@ -8,3 +8,4 @@
 | [project_callback_open_redirect.md](project_callback_open_redirect.md) | project | Auth callback open-redirect vulnerability and NEXT_PUBLIC_SITE_URL mitigation |
 | [project_crypto_module.md](project_crypto_module.md) | project | AES-256-GCM crypto module design decisions, token format, and exception contract |
 | [project_analytics_router.md](project_analytics_router.md) | project | Security decisions in analytics.py — input constraints, logging rules, Decimal enforcement, forward-import strategy |
+| [project_jwt_auth_migration.md](project_jwt_auth_migration.md) | project | x-user-id → Supabase JWT migration across all 9 routers: get_current_user_id, IDOR fix in debts.py, conftest JWT test fixtures, remaining frontend work |

@@ -4,6 +4,10 @@ Preferences are stored on ``public.user_profiles.preferences`` as JSONB. The
 frontend uses this endpoint instead of writing directly through the browser
 Supabase client so preference saves are not blocked by profile-table RLS
 upsert semantics.
+
+``user_id`` is the verified ``sub`` claim from the caller's Supabase Auth JWT
+(see ``app.deps.get_current_user_id``) — it is cryptographically authenticated
+and cannot be supplied or spoofed by the client.
 """
 
 from __future__ import annotations
@@ -13,12 +17,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from supabase import create_client
 from supabase._sync.client import Client
 
-from app.config import settings
+from app.deps import get_current_user_id, get_service_role_client
 
 logger = logging.getLogger(__name__)
 
@@ -41,26 +44,7 @@ class UpdatePreferencesRequest(BaseModel):
 
 def _get_client() -> Client:
     """Create a synchronous Supabase client using the service-role key."""
-    return create_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key.get_secret_value(),
-    )
-
-
-def _parse_user_id(raw: str | None) -> UUID:
-    """Validate and parse the x-user-id header value."""
-    if not raw:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header is required",
-        )
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header must be a valid UUID",
-        )
+    return get_service_role_client()
 
 
 def _read_preferences(client: Client, user_id: UUID) -> dict[str, Any]:
@@ -89,9 +73,8 @@ def _read_preferences(client: Client, user_id: UUID) -> dict[str, Any]:
     summary="Read user preferences",
 )
 async def get_preferences(
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> PreferencesResponse:
-    user_id = _parse_user_id(x_user_id)
     client = _get_client()
 
     try:
@@ -112,9 +95,8 @@ async def get_preferences(
 )
 async def update_preferences(
     body: UpdatePreferencesRequest,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> PreferencesResponse:
-    user_id = _parse_user_id(x_user_id)
     client = _get_client()
 
     try:

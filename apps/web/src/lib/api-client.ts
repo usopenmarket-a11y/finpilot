@@ -2,8 +2,13 @@
  * Typed API client for FinPilot backend.
  *
  * All functions read NEXT_PUBLIC_API_URL at call time so they work in both
- * browser and edge environments.  The caller is responsible for providing
- * the Supabase user id via x-user-id where required.
+ * browser and edge environments.  The caller is responsible for providing a
+ * valid Supabase session access token, which is sent as
+ * `Authorization: Bearer <accessToken>`. The backend derives the user id
+ * from this JWT — callers should obtain it via
+ * `(await supabase.auth.getSession()).data.session?.access_token` using
+ * either `@/lib/supabase/client` (client components) or
+ * `@/lib/supabase/server` (server components).
  */
 
 const API_BASE =
@@ -51,14 +56,32 @@ export interface UserPreferences {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Thrown when an API call is attempted without a valid Supabase session
+ * access token, or when the backend rejects the token with 401 Unauthorized.
+ * Callers should treat this as "not authenticated" — typically by
+ * redirecting to login.
+ */
+export class UnauthorizedError extends Error {
+  constructor(message = 'No active Supabase session — please sign in again.') {
+    super(message);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 async function apiFetch<T>(
   path: string,
-  init: RequestInit & { userId?: string } = {},
+  init: RequestInit & { accessToken?: string } = {},
 ): Promise<T> {
-  const { userId, ...rest } = init;
+  const { accessToken, ...rest } = init;
+
+  if (!accessToken) {
+    throw new UnauthorizedError();
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(userId ? { 'x-user-id': userId } : {}),
+    Authorization: `Bearer ${accessToken}`,
     ...(rest.headers as Record<string, string> | undefined),
   };
 
@@ -75,6 +98,9 @@ async function apiFetch<T>(
       if (body.detail) detail = body.detail;
     } catch {
       // ignore parse errors — use statusText fallback
+    }
+    if (res.status === 401) {
+      throw new UnauthorizedError(detail);
     }
     throw new Error(detail);
   }
@@ -93,9 +119,10 @@ async function apiFetch<T>(
  * Encrypt a plaintext value using the server-side AES-256-GCM key.
  * This keeps the encryption key off the client entirely.
  */
-export async function encryptValue(value: string): Promise<string> {
+export async function encryptValue(accessToken: string, value: string): Promise<string> {
   const response = await apiFetch<{ token: string }>('/api/v1/utils/encrypt', {
     method: 'POST',
+    accessToken,
     body: JSON.stringify({ value }),
   });
   return response.token;
@@ -105,15 +132,15 @@ export async function encryptValue(value: string): Promise<string> {
 // Credentials
 // ---------------------------------------------------------------------------
 
-export async function listCredentials(userId: string): Promise<CredentialInfo[]> {
+export async function listCredentials(accessToken: string): Promise<CredentialInfo[]> {
   return apiFetch<CredentialInfo[]>('/api/v1/accounts/credentials', {
     method: 'GET',
-    userId,
+    accessToken,
   });
 }
 
 export async function saveCredential(
-  userId: string,
+  accessToken: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   encryptedUsername: string,
   encryptedPassword: string,
@@ -121,7 +148,7 @@ export async function saveCredential(
 ): Promise<CredentialInfo> {
   return apiFetch<CredentialInfo>('/api/v1/accounts/credentials', {
     method: 'POST',
-    userId,
+    accessToken,
     body: JSON.stringify({
       bank,
       encrypted_username: encryptedUsername,
@@ -132,17 +159,17 @@ export async function saveCredential(
 }
 
 export async function deleteCredential(
-  userId: string,
+  accessToken: string,
   credentialId: string,
 ): Promise<void> {
   return apiFetch<void>(`/api/v1/accounts/credentials/id/${credentialId}`, {
     method: 'DELETE',
-    userId,
+    accessToken,
   });
 }
 
 export async function updateCredential(
-  userId: string,
+  accessToken: string,
   credentialId: string,
   updates: { encryptedUsername?: string; encryptedPassword?: string; label?: string },
 ): Promise<CredentialInfo> {
@@ -153,7 +180,7 @@ export async function updateCredential(
 
   return apiFetch<CredentialInfo>(`/api/v1/accounts/credentials/id/${credentialId}`, {
     method: 'PATCH',
-    userId,
+    accessToken,
     body: JSON.stringify(body),
   });
 }
@@ -162,21 +189,21 @@ export async function updateCredential(
 // User preferences
 // ---------------------------------------------------------------------------
 
-export async function getPreferences(userId: string): Promise<UserPreferences> {
+export async function getPreferences(accessToken: string): Promise<UserPreferences> {
   const response = await apiFetch<{ preferences: UserPreferences }>('/api/v1/user/preferences', {
     method: 'GET',
-    userId,
+    accessToken,
   });
   return response.preferences;
 }
 
 export async function savePreferences(
-  userId: string,
+  accessToken: string,
   preferences: UserPreferences,
 ): Promise<UserPreferences> {
   const response = await apiFetch<{ preferences: UserPreferences }>('/api/v1/user/preferences', {
     method: 'PATCH',
-    userId,
+    accessToken,
     body: JSON.stringify({ preferences }),
   });
   return response.preferences;
@@ -192,7 +219,7 @@ export async function savePreferences(
  * Internal helper - not exported. All public sync functions delegate here.
  */
 async function _pollSyncJob(
-  userId: string,
+  accessToken: string,
   jobId: string,
   maxWaitMs: number,
 ): Promise<SyncResult> {
@@ -206,7 +233,7 @@ async function _pollSyncJob(
         `/api/v1/accounts/sync/status/${jobId}`,
         {
           method: 'GET',
-          userId,
+          accessToken,
         }
       );
     } catch (err) {
@@ -249,17 +276,17 @@ async function _pollSyncJob(
  * 3. Return result when status is 'complete' or 'failed' (max 20 minutes)
  */
 export async function syncBank(
-  userId: string,
+  accessToken: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
     `/api/v1/accounts/sync/${bank}${qs}`,
-    { method: 'POST', userId }
+    { method: 'POST', accessToken }
   );
   const maxWaitMs = 20 * 60 * 1000; // full scrape (login + CC + certs + 4 accounts + re-login)
-  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 /**
@@ -268,17 +295,17 @@ export async function syncBank(
  * Timeout: 10 minutes.
  */
 export async function syncBankAccounts(
-  userId: string,
+  accessToken: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
     `/api/v1/accounts/sync/${bank}/accounts${qs}`,
-    { method: 'POST', userId }
+    { method: 'POST', accessToken }
   );
   const maxWaitMs = 10 * 60 * 1000;
-  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 /**
@@ -287,17 +314,17 @@ export async function syncBankAccounts(
  * Timeout: 8 minutes.
  */
 export async function syncBankCreditCards(
-  userId: string,
+  accessToken: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
     `/api/v1/accounts/sync/${bank}/credit-cards${qs}`,
-    { method: 'POST', userId }
+    { method: 'POST', accessToken }
   );
   const maxWaitMs = 8 * 60 * 1000;
-  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -308,10 +335,10 @@ export async function syncBankCreditCards(
  * Hide a bank account by setting is_active=false.
  * The account reappears automatically on the next sync.
  */
-export async function hideAccount(userId: string, accountId: string): Promise<void> {
+export async function hideAccount(accessToken: string, accountId: string): Promise<void> {
   return apiFetch<void>(`/api/v1/accounts/${accountId}`, {
     method: 'PATCH',
-    userId,
+    accessToken,
   });
 }
 
@@ -321,28 +348,28 @@ export async function hideAccount(userId: string, accountId: string): Promise<vo
  * Timeout: 4 minutes.
  */
 export async function syncBankCertificates(
-  userId: string,
+  accessToken: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
     `/api/v1/accounts/sync/${bank}/certificates${qs}`,
-    { method: 'POST', userId }
+    { method: 'POST', accessToken }
   );
   const maxWaitMs = 4 * 60 * 1000;
-  return _pollSyncJob(userId, jobStart.job_id, maxWaitMs);
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 export type ClearDataScope = 'all' | 'accounts' | 'credit_cards' | 'certificates' | 'debts' | 'installments';
 
-export async function clearData(userId: string, scope: ClearDataScope = 'all'): Promise<void> {
-  return apiFetch<void>(`/api/v1/data?scope=${scope}`, { method: 'DELETE', userId });
+export async function clearData(accessToken: string, scope: ClearDataScope = 'all'): Promise<void> {
+  return apiFetch<void>(`/api/v1/data?scope=${scope}`, { method: 'DELETE', accessToken });
 }
 
-export async function recategorizeTransactions(userId: string): Promise<{ processed: number; updated: number }> {
+export async function recategorizeTransactions(accessToken: string): Promise<{ processed: number; updated: number }> {
   return apiFetch<{ processed: number; updated: number }>('/api/v1/analytics/recategorize', {
     method: 'POST',
-    userId,
+    accessToken,
   });
 }

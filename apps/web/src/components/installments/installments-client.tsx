@@ -395,17 +395,18 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function getUserId(): Promise<string> {
+  async function getAccessToken(): Promise<string | null> {
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    return user?.id ?? '';
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
   }
 
   async function handleSave(form: FormState) {
     setSaving(true);
     setError(null);
     try {
-      const userId = await getUserId();
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('No active session — please sign in again.');
       const payload = {
         name: form.name,
         category: form.category,
@@ -421,7 +422,7 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
       if (editItem) {
         const res = await fetch(`${API_BASE}/api/v1/installments/${editItem.id}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error(await res.text());
@@ -430,7 +431,7 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
       } else {
         const res = await fetch(`${API_BASE}/api/v1/installments`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error(await res.text());
@@ -448,13 +449,19 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
   }
 
   async function handleDelete(id: string) {
-    const userId = await getUserId();
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      setError('No active session — please sign in again.');
+      return;
+    }
     const res = await fetch(`${API_BASE}/api/v1/installments/${id}`, {
       method: 'DELETE',
-      headers: { 'x-user-id': userId },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (res.ok) {
       setItems((prev) => prev.filter((i) => i.id !== id));
+    } else {
+      setError('Failed to delete installment.');
     }
   }
 

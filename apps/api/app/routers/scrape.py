@@ -11,6 +11,10 @@ Security contract
 * The scraper receives the credentials directly; once ``await scraper.scrape()``
   returns (or raises), the local variable references are the only holders and
   Python's reference-counting GC will collect them promptly when the frame exits.
+* ``user_id`` is the verified ``sub`` claim from the caller's Supabase Auth
+  JWT (see ``app.deps.get_current_user_id``) — required for every call. This
+  closes a prior anonymous-scrape gap that allowed unauthenticated callers to
+  use this endpoint to probe bank portals with arbitrary credentials.
 """
 
 from __future__ import annotations
@@ -21,12 +25,12 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from supabase import create_client
 
 from app.config import settings
 from app.crypto import CryptoError, decrypt
+from app.deps import get_current_user_id, get_service_role_client
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
@@ -110,33 +114,23 @@ class ScrapeResponse(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Trigger a bank account scrape",
 )
-async def trigger_scrape(body: ScrapeRequest, request: Request) -> ScrapeResponse:
+async def trigger_scrape(
+    body: ScrapeRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> ScrapeResponse:
     """Decrypt credentials, run the bank scraper, persist via ETL pipeline, and return a summary.
 
     HTTP error mapping
     ------------------
+    * 401 — missing/invalid/expired JWT (see ``get_current_user_id``), or
+      ``ValueError`` from decrypt: GCM tag mismatch (wrong key or tampered
+      ciphertext), or bank portal rejected the credentials.
     * 422 — ``CryptoError``: token is malformed or base64-invalid.
-    * 401 — ``ValueError`` from decrypt: GCM tag mismatch (wrong key or
-      tampered ciphertext), or bank portal rejected the credentials.
     * 504 — ``ScraperTimeoutError``: bank portal did not respond in time.
     * 502 — ``ScraperParseError``: scraped HTML did not match expected layout.
     * 503 — ``BankPortalUnreachableError``: portal returned a network/5xx error.
     * 500 — any other unexpected exception from the scraper layer.
     """
-    # ------------------------------------------------------------------
-    # Optional user context — pipeline and last_synced_at update only run
-    # when an authenticated user id is provided via the x-user-id header.
-    # ------------------------------------------------------------------
-    raw_user_id: str | None = request.headers.get("x-user-id")
-    user_id: UUID | None = None
-    if raw_user_id:
-        try:
-            user_id = UUID(raw_user_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="x-user-id header must be a valid UUID",
-            )
     # ------------------------------------------------------------------
     # Step 1 — decrypt credentials.
     # These two local variables must never be passed to logger.* calls.
@@ -213,40 +207,33 @@ async def trigger_scrape(body: ScrapeRequest, request: Request) -> ScrapeRespons
         del username, password
 
     # ------------------------------------------------------------------
-    # Step 4 — run the ETL pipeline to persist data when a user_id is
-    # present.  Pipeline failure is non-fatal: the scrape result is still
+    # Step 4 — run the ETL pipeline to persist data for the authenticated
+    # user.  Pipeline failure is non-fatal: the scrape result is still
     # returned to the caller with transactions_saved=0.
     # ------------------------------------------------------------------
     transactions_saved = 0
-    if user_id is not None:
-        try:
-            supabase_client = create_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
-            pipeline_result = await run_pipeline(
-                result, user_id=user_id, supabase_client=supabase_client
-            )
-            transactions_saved = pipeline_result.transactions_new
-        except Exception as exc:
-            logger.warning(
-                "Pipeline failed (scrape still succeeded): %s",
-                exc,
-                extra={"bank": body.bank},
-            )
-            transactions_saved = 0
+    try:
+        supabase_client = get_service_role_client()
+        pipeline_result = await run_pipeline(
+            result, user_id=user_id, supabase_client=supabase_client
+        )
+        transactions_saved = pipeline_result.transactions_new
+    except Exception as exc:
+        logger.warning(
+            "Pipeline failed (scrape still succeeded): %s",
+            exc,
+            extra={"bank": body.bank},
+        )
+        transactions_saved = 0
 
-        # Update last_synced_at in bank_credentials — non-fatal if it fails.
-        try:
-            sync_client = create_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
-            sync_client.table("bank_credentials").update(
-                {"last_synced_at": datetime.now(UTC).isoformat()}
-            ).eq("user_id", str(user_id)).eq("bank", body.bank).execute()
-        except Exception:
-            pass  # non-fatal
+    # Update last_synced_at in bank_credentials — non-fatal if it fails.
+    try:
+        sync_client = get_service_role_client()
+        sync_client.table("bank_credentials").update(
+            {"last_synced_at": datetime.now(UTC).isoformat()}
+        ).eq("user_id", str(user_id)).eq("bank", body.bank).execute()
+    except Exception:
+        pass  # non-fatal
 
     # ------------------------------------------------------------------
     # Step 5 — build a safe response from the scraper result.

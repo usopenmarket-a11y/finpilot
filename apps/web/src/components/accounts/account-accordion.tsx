@@ -87,9 +87,10 @@ function HideButton({ accountId, onHide }: { accountId: string; onHide: (id: str
     setHiding(true);
     try {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await hideAccount(user.id, accountId);
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) return;
+      await hideAccount(accessToken, accountId);
       onHide(accountId);
     } catch (err) {
       console.error('Failed to hide account', err);

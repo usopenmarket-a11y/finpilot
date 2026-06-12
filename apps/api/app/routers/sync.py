@@ -17,7 +17,11 @@ Security contract
 * Credentials are read from Supabase (encrypted at rest) and decrypted
   in-memory only for the duration of the scrape.  They are never returned
   in any response payload.
-* ``user_id`` is taken from the ``x-user-id`` header and validated as a UUID.
+* ``user_id`` is the verified ``sub`` claim from the caller's Supabase Auth
+  JWT (see ``app.deps.get_current_user_id``) — it is cryptographically
+  authenticated and cannot be supplied or spoofed by the client. Background
+  tasks receive this verified ``user_id`` as a plain argument (they run
+  outside any HTTP request context and have no JWT of their own).
 * Decrypted credential strings (username / password) are ``del``-ed
   immediately after the scraper call, before any awaiting or branching.
 """
@@ -31,12 +35,12 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from supabase import create_client
 
 from app.config import settings
 from app.crypto import CryptoError, decrypt
+from app.deps import get_async_service_role_client, get_current_user_id, get_service_role_client
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
@@ -144,22 +148,6 @@ class SyncJobStatusResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _parse_user_id(raw: str | None) -> UUID:
-    """Parse and validate x-user-id header."""
-    if not raw:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header is required",
-        )
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header must be a valid UUID",
-        )
-
-
 def _set_job_terminal(
     job_id: str,
     terminal_status: Literal["complete", "failed"],
@@ -186,10 +174,7 @@ async def _background_sync_task(
         # ------------------------------------------------------------------
         # Step 1 — fetch stored encrypted credentials from Supabase.
         # ------------------------------------------------------------------
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         try:
             query = (
                 client.table("bank_credentials")
@@ -300,12 +285,7 @@ async def _background_sync_task(
         # ------------------------------------------------------------------
         transactions_saved = 0
         try:
-            from supabase import acreate_client
-
-            pipeline_client = await acreate_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            pipeline_client = await get_async_service_role_client()
             pipeline_result = await run_pipeline(
                 result,
                 user_id=user_id,
@@ -323,10 +303,7 @@ async def _background_sync_task(
         # ------------------------------------------------------------------
         now_iso = datetime.now(UTC).isoformat()
         try:
-            update_client = create_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            update_client = get_service_role_client()
             upd = (
                 update_client.table("bank_credentials")
                 .update({"last_synced_at": now_iso})
@@ -388,10 +365,7 @@ async def _background_sync_accounts_task(
     _JOBS[job_id]["status"] = "running"
 
     try:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         try:
             query = (
                 client.table("bank_credentials")
@@ -498,12 +472,7 @@ async def _background_sync_accounts_task(
 
         transactions_saved = 0
         try:
-            from supabase import acreate_client
-
-            pipeline_client = await acreate_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            pipeline_client = await get_async_service_role_client()
             pipeline_result = await run_pipeline(
                 result,
                 user_id=user_id,
@@ -520,10 +489,7 @@ async def _background_sync_accounts_task(
 
         now_iso = datetime.now(UTC).isoformat()
         try:
-            update_client = create_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            update_client = get_service_role_client()
             upd = (
                 update_client.table("bank_credentials")
                 .update({"last_synced_at": now_iso})
@@ -577,10 +543,7 @@ async def _background_sync_cc_task(
     _JOBS[job_id]["status"] = "running"
 
     try:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         try:
             query = (
                 client.table("bank_credentials")
@@ -680,12 +643,7 @@ async def _background_sync_cc_task(
 
         transactions_saved = 0
         try:
-            from supabase import acreate_client
-
-            pipeline_client = await acreate_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            pipeline_client = await get_async_service_role_client()
             pipeline_result = await run_pipeline(
                 result,
                 user_id=user_id,
@@ -702,10 +660,7 @@ async def _background_sync_cc_task(
 
         now_iso = datetime.now(UTC).isoformat()
         try:
-            update_client = create_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            update_client = get_service_role_client()
             upd = (
                 update_client.table("bank_credentials")
                 .update({"last_synced_at": now_iso})
@@ -769,10 +724,7 @@ async def _background_sync_certificates_task(
     _JOBS[job_id]["status"] = "running"
 
     try:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         try:
             query = (
                 client.table("bank_credentials")
@@ -880,12 +832,7 @@ async def _background_sync_certificates_task(
 
         transactions_saved = 0
         try:
-            from supabase import acreate_client
-
-            pipeline_client = await acreate_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            pipeline_client = await get_async_service_role_client()
             pipeline_result = await run_pipeline(
                 result,
                 user_id=user_id,
@@ -902,10 +849,7 @@ async def _background_sync_certificates_task(
 
         now_iso = datetime.now(UTC).isoformat()
         try:
-            update_client = create_client(
-                settings.supabase_url,
-                settings.supabase_service_role_key.get_secret_value(),
-            )
+            update_client = get_service_role_client()
             upd = (
                 update_client.table("bank_credentials")
                 .update({"last_synced_at": now_iso})
@@ -972,7 +916,7 @@ async def _background_sync_certificates_task(
 )
 async def start_sync_job(
     bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync job.
@@ -987,8 +931,6 @@ async def start_sync_job(
     * 404 — no credentials stored for this bank / user combination.
     * 500 — failed to validate credentials.
     """
-    user_id = _parse_user_id(x_user_id)
-
     # Validate that credentials exist (lightweight check before spawning task).
     # Wrapped in to_thread so the blocking supabase-py sync call doesn't stall
     # the event loop.
@@ -1031,7 +973,10 @@ async def start_sync_job(
     status_code=status.HTTP_200_OK,
     summary="Poll the status of a sync job",
 )
-async def get_sync_status(job_id: str) -> SyncJobStatusResponse:
+async def get_sync_status(
+    job_id: str,
+    user_id: UUID = Depends(get_current_user_id),
+) -> SyncJobStatusResponse:
     """Check the status of a sync job by ID.
 
     Returns the current job status and (if complete) the sync result or error.
@@ -1040,16 +985,19 @@ async def get_sync_status(job_id: str) -> SyncJobStatusResponse:
 
     HTTP response
     -------------
-    * 200 — job found, returning status and (if complete) result/error.
-    * 404 — job_id not found.
+    * 200 — job found and owned by the caller, returning status and (if
+      complete) result/error.
+    * 404 — job_id not found, or it belongs to a different user (the two
+      cases are indistinguishable in the response to avoid leaking the
+      existence of other users' jobs).
     """
-    if job_id not in _JOBS:
+    job = _JOBS.get(job_id)
+    if job is None or job.get("user_id") != str(user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job {job_id} not found",
         )
 
-    job = _JOBS[job_id]
     return SyncJobStatusResponse(
         job_id=job_id,
         status=job["status"],
@@ -1071,10 +1019,7 @@ def _validate_credentials_exist(
     Shared pre-flight check used by all focused sync endpoints.
     NOTE: This is a synchronous function; call via asyncio.to_thread() from async handlers.
     """
-    client = create_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key.get_secret_value(),
-    )
+    client = get_service_role_client()
     try:
         query = (
             client.table("bank_credentials")
@@ -1125,7 +1070,7 @@ def _purge_old_jobs(max_age_seconds: int = 3600) -> None:
 )
 async def start_sync_accounts_job(
     bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync that scrapes demand-deposit accounts and transactions only.
@@ -1141,7 +1086,6 @@ async def start_sync_accounts_job(
     * 429 — a scrape is already running.
     * 500 — credential lookup failed.
     """
-    user_id = _parse_user_id(x_user_id)
     await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
@@ -1177,7 +1121,7 @@ async def start_sync_accounts_job(
 )
 async def start_sync_cc_job(
     bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync that scrapes credit card accounts and statement transactions only.
@@ -1192,7 +1136,6 @@ async def start_sync_cc_job(
     * 429 — a scrape is already running.
     * 500 — credential lookup failed.
     """
-    user_id = _parse_user_id(x_user_id)
     await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
@@ -1228,7 +1171,7 @@ async def start_sync_cc_job(
 )
 async def start_sync_certificates_job(
     bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
     """Start a background sync that scrapes certificate/term-deposit accounts only.
@@ -1243,7 +1186,6 @@ async def start_sync_certificates_job(
     * 429 — a scrape is already running.
     * 500 — credential lookup failed.
     """
-    user_id = _parse_user_id(x_user_id)
     await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
 
     if _SCRAPE_SEMAPHORE.locked():
@@ -1283,7 +1225,7 @@ async def start_sync_certificates_job(
 )
 async def hide_account(
     account_id: str,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> None:
     """Set is_active=false for the given account.
 
@@ -1293,13 +1235,8 @@ async def hide_account(
     The .eq("user_id") filter ensures users can only hide their own accounts
     (defence-in-depth alongside Supabase RLS).
     """
-    user_id = _parse_user_id(x_user_id)
-
     def _do_hide() -> None:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         try:
             resp = (
                 client.table("bank_accounts")
@@ -1330,7 +1267,7 @@ async def hide_account(
     summary="Delete scraped data for the authenticated user",
 )
 async def clear_user_data(
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
     scope: Literal["all", "accounts", "credit_cards", "certificates", "debts", "installments"]
     | None = None,
 ) -> None:
@@ -1346,13 +1283,8 @@ async def clear_user_data(
 
     Credentials are never removed.
     """
-    user_id = _parse_user_id(x_user_id)
-
     def _do_clear() -> None:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         uid = str(user_id)
         effective = scope or "all"
 

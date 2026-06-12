@@ -9,6 +9,12 @@ Security contract
   fields and prevent parameter-pollution attacks.
 * All monetary amounts are typed as ``Decimal``; ``float`` is forbidden for
   financial values to prevent rounding-error security bugs.
+* Every endpoint requires a verified Supabase Auth JWT via
+  ``Depends(get_current_user_id)`` (see ``app.deps``). These endpoints are
+  stateless compute over caller-supplied data and do not query the database
+  by ``user_id``, but per the project rule that all API endpoints require JWT
+  authentication (no exceptions besides ``/health`` and ``/auth/callback``),
+  the dependency is still enforced for endpoint-level auth gating.
 
 Import strategy
 ---------------
@@ -24,10 +30,12 @@ from __future__ import annotations
 import logging
 from datetime import date
 from decimal import Decimal
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.deps import get_current_user_id
 from app.recommendations.debt_optimizer import (
     DebtItem,
     DebtOptimizationReport,
@@ -254,7 +262,10 @@ def _to_transaction_summaries(
     status_code=status.HTTP_200_OK,
     summary="Generate a prioritised monthly action plan",
 )
-async def monthly_plan(body: MonthlyPlanRequest) -> MonthlyPlan:
+async def monthly_plan(
+    body: MonthlyPlanRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> MonthlyPlan:
     """Produce a prioritised list of concrete financial steps for a target month.
 
     Derives a health score and a set of action items from the caller-supplied
@@ -263,6 +274,7 @@ async def monthly_plan(body: MonthlyPlanRequest) -> MonthlyPlan:
     HTTP error mapping
     ------------------
     * 400 — Business logic error (e.g. invalid date range or constraint violation).
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure (malformed request body).
     * 500 — Unexpected error from the monthly plan engine.
     """
@@ -320,7 +332,10 @@ async def monthly_plan(body: MonthlyPlanRequest) -> MonthlyPlan:
     status_code=status.HTTP_200_OK,
     summary="Generate a 3-month cash flow forecast",
 )
-async def cash_flow_forecast(body: ForecastRequest) -> CashFlowForecast:
+async def cash_flow_forecast(
+    body: ForecastRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> CashFlowForecast:
     """Project income and expenses for the next three calendar months.
 
     Uses weighted averages from historical trend data and a growth factor
@@ -329,6 +344,7 @@ async def cash_flow_forecast(body: ForecastRequest) -> CashFlowForecast:
     HTTP error mapping
     ------------------
     * 400 — Business logic error (e.g. invalid from_date).
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     * 500 — Unexpected error from the forecaster.
     """
@@ -381,7 +397,10 @@ async def cash_flow_forecast(body: ForecastRequest) -> CashFlowForecast:
     status_code=status.HTTP_200_OK,
     summary="Compare snowball vs. avalanche debt payoff strategies",
 )
-async def debt_optimizer(body: DebtOptimizerRequest) -> DebtOptimizationReport:
+async def debt_optimizer(
+    body: DebtOptimizerRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> DebtOptimizationReport:
     """Simulate both snowball and avalanche payoff strategies and recommend one.
 
     Returns a side-by-side report with a plain-language recommendation and
@@ -390,6 +409,7 @@ async def debt_optimizer(body: DebtOptimizerRequest) -> DebtOptimizationReport:
     HTTP error mapping
     ------------------
     * 400 — Business logic error (e.g. budget too low to cover minimum payments).
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     * 500 — Unexpected error from the debt optimizer.
     """
@@ -439,7 +459,10 @@ async def debt_optimizer(body: DebtOptimizerRequest) -> DebtOptimizationReport:
     status_code=status.HTTP_200_OK,
     summary="Detect savings opportunities from transaction history",
 )
-async def savings_opportunities(body: SavingsRequest) -> SavingsReport:
+async def savings_opportunities(
+    body: SavingsRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> SavingsReport:
     """Analyse a list of transactions and surface up to 10 ranked savings opportunities.
 
     Runs four detection passes: duplicate charges, recurring subscriptions,
@@ -448,6 +471,7 @@ async def savings_opportunities(body: SavingsRequest) -> SavingsReport:
     HTTP error mapping
     ------------------
     * 400 — Business logic error (e.g. invalid date range in transactions).
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     * 500 — Unexpected error from the savings detector.
     """

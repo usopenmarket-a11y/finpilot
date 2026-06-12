@@ -3,16 +3,21 @@
 Covers all endpoints under /api/v1/accounts/credentials:
   POST   /api/v1/accounts/credentials
   GET    /api/v1/accounts/credentials
+  PATCH  /api/v1/accounts/credentials/id/{credential_id}
   DELETE /api/v1/accounts/credentials/id/{credential_id}
 
 Supabase calls are fully intercepted via unittest.mock.patch — no real DB
 connections or network I/O occur.  Each test patches
-``app.routers.credentials.create_client`` with a MagicMock that returns a
-controllable fake client, so the tests exercise the router logic in isolation.
+``app.routers.credentials._get_client`` (or the underlying
+``get_service_role_client``) with a MagicMock that returns a controllable
+fake client, so the tests exercise the router logic in isolation.
 
 Security contract verified:
   - Response payloads never contain encrypted_username or encrypted_password.
-  - Missing or malformed x-user-id header always returns HTTP 400.
+  - Every endpoint requires a verified Supabase Auth JWT via
+    ``Depends(get_current_user_id)`` — missing/malformed/expired tokens
+    return HTTP 401.  ``user_id`` is taken from the JWT ``sub`` claim and
+    is never client-supplied.
 """
 
 from __future__ import annotations
@@ -29,7 +34,6 @@ from fastapi.testclient import TestClient
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
-VALID_USER_ID = str(uuid4())
 FAKE_CREATED_AT = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC).isoformat()
 FAKE_CRED_ID = str(uuid4())
 
@@ -40,6 +44,12 @@ def client() -> TestClient:
     from app.main import app
 
     return TestClient(app)
+
+
+@pytest.fixture
+def user_headers(auth_headers):
+    """Authorization header for a single authenticated test user."""
+    return auth_headers()
 
 
 def _make_supabase_mock(return_rows: list[dict[str, Any]]) -> MagicMock:
@@ -69,6 +79,7 @@ def _make_supabase_mock(return_rows: list[dict[str, Any]]) -> MagicMock:
     chain.delete.return_value = chain
     chain.update.return_value = chain
     chain.eq.return_value = chain
+    chain.limit.return_value = chain
 
     fake_client = MagicMock()
     fake_client.table.return_value = chain
@@ -93,11 +104,11 @@ def _fake_post_row(bank: str = "NBE") -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_save_credential_returns_200(client: TestClient) -> None:
-    """Happy path: valid request with x-user-id returns 200 and safe metadata."""
+def test_save_credential_returns_200(client: TestClient, user_headers: dict[str, str]) -> None:
+    """Happy path: valid request with a verified JWT returns 200 and safe metadata."""
     fake_supabase = _make_supabase_mock([_fake_post_row("NBE")])
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.post(
             "/api/v1/accounts/credentials",
             json={
@@ -105,17 +116,19 @@ def test_save_credential_returns_200(client: TestClient) -> None:
                 "encrypted_username": "enc_user_abc",
                 "encrypted_password": "enc_pass_xyz",
             },
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     assert response.status_code == 200
 
 
-def test_save_credential_response_shape(client: TestClient) -> None:
+def test_save_credential_response_shape(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Response contains exactly the expected safe fields."""
     fake_supabase = _make_supabase_mock([_fake_post_row("CIB")])
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.post(
             "/api/v1/accounts/credentials",
             json={
@@ -123,18 +136,20 @@ def test_save_credential_response_shape(client: TestClient) -> None:
                 "encrypted_username": "enc_u",
                 "encrypted_password": "enc_p",
             },
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     data = response.json()
     assert set(data.keys()) == {"id", "bank", "label", "is_active", "last_synced_at", "created_at"}
 
 
-def test_save_credential_response_never_returns_secrets(client: TestClient) -> None:
+def test_save_credential_response_never_returns_secrets(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Security: response must NOT contain encrypted_username or encrypted_password."""
     fake_supabase = _make_supabase_mock([_fake_post_row("BDC")])
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.post(
             "/api/v1/accounts/credentials",
             json={
@@ -142,7 +157,7 @@ def test_save_credential_response_never_returns_secrets(client: TestClient) -> N
                 "encrypted_username": "super_secret",
                 "encrypted_password": "also_secret",
             },
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     data = response.json()
@@ -150,8 +165,8 @@ def test_save_credential_response_never_returns_secrets(client: TestClient) -> N
     assert "encrypted_password" not in data
 
 
-def test_save_credential_missing_user_id_returns_400(client: TestClient) -> None:
-    """Security: POST without x-user-id header must return 400."""
+def test_save_credential_requires_auth(client: TestClient) -> None:
+    """Security: POST without an Authorization header must return 401."""
     response = client.post(
         "/api/v1/accounts/credentials",
         json={
@@ -160,11 +175,13 @@ def test_save_credential_missing_user_id_returns_400(client: TestClient) -> None
             "encrypted_password": "enc_p",
         },
     )
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
-def test_save_credential_malformed_user_id_returns_400(client: TestClient) -> None:
-    """Security: POST with non-UUID x-user-id must return 400."""
+def test_save_credential_invalid_bearer_token_returns_401(
+    client: TestClient, supabase_jwt_test_config: None
+) -> None:
+    """Security: POST with a malformed/invalid bearer token must return 401."""
     response = client.post(
         "/api/v1/accounts/credentials",
         json={
@@ -172,12 +189,14 @@ def test_save_credential_malformed_user_id_returns_400(client: TestClient) -> No
             "encrypted_username": "enc_u",
             "encrypted_password": "enc_p",
         },
-        headers={"x-user-id": "not-a-uuid"},
+        headers={"Authorization": "Bearer not-a-valid-jwt"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
-def test_save_credential_extra_fields_rejected(client: TestClient) -> None:
+def test_save_credential_extra_fields_rejected(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Pydantic extra=forbid: extra request fields must return 422."""
     response = client.post(
         "/api/v1/accounts/credentials",
@@ -187,12 +206,14 @@ def test_save_credential_extra_fields_rejected(client: TestClient) -> None:
             "encrypted_password": "enc_p",
             "injected_field": "evil",
         },
-        headers={"x-user-id": VALID_USER_ID},
+        headers=user_headers,
     )
     assert response.status_code == 422
 
 
-def test_save_credential_invalid_bank_returns_422(client: TestClient) -> None:
+def test_save_credential_invalid_bank_returns_422(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Validation: an unsupported bank code must return 422."""
     response = client.post(
         "/api/v1/accounts/credentials",
@@ -201,7 +222,7 @@ def test_save_credential_invalid_bank_returns_422(client: TestClient) -> None:
             "encrypted_username": "enc_u",
             "encrypted_password": "enc_p",
         },
-        headers={"x-user-id": VALID_USER_ID},
+        headers=user_headers,
     )
     assert response.status_code == 422
 
@@ -211,33 +232,35 @@ def test_save_credential_invalid_bank_returns_422(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_credentials_returns_200(client: TestClient) -> None:
-    """Happy path: GET with valid x-user-id returns 200."""
+def test_list_credentials_returns_200(client: TestClient, user_headers: dict[str, str]) -> None:
+    """Happy path: GET with a verified JWT returns 200."""
     fake_supabase = _make_supabase_mock([])
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.get(
             "/api/v1/accounts/credentials",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     assert response.status_code == 200
 
 
-def test_list_credentials_returns_list(client: TestClient) -> None:
+def test_list_credentials_returns_list(client: TestClient, user_headers: dict[str, str]) -> None:
     """Response body is a JSON array."""
     fake_supabase = _make_supabase_mock([])
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.get(
             "/api/v1/accounts/credentials",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     assert isinstance(response.json(), list)
 
 
-def test_list_credentials_returns_stored_entries(client: TestClient) -> None:
+def test_list_credentials_returns_stored_entries(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Rows returned by Supabase are reflected in the response."""
     rows = [
         {
@@ -259,10 +282,10 @@ def test_list_credentials_returns_stored_entries(client: TestClient) -> None:
     ]
     fake_supabase = _make_supabase_mock(rows)
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.get(
             "/api/v1/accounts/credentials",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     data = response.json()
@@ -271,7 +294,9 @@ def test_list_credentials_returns_stored_entries(client: TestClient) -> None:
     assert banks == {"NBE", "CIB"}
 
 
-def test_list_credentials_never_returns_secrets(client: TestClient) -> None:
+def test_list_credentials_never_returns_secrets(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Security: list response items must never include secret fields."""
     rows = [
         {
@@ -285,10 +310,10 @@ def test_list_credentials_never_returns_secrets(client: TestClient) -> None:
     ]
     fake_supabase = _make_supabase_mock(rows)
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.get(
             "/api/v1/accounts/credentials",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     for item in response.json():
@@ -296,19 +321,89 @@ def test_list_credentials_never_returns_secrets(client: TestClient) -> None:
         assert "encrypted_password" not in item
 
 
-def test_list_credentials_missing_user_id_returns_400(client: TestClient) -> None:
-    """Security: GET without x-user-id header must return 400."""
+def test_list_credentials_requires_auth(client: TestClient) -> None:
+    """Security: GET without an Authorization header must return 401."""
     response = client.get("/api/v1/accounts/credentials")
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
-def test_list_credentials_malformed_user_id_returns_400(client: TestClient) -> None:
-    """Security: GET with non-UUID x-user-id must return 400."""
+def test_list_credentials_invalid_bearer_token_returns_401(
+    client: TestClient, supabase_jwt_test_config: None
+) -> None:
+    """Security: GET with a malformed/invalid bearer token must return 401."""
     response = client.get(
         "/api/v1/accounts/credentials",
-        headers={"x-user-id": "bad-id"},
+        headers={"Authorization": "Bearer bad-id"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/v1/accounts/credentials/id/{credential_id}
+# ---------------------------------------------------------------------------
+
+
+def test_update_credential_returns_200(client: TestClient, user_headers: dict[str, str]) -> None:
+    """Happy path: PATCH with a verified JWT and at least one field returns 200."""
+    fake_supabase = _make_supabase_mock([_fake_post_row("NBE")])
+
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
+        response = client.patch(
+            f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
+            json={"label": "Updated label"},
+            headers=user_headers,
+        )
+
+    assert response.status_code == 200
+
+
+def test_update_credential_requires_auth(client: TestClient) -> None:
+    """Security: PATCH without an Authorization header must return 401."""
+    response = client.patch(
+        f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
+        json={"label": "Updated label"},
+    )
+    assert response.status_code == 401
+
+
+def test_update_credential_no_fields_returns_422(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
+    """Validation: PATCH with no updatable fields returns 422."""
+    response = client.patch(
+        f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
+        json={},
+        headers=user_headers,
+    )
+    assert response.status_code == 422
+
+
+def test_update_credential_not_found_returns_404(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
+    """A credential that doesn't exist (or belongs to another user) returns 404."""
+    fake_supabase = _make_supabase_mock([])
+
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
+        response = client.patch(
+            f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
+            json={"label": "New label"},
+            headers=user_headers,
+        )
+
+    assert response.status_code == 404
+
+
+def test_update_credential_extra_fields_rejected(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
+    """Pydantic extra=forbid: extra request fields must return 422."""
+    response = client.patch(
+        f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
+        json={"label": "ok", "injected_field": "evil"},
+        headers=user_headers,
+    )
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -316,57 +411,61 @@ def test_list_credentials_malformed_user_id_returns_400(client: TestClient) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_delete_credential_returns_204(client: TestClient) -> None:
-    """Happy path: DELETE with valid credential UUID returns 204 No Content."""
+def test_delete_credential_returns_204(client: TestClient, user_headers: dict[str, str]) -> None:
+    """Happy path: DELETE with valid credential UUID and a verified JWT returns 204."""
     fake_supabase = _make_supabase_mock([])
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.delete(
             f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     assert response.status_code == 204
 
 
-def test_delete_credential_idempotent(client: TestClient) -> None:
+def test_delete_credential_idempotent(client: TestClient, user_headers: dict[str, str]) -> None:
     """Deleting a non-existent credential still returns 204 (idempotent)."""
     fake_supabase = _make_supabase_mock([])
     cred_id = str(uuid4())
 
-    with patch("app.routers.credentials.create_client", return_value=fake_supabase):
+    with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         r1 = client.delete(
             f"/api/v1/accounts/credentials/id/{cred_id}",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
         r2 = client.delete(
             f"/api/v1/accounts/credentials/id/{cred_id}",
-            headers={"x-user-id": VALID_USER_ID},
+            headers=user_headers,
         )
 
     assert r1.status_code == 204
     assert r2.status_code == 204
 
 
-def test_delete_credential_missing_user_id_returns_400(client: TestClient) -> None:
-    """Security: DELETE without x-user-id header must return 400."""
+def test_delete_credential_requires_auth(client: TestClient) -> None:
+    """Security: DELETE without an Authorization header must return 401."""
     response = client.delete(f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}")
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
-def test_delete_credential_malformed_user_id_returns_400(client: TestClient) -> None:
-    """Security: DELETE with non-UUID x-user-id must return 400."""
+def test_delete_credential_invalid_bearer_token_returns_401(
+    client: TestClient, supabase_jwt_test_config: None
+) -> None:
+    """Security: DELETE with a malformed/invalid bearer token must return 401."""
     response = client.delete(
         f"/api/v1/accounts/credentials/id/{FAKE_CRED_ID}",
-        headers={"x-user-id": "oops"},
+        headers={"Authorization": "Bearer oops"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
-def test_delete_credential_invalid_uuid_returns_422(client: TestClient) -> None:
+def test_delete_credential_invalid_uuid_returns_422(
+    client: TestClient, user_headers: dict[str, str]
+) -> None:
     """Validation: a non-UUID credential_id in the path must return 422."""
     response = client.delete(
         "/api/v1/accounts/credentials/id/not-a-uuid",
-        headers={"x-user-id": VALID_USER_ID},
+        headers=user_headers,
     )
     assert response.status_code == 422

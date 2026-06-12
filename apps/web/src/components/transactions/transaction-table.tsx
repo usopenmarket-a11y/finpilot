@@ -84,9 +84,10 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
     setRecatResult(null);
     try {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const result = await recategorizeTransactions(user.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) return;
+      const result = await recategorizeTransactions(accessToken);
       setRecatResult(`Done — ${result.updated} of ${result.processed} transactions updated. Refresh to see changes.`);
     } catch {
       setRecatResult('Recategorization failed. Please try again.');

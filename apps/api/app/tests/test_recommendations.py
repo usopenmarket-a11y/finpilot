@@ -932,6 +932,17 @@ def rec_client() -> TestClient:
     return TestClient(_RECOMMENDATIONS_APP)
 
 
+@pytest.fixture
+def rec_auth_headers(auth_headers):
+    """Authorization headers for the recommendations mini-app's auth-gated endpoints.
+
+    Every recommendations endpoint requires ``Depends(get_current_user_id)`` for
+    auth gating (see ``app.routers.recommendations``); the dependency does not
+    use the user id for any query, so a single random identity suffices here.
+    """
+    return auth_headers()
+
+
 # ---------------------------------------------------------------------------
 # Shared JSON payloads for HTTP tests
 # ---------------------------------------------------------------------------
@@ -1037,8 +1048,8 @@ _TRANSACTIONS_PAYLOAD: list[dict[str, Any]] = [
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_monthly_plan_endpoint_happy_path(rec_client: TestClient) -> None:
-    """POST /api/v1/recommendations/monthly-plan returns 200 with required fields."""
+def test_monthly_plan_endpoint_requires_auth(rec_client: TestClient) -> None:
+    """POST without an Authorization header → 401."""
     payload = {
         "spending": _SPENDING_PAYLOAD,
         "trends": _TREND_PAYLOAD,
@@ -1047,6 +1058,25 @@ def test_monthly_plan_endpoint_happy_path(rec_client: TestClient) -> None:
     }
 
     response = rec_client.post("/api/v1/recommendations/monthly-plan", json=payload)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
+def test_monthly_plan_endpoint_happy_path(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
+    """POST /api/v1/recommendations/monthly-plan returns 200 with required fields."""
+    payload = {
+        "spending": _SPENDING_PAYLOAD,
+        "trends": _TREND_PAYLOAD,
+        "target_month": 3,
+        "target_year": 2026,
+    }
+
+    response = rec_client.post(
+        "/api/v1/recommendations/monthly-plan", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -1058,7 +1088,9 @@ def test_monthly_plan_endpoint_happy_path(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_monthly_plan_endpoint_invalid_month(rec_client: TestClient) -> None:
+def test_monthly_plan_endpoint_invalid_month(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST with target_month=13 is rejected with 422 Unprocessable Entity."""
     payload = {
         "spending": _SPENDING_PAYLOAD,
@@ -1067,13 +1099,17 @@ def test_monthly_plan_endpoint_invalid_month(rec_client: TestClient) -> None:
         "target_year": 2026,
     }
 
-    response = rec_client.post("/api/v1/recommendations/monthly-plan", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/monthly-plan", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_monthly_plan_endpoint_invalid_month_zero(rec_client: TestClient) -> None:
+def test_monthly_plan_endpoint_invalid_month_zero(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST with target_month=0 is rejected with 422."""
     payload = {
         "spending": _SPENDING_PAYLOAD,
@@ -1082,13 +1118,17 @@ def test_monthly_plan_endpoint_invalid_month_zero(rec_client: TestClient) -> Non
         "target_year": 2026,
     }
 
-    response = rec_client.post("/api/v1/recommendations/monthly-plan", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/monthly-plan", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_monthly_plan_endpoint_missing_spending(rec_client: TestClient) -> None:
+def test_monthly_plan_endpoint_missing_spending(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST without the 'spending' field is rejected with 422."""
     payload = {
         "trends": _TREND_PAYLOAD,
@@ -1096,7 +1136,9 @@ def test_monthly_plan_endpoint_missing_spending(rec_client: TestClient) -> None:
         "target_year": 2026,
     }
 
-    response = rec_client.post("/api/v1/recommendations/monthly-plan", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/monthly-plan", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
@@ -1107,11 +1149,25 @@ def test_monthly_plan_endpoint_missing_spending(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_forecast_endpoint_happy_path(rec_client: TestClient) -> None:
-    """POST /api/v1/recommendations/forecast returns 200 with exactly 3 forecast points."""
+def test_forecast_endpoint_requires_auth(rec_client: TestClient) -> None:
+    """POST without an Authorization header → 401."""
     payload = {"trends": _TREND_PAYLOAD}
 
     response = rec_client.post("/api/v1/recommendations/forecast", json=payload)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
+def test_forecast_endpoint_happy_path(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
+    """POST /api/v1/recommendations/forecast returns 200 with exactly 3 forecast points."""
+    payload = {"trends": _TREND_PAYLOAD}
+
+    response = rec_client.post(
+        "/api/v1/recommendations/forecast", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -1122,19 +1178,27 @@ def test_forecast_endpoint_happy_path(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_forecast_endpoint_missing_trends(rec_client: TestClient) -> None:
+def test_forecast_endpoint_missing_trends(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST without the required 'trends' field is rejected with 422."""
-    response = rec_client.post("/api/v1/recommendations/forecast", json={})
+    response = rec_client.post(
+        "/api/v1/recommendations/forecast", json={}, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_forecast_endpoint_with_from_date(rec_client: TestClient) -> None:
+def test_forecast_endpoint_with_from_date(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST with optional from_date returns 200 and first forecast month follows it."""
     payload = {"trends": _TREND_PAYLOAD, "from_date": "2026-01-01"}
 
-    response = rec_client.post("/api/v1/recommendations/forecast", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/forecast", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -1147,14 +1211,31 @@ def test_forecast_endpoint_with_from_date(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_debt_optimizer_endpoint_happy_path(rec_client: TestClient) -> None:
-    """POST /api/v1/recommendations/debt-optimizer returns 200 with snowball and avalanche."""
+def test_debt_optimizer_endpoint_requires_auth(rec_client: TestClient) -> None:
+    """POST without an Authorization header → 401."""
     payload = {
         "debts": _DEBT_ITEMS_PAYLOAD,
         "monthly_budget": "3000",
     }
 
     response = rec_client.post("/api/v1/recommendations/debt-optimizer", json=payload)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
+def test_debt_optimizer_endpoint_happy_path(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
+    """POST /api/v1/recommendations/debt-optimizer returns 200 with snowball and avalanche."""
+    payload = {
+        "debts": _DEBT_ITEMS_PAYLOAD,
+        "monthly_budget": "3000",
+    }
+
+    response = rec_client.post(
+        "/api/v1/recommendations/debt-optimizer", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -1165,37 +1246,49 @@ def test_debt_optimizer_endpoint_happy_path(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_debt_optimizer_endpoint_empty_debts(rec_client: TestClient) -> None:
+def test_debt_optimizer_endpoint_empty_debts(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST with an empty debts list is rejected with 422 (min_length=1 constraint)."""
     payload = {
         "debts": [],
         "monthly_budget": "3000",
     }
 
-    response = rec_client.post("/api/v1/recommendations/debt-optimizer", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/debt-optimizer", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_debt_optimizer_endpoint_zero_budget(rec_client: TestClient) -> None:
+def test_debt_optimizer_endpoint_zero_budget(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST with monthly_budget=0 is rejected with 422 (gt=0 constraint)."""
     payload = {
         "debts": _DEBT_ITEMS_PAYLOAD,
         "monthly_budget": "0",
     }
 
-    response = rec_client.post("/api/v1/recommendations/debt-optimizer", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/debt-optimizer", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_debt_optimizer_endpoint_missing_budget(rec_client: TestClient) -> None:
+def test_debt_optimizer_endpoint_missing_budget(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST without monthly_budget is rejected with 422."""
     payload = {"debts": _DEBT_ITEMS_PAYLOAD}
 
-    response = rec_client.post("/api/v1/recommendations/debt-optimizer", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/debt-optimizer", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
@@ -1206,11 +1299,25 @@ def test_debt_optimizer_endpoint_missing_budget(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_savings_endpoint_happy_path(rec_client: TestClient) -> None:
-    """POST /api/v1/recommendations/savings returns 200 with an opportunities list."""
+def test_savings_endpoint_requires_auth(rec_client: TestClient) -> None:
+    """POST without an Authorization header → 401."""
     payload = {"transactions": _TRANSACTIONS_PAYLOAD}
 
     response = rec_client.post("/api/v1/recommendations/savings", json=payload)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
+def test_savings_endpoint_happy_path(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
+    """POST /api/v1/recommendations/savings returns 200 with an opportunities list."""
+    payload = {"transactions": _TRANSACTIONS_PAYLOAD}
+
+    response = rec_client.post(
+        "/api/v1/recommendations/savings", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -1221,22 +1328,30 @@ def test_savings_endpoint_happy_path(rec_client: TestClient) -> None:
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_savings_endpoint_missing_transactions(rec_client: TestClient) -> None:
+def test_savings_endpoint_missing_transactions(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST without the 'transactions' field is rejected with 422."""
-    response = rec_client.post("/api/v1/recommendations/savings", json={})
+    response = rec_client.post(
+        "/api/v1/recommendations/savings", json={}, headers=rec_auth_headers
+    )
 
     assert response.status_code == 422
 
 
 @pytest.mark.skipif(_ROUTER_MISSING, reason="recommendations router not yet created")
-def test_savings_endpoint_with_results(rec_client: TestClient) -> None:
+def test_savings_endpoint_with_results(
+    rec_client: TestClient, rec_auth_headers: dict[str, str]
+) -> None:
     """POST with transactions that contain detectable patterns returns 200."""
     # Use the full fixture payload which contains Netflix (recurring) and a high fee;
     # this guarantees at least one opportunity is found and avoids the empty-list
     # Decimal bug in savings.py (see test_savings_empty_transactions unit test).
     payload = {"transactions": _TRANSACTIONS_PAYLOAD}
 
-    response = rec_client.post("/api/v1/recommendations/savings", json=payload)
+    response = rec_client.post(
+        "/api/v1/recommendations/savings", json=payload, headers=rec_auth_headers
+    )
 
     assert response.status_code == 200
     data = response.json()

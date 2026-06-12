@@ -8,11 +8,12 @@ Security contract
 * Response payloads NEVER include ``encrypted_username`` or
   ``encrypted_password``.  Only safe metadata (bank, is_active,
   last_synced_at, created_at) is returned.
-* ``user_id`` comes from the ``x-user-id`` request header (UUID).  The
-  header is validated to be a well-formed UUID; a missing or malformed
-  header returns HTTP 400.
-* The Supabase service-role key is used for all DB operations so that
-  server-side mutations bypass Row Level Security where required.
+* ``user_id`` is the verified ``sub`` claim from the caller's Supabase Auth
+  JWT (see ``app.deps.get_current_user_id``) — it is cryptographically
+  authenticated and cannot be supplied or spoofed by the client.
+* The Supabase service-role key is used for DB operations so that
+  server-side mutations bypass Row Level Security where required; every
+  query is still explicitly filtered by the verified ``user_id``.
 """
 
 from __future__ import annotations
@@ -22,12 +23,11 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
-from supabase import create_client
 from supabase._sync.client import Client
 
-from app.config import settings
+from app.deps import get_current_user_id, get_service_role_client
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,7 @@ router = APIRouter(tags=["credentials"])
 
 def _get_client() -> Client:
     """Create a synchronous Supabase client using the service-role key."""
-    return create_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key.get_secret_value(),
-    )
+    return get_service_role_client()
 
 
 # ---------------------------------------------------------------------------
@@ -80,31 +77,6 @@ class CredentialInfo(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_user_id(raw: str | None) -> UUID:
-    """Validate and parse the x-user-id header value.
-
-    Raises:
-        HTTPException 400 — if the header is missing or not a valid UUID.
-    """
-    if not raw:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header is required",
-        )
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header must be a valid UUID",
-        )
-
-
-# ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
 
@@ -117,7 +89,7 @@ def _parse_user_id(raw: str | None) -> UUID:
 )
 async def save_credential(
     body: SaveCredentialRequest,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> CredentialInfo:
     """Insert a new set of encrypted credentials for the given bank.
 
@@ -126,8 +98,6 @@ async def save_credential(
 
     The response returns only safe metadata — secret fields are never echoed.
     """
-    user_id = _parse_user_id(x_user_id)
-
     client = _get_client()
     payload: dict[str, Any] = {
         "user_id": str(user_id),
@@ -175,7 +145,7 @@ async def save_credential(
     summary="List all saved credentials for the authenticated user",
 )
 async def list_credentials(
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> list[CredentialInfo]:
     """Return safe metadata for all stored bank credentials.
 
@@ -183,8 +153,6 @@ async def list_credentials(
     never included in the response — only bank code, active flag, and
     timestamps are returned.
     """
-    user_id = _parse_user_id(x_user_id)
-
     client = _get_client()
     try:
         response = (
@@ -223,7 +191,7 @@ async def list_credentials(
 )
 async def delete_credential(
     credential_id: UUID,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> None:
     """Delete the stored credential row identified by its UUID.
 
@@ -235,8 +203,6 @@ async def delete_credential(
     If no matching row exists the operation is silently treated as a
     success (idempotent delete).
     """
-    user_id = _parse_user_id(x_user_id)
-
     client = _get_client()
     try:
         # Fetch the credential first so we know which bank to hide accounts for.
@@ -299,15 +265,13 @@ class UpdateCredentialRequest(BaseModel):
 async def update_credential(
     credential_id: UUID,
     body: UpdateCredentialRequest,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> CredentialInfo:
     """Update the encrypted credentials (username, password, label) for an existing row.
 
     Only provided fields are updated. The user_id guard ensures a user cannot
     update another user's credentials. Secret fields are never returned.
     """
-    user_id = _parse_user_id(x_user_id)
-
     updates: dict[str, Any] = {}
     if body.encrypted_username is not None:
         updates["encrypted_username"] = body.encrypted_username

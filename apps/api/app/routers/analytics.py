@@ -11,6 +11,14 @@ Security contract
 * ``settings`` is imported from ``app.config`` — never re-instantiated here.
 * All monetary amounts are typed as ``Decimal``; ``float`` is forbidden for
   financial values to prevent rounding-error security bugs.
+* Every endpoint requires a verified Supabase Auth JWT via
+  ``Depends(get_current_user_id)`` (see ``app.deps``) — even the stateless
+  compute endpoints (``/categorize``, ``/spending``, ``/trends``,
+  ``/credit``), per the project rule that all API endpoints require JWT
+  authentication with no exceptions besides ``/health`` and
+  ``/auth/callback``. ``/recategorize`` additionally uses the verified
+  ``user_id`` to scope its database reads/writes — it can no longer be
+  passed (or spoofed) via an ``x-user-id`` header.
 
 Import strategy
 ---------------
@@ -30,7 +38,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import anthropic
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.analytics.categorizer import categorize_batch
@@ -38,6 +46,7 @@ from app.analytics.credit import compute_credit_report
 from app.analytics.spending import compute_spending_breakdown
 from app.analytics.trends import compute_trends
 from app.config import settings
+from app.deps import get_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +100,7 @@ class CategorizationResultResponse(BaseModel):
 )
 async def categorize_transactions(
     body: CategorizeRequest,
+    user_id: UUID = Depends(get_current_user_id),
 ) -> list[CategorizationResultResponse]:
     """Run AI categorization on a batch of transactions.
 
@@ -100,6 +110,7 @@ async def categorize_transactions(
 
     HTTP error mapping
     ------------------
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure (malformed request body).
     * 500 — Unexpected error from the categorizer.
     """
@@ -191,34 +202,28 @@ class RecategorizeResponse(BaseModel):
     summary="Re-categorize all transactions for a user using updated rules + AI",
 )
 async def recategorize_all(
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> RecategorizeResponse:
-    """Re-run categorization on every transaction for the given user.
+    """Re-run categorization on every transaction for the calling user.
 
     Reads all transactions from Supabase, runs them through the rule engine
     (and AI fallback), then bulk-updates the category/sub_category fields.
     Safe to run repeatedly — idempotent.
+
+    HTTP error mapping
+    ------------------
+    * 401 — missing/invalid/expired JWT.
     """
     import uuid as _uuid_mod
     from datetime import datetime
     from uuid import UUID as _UUID
 
-    from supabase import acreate_client
-
     from app.analytics.categorizer import categorize_batch
+    from app.deps import get_async_service_role_client
     from app.models.db import Transaction
 
-    if not x_user_id:
-        raise HTTPException(status_code=400, detail="x-user-id header is required")
-    try:
-        user_uuid = _UUID(x_user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid x-user-id header")
-
-    supabase = await acreate_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key.get_secret_value(),
-    )
+    user_uuid = user_id
+    supabase = await get_async_service_role_client()
 
     # Fetch all transactions for the user
     response = (
@@ -329,12 +334,16 @@ class SpendingBreakdownResponse(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Compute spending breakdown for a set of transactions",
 )
-async def spending_breakdown(body: SpendingRequest) -> SpendingBreakdownResponse:
+async def spending_breakdown(
+    body: SpendingRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> SpendingBreakdownResponse:
     """Aggregate debit/credit totals and per-category spending for a period.
 
     HTTP error mapping
     ------------------
     * 400 — ``period_end`` is before ``period_start``.
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     * 500 — Unexpected error from the spending module.
     """
@@ -457,11 +466,15 @@ class TrendReportResponse(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Compute monthly spending and income trends",
 )
-async def trend_report(body: TrendsRequest) -> TrendReportResponse:
+async def trend_report(
+    body: TrendsRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> TrendReportResponse:
     """Produce a month-by-month trend analysis over the requested lookback window.
 
     HTTP error mapping
     ------------------
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     * 500 — Unexpected error from the trends module.
     """
@@ -607,11 +620,15 @@ class CreditReportResponse(BaseModel):
     status_code=status.HTTP_200_OK,
     summary="Compute credit utilization and debt health report",
 )
-async def credit_report(body: CreditRequest) -> CreditReportResponse:
+async def credit_report(
+    body: CreditRequest,
+    user_id: UUID = Depends(get_current_user_id),
+) -> CreditReportResponse:
     """Aggregate account balances and loan obligations into a credit health snapshot.
 
     HTTP error mapping
     ------------------
+    * 401 — missing/invalid/expired JWT.
     * 422 — Pydantic validation failure.
     * 500 — Unexpected error from the credit module.
     """

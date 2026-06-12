@@ -53,7 +53,6 @@ _ALLOWED_CORS_HEADERS = [
     "Content-Language",
     "Origin",
     "X-CSRF-Token",
-    "X-User-Id",
 ]
 
 if settings.app_env == "production" and ("*" in settings.cors_origins or not settings.cors_origins):

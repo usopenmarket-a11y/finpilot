@@ -5,7 +5,9 @@ home/property purchase plans, vehicle loans, and other fixed monthly payments.
 
 Security contract
 -----------------
-* All endpoints require ``x-user-id`` header (validated UUID).
+* All endpoints require a verified Supabase Auth JWT — ``user_id`` is the
+  ``sub`` claim from that token (see ``app.deps.get_current_user_id``), not a
+  client-supplied header.
 * All DB queries filter by user_id to prevent cross-user data access
   (defence-in-depth alongside Supabase Row Level Security).
 * No PII in log messages — names and amounts are NOT logged.
@@ -19,10 +21,9 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, status
-from supabase import create_client
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.config import settings
+from app.deps import get_current_user_id, get_service_role_client
 from app.models.api import InstallmentCreate, InstallmentResponse, InstallmentUpdate
 
 logger = logging.getLogger(__name__)
@@ -33,21 +34,6 @@ router = APIRouter(tags=["installments"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _parse_user_id(raw: str | None) -> UUID:
-    if not raw:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header is required",
-        )
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="x-user-id header must be a valid UUID",
-        )
 
 
 def _compute_fields(start_date: date, total_months: int, billing_day: int | None) -> dict:
@@ -118,17 +104,13 @@ def _row_to_response(row: dict) -> InstallmentResponse:
     summary="List all installment plans",
 )
 async def list_installments(
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
     include_inactive: bool = False,
 ) -> list[InstallmentResponse]:
     """Return all instalment plans for the authenticated user."""
-    user_id = _parse_user_id(x_user_id)
 
     def _fetch() -> list[Any]:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         q = (
             client.table("installments")
             .select("*")
@@ -151,15 +133,10 @@ async def list_installments(
 )
 async def create_installment(
     body: InstallmentCreate,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> InstallmentResponse:
-    user_id = _parse_user_id(x_user_id)
-
     def _insert() -> Any:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         payload = {
             "user_id": str(user_id),
             "name": body.name,
@@ -194,15 +171,10 @@ async def create_installment(
 )
 async def get_installment(
     installment_id: str,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> InstallmentResponse:
-    user_id = _parse_user_id(x_user_id)
-
     def _fetch_one() -> Any | None:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         resp = (
             client.table("installments")
             .select("*")
@@ -227,10 +199,8 @@ async def get_installment(
 async def update_installment(
     installment_id: str,
     body: InstallmentUpdate,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> InstallmentResponse:
-    user_id = _parse_user_id(x_user_id)
-
     updates = body.model_dump(exclude_none=True)
     # Convert Decimal/date to JSON-serialisable types
     for key in ("total_amount", "down_payment", "monthly_amount"):
@@ -246,10 +216,7 @@ async def update_installment(
         )
 
     def _update() -> Any | None:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         resp = (
             client.table("installments")
             .update(updates)
@@ -280,15 +247,10 @@ async def update_installment(
 )
 async def delete_installment(
     installment_id: str,
-    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+    user_id: UUID = Depends(get_current_user_id),
 ) -> None:
-    user_id = _parse_user_id(x_user_id)
-
     def _delete() -> bool:
-        client = create_client(
-            settings.supabase_url,
-            settings.supabase_service_role_key.get_secret_value(),
-        )
+        client = get_service_role_client()
         resp = (
             client.table("installments")
             .delete()

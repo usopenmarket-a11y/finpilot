@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # Service role key has elevated privileges — never expose to clients.
     # SecretStr ensures the value is masked in all repr/log output.
     supabase_service_role_key: SecretStr = SecretStr("")
+    # Shared secret used to verify (HS256) Supabase Auth JWTs presented by
+    # the frontend as `Authorization: Bearer <token>`. Found in the Supabase
+    # dashboard under Project Settings -> API -> JWT Settings -> JWT Secret.
+    # SecretStr ensures the value is masked in all repr/log output.
+    supabase_jwt_secret: SecretStr = SecretStr("")
 
     # ------------------------------------------------------------------
     # Encryption

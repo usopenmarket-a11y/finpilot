@@ -151,6 +151,9 @@ export default async function CreditCardsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? '';
 
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
+
   const [accountsResult, transactionsResult, credentialsResult, preferencesResult] = await Promise.all([
     supabase
       .from('bank_accounts')
@@ -168,7 +171,7 @@ export default async function CreditCardsPage() {
       .from('bank_credentials')
       .select('bank, label')
       .eq('user_id', userId),
-    userId ? getPreferences(userId).catch(() => ({})) : Promise.resolve({}),
+    accessToken ? getPreferences(accessToken).catch(() => ({})) : Promise.resolve({}),
   ]);
 
   const creditCardAccounts: BankAccountRow[] = accountsResult.data ?? [];
