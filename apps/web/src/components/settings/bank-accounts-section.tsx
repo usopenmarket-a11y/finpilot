@@ -8,9 +8,6 @@ import {
   deleteCredential,
   updateCredential,
   syncBank,
-  syncBankAccounts,
-  syncBankCreditCards,
-  syncBankCertificates,
   encryptValue,
   type CredentialInfo,
 } from '@/lib/api-client';
@@ -445,131 +442,19 @@ export function BankAccountsSection() {
     }
   };
 
-  /**
-   * Trigger a focused NBE sync domain (accounts | cc | certs).
-   * Uses composite key `${credId}_${domain}` in syncStates so each button
-   * tracks its own loading/error/result independently.
-   */
-  const handleSyncDomain = async (
-    cred: CredentialInfo,
-    domain: 'accounts' | 'cc' | 'certs',
-  ) => {
-    if (!userId || !accessToken || !isValidBank(cred.bank)) return;
-    const key = `${cred.id}_${domain}`;
-
-    setSyncStates((prev) => ({
-      ...prev,
-      [key]: { loading: true, error: null, lastResult: null, startedAt: Date.now() },
-    }));
-
-    try {
-      let result;
-      if (domain === 'accounts') {
-        result = await syncBankAccounts(accessToken, cred.bank as Bank, cred.id);
-      } else if (domain === 'cc') {
-        result = await syncBankCreditCards(accessToken, cred.bank as Bank, cred.id);
-      } else {
-        result = await syncBankCertificates(accessToken, cred.bank as Bank, cred.id);
-      }
-
-      setSyncStates((prev) => ({
-        ...prev,
-        [key]: {
-          loading: false,
-          error: null,
-          lastResult: `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
-          startedAt: null,
-        },
-      }));
-      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Sync failed';
-      setSyncStates((prev) => ({
-        ...prev,
-        [key]: { loading: false, error: message, lastResult: null, startedAt: null },
-      }));
-    }
-  };
-
-  const isAnySyncingGlobal = Object.values(syncStates).some((s) => s.loading);
-
-  const [syncAllRunning, setSyncAllRunning] = useState(false);
-  const [syncAllProgress, setSyncAllProgress] = useState<{ done: number; total: number } | null>(null);
-  const [syncAllSummary, setSyncAllSummary] = useState<string | null>(null);
-
-  const handleSyncAll = async () => {
-    if (!userId || !accessToken || credentials.length === 0) return;
-    setSyncAllRunning(true);
-    setSyncAllSummary(null);
-    const total = credentials.length;
-    let done = 0;
-    let failed = 0;
-    setSyncAllProgress({ done: 0, total });
-
-    for (const cred of credentials) {
-      if (!isValidBank(cred.bank)) {
-        done++;
-        failed++;
-        setSyncAllProgress({ done, total });
-        continue;
-      }
-      try {
-        await syncBank(accessToken, cred.bank as Bank, cred.id);
-      } catch {
-        failed++;
-      }
-      done++;
-      setSyncAllProgress({ done, total });
-    }
-
-    await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
-    setSyncAllRunning(false);
-    setSyncAllProgress(null);
-    if (failed === 0) {
-      setSyncAllSummary('All synced');
-    } else {
-      setSyncAllSummary(`${done - failed} synced, ${failed} failed`);
-    }
-  };
-
   const globalSummary = buildSyncSummary(syncedAccounts);
   const globalSyncingDomains = new Set<SyncDomain>();
-  if (syncAllRunning) {
-    SYNC_DOMAINS.forEach((domain) => globalSyncingDomains.add(domain.key));
-  }
-  for (const [key, state] of Object.entries(syncStates)) {
+  for (const state of Object.values(syncStates)) {
     if (!state.loading) continue;
-    if (key.endsWith('_accounts')) globalSyncingDomains.add('accounts');
-    else if (key.endsWith('_cc')) globalSyncingDomains.add('cards');
-    else if (key.endsWith('_certs')) globalSyncingDomains.add('certificates');
-    else SYNC_DOMAINS.forEach((domain) => globalSyncingDomains.add(domain.key));
+    SYNC_DOMAINS.forEach((domain) => globalSyncingDomains.add(domain.key));
   }
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            Connected Bank Accounts
-          </h2>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-            {syncAllSummary && !syncAllRunning && (
-              <span className="text-xs text-gray-500 dark:text-gray-400 sm:text-right">{syncAllSummary}</span>
-            )}
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full sm:w-auto"
-              loading={syncAllRunning}
-              disabled={syncAllRunning || isAnySyncingGlobal || loadingList || credentials.length === 0}
-              onClick={() => void handleSyncAll()}
-            >
-              {syncAllRunning && syncAllProgress
-                ? `Syncing... (${syncAllProgress.done}/${syncAllProgress.total})`
-                : 'Sync All'}
-            </Button>
-          </div>
-        </div>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+          Connected Bank Accounts
+        </h2>
       </CardHeader>
       <CardBody className="space-y-6">
         {/* Existing credentials list */}
@@ -631,59 +516,23 @@ export function BankAccountsSection() {
                 const isSyncing = syncState?.loading ?? false;
                 const isRemoving = removingId === cred.id;
 
-                // For NBE, track each domain independently via composite keys.
-                const isNBE = cred.bank === 'NBE';
-                const accountsState = syncStates[`${cred.id}_accounts`];
-                const ccState = syncStates[`${cred.id}_cc`];
-                const certsState = syncStates[`${cred.id}_certs`];
-                // Any focused sync running counts as "syncing" for Remove disabled state.
-                const isAnySyncing =
-                  isSyncing ||
-                  (accountsState?.loading ?? false) ||
-                  (ccState?.loading ?? false) ||
-                  (certsState?.loading ?? false);
+                // Any sync running for this credential disables Remove/Edit.
+                const isAnySyncing = isSyncing;
 
-                // Collect inline feedback messages across all active domains.
-                const domainMessages: { key: string; text: string; isError: boolean }[] = [];
-                if (isNBE) {
-                  for (const [domainKey, domainLabel] of [
-                    [`${cred.id}_accounts`, 'Accounts'],
-                    [`${cred.id}_cc`, 'CC'],
-                    [`${cred.id}_certs`, 'Certs'],
-                  ] as [string, string][]) {
-                    const ds = syncStates[domainKey];
-                    if (ds?.error) {
-                      domainMessages.push({ key: domainKey, text: `${domainLabel}: ${ds.error}`, isError: true });
-                    } else if (ds?.lastResult) {
-                      domainMessages.push({ key: domainKey, text: `${domainLabel}: ${ds.lastResult}`, isError: false });
-                    }
-                  }
-                }
-
-                // Determine which keys are currently syncing for this credential
-                // so we can pick the largest elapsed time to display.
-                const activeSyncKeys: string[] = isNBE
-                  ? [`${cred.id}_accounts`, `${cred.id}_cc`, `${cred.id}_certs`].filter(
-                      (k) => syncStates[k]?.loading,
-                    )
-                  : isSyncing
-                  ? [cred.id]
-                  : [];
+                // Determine elapsed time to display while this credential is syncing.
+                const activeSyncKeys: string[] = isSyncing ? [cred.id] : [];
                 const maxElapsed =
                   activeSyncKeys.length > 0
                     ? Math.max(...activeSyncKeys.map((k) => elapsedSeconds[k] ?? 0))
                     : 0;
 
-                const hasPasswordChangeError = [cred.id, `${cred.id}_accounts`, `${cred.id}_cc`, `${cred.id}_certs`]
-                  .some(k => syncStates[k]?.error?.toLowerCase().includes('password change'));
+                const hasPasswordChangeError =
+                  syncState?.error?.toLowerCase().includes('password change') ?? false;
                 const credentialSummary = buildSyncSummary(syncedAccounts, cred);
                 const credentialSyncingDomains = new Set<SyncDomain>();
-                if (syncAllRunning || isSyncing) {
+                if (isSyncing) {
                   SYNC_DOMAINS.forEach((domain) => credentialSyncingDomains.add(domain.key));
                 }
-                if (accountsState?.loading) credentialSyncingDomains.add('accounts');
-                if (ccState?.loading) credentialSyncingDomains.add('cards');
-                if (certsState?.loading) credentialSyncingDomains.add('certificates');
 
                 return (
                   <li key={cred.id} className="py-4 first:pt-0 last:pb-0">
@@ -696,30 +545,17 @@ export function BankAccountsSection() {
                         <p className="mt-0.5 break-words text-xs text-gray-500 dark:text-gray-400">
                           {BANK_LABELS[cred.bank as Bank] ?? cred.bank} &middot; Last synced: {formatDate(cred.last_synced_at)}
                         </p>
-                        {/* Non-NBE single sync feedback */}
-                        {!isNBE && syncState?.error && (
+                        {/* Sync feedback */}
+                        {syncState?.error && (
                           <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
                             {syncState.error}
                           </p>
                         )}
-                        {!isNBE && syncState?.lastResult && (
+                        {syncState?.lastResult && (
                           <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
                             {syncState.lastResult}
                           </p>
                         )}
-                        {/* NBE domain-specific feedback */}
-                        {isNBE && domainMessages.map((msg) => (
-                          <p
-                            key={msg.key}
-                            className={`text-xs mt-0.5 ${
-                              msg.isError
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-green-700 dark:text-green-400'
-                            }`}
-                          >
-                            {msg.text}
-                          </p>
-                        ))}
                         {/* Password change warning */}
                         {hasPasswordChangeError && (
                           <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
@@ -752,47 +588,15 @@ export function BankAccountsSection() {
 
                       {/* Actions */}
                       <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-                        {isNBE ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              loading={accountsState?.loading ?? false}
-                              disabled={isAnySyncing || isRemoving}
-                              onClick={() => void handleSyncDomain(cred, 'accounts')}
-                            >
-                              Accounts
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              loading={ccState?.loading ?? false}
-                              disabled={isAnySyncing || isRemoving}
-                              onClick={() => void handleSyncDomain(cred, 'cc')}
-                            >
-                              CC
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              loading={certsState?.loading ?? false}
-                              disabled={isAnySyncing || isRemoving}
-                              onClick={() => void handleSyncDomain(cred, 'certs')}
-                            >
-                              Certs
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            loading={isSyncing}
-                            disabled={isSyncing || isRemoving}
-                            onClick={() => void handleSync(cred)}
-                          >
-                            Sync Now
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={isSyncing}
+                          disabled={isSyncing || isRemoving}
+                          onClick={() => void handleSync(cred)}
+                        >
+                          Sync All
+                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
