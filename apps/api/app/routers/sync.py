@@ -1061,7 +1061,10 @@ async def start_sync_job(
         "bank": bank,
         "credential_id": credential_id,
     }
-    await _create_job_in_db(job_id, user_id, bank, credential_id, "full")
+    # Persist the new job row without awaiting it — this is a network call to
+    # Supabase and must never block the 202 response (the job already exists
+    # in _JOBS, which is all the immediate response depends on).
+    asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "full"))
 
     # Schedule the background task and a keepalive without awaiting them.
     asyncio.create_task(_background_sync_task(job_id, user_id, bank, credential_id))
@@ -1216,7 +1219,7 @@ async def start_sync_accounts_job(
         "bank": bank,
         "credential_id": credential_id,
     }
-    await _create_job_in_db(job_id, user_id, bank, credential_id, "accounts")
+    asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "accounts"))
 
     asyncio.create_task(_background_sync_accounts_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
@@ -1267,7 +1270,7 @@ async def start_sync_cc_job(
         "bank": bank,
         "credential_id": credential_id,
     }
-    await _create_job_in_db(job_id, user_id, bank, credential_id, "credit_cards")
+    asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "credit_cards"))
 
     asyncio.create_task(_background_sync_cc_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
@@ -1318,7 +1321,7 @@ async def start_sync_certificates_job(
         "bank": bank,
         "credential_id": credential_id,
     }
-    await _create_job_in_db(job_id, user_id, bank, credential_id, "certificates")
+    asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "certificates"))
 
     asyncio.create_task(_background_sync_certificates_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
