@@ -204,7 +204,6 @@ interface SyncState {
 
 export function BankAccountsSection() {
   const [userId, setUserId] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -257,21 +256,35 @@ export function BankAccountsSection() {
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  // Fetch user id and session access token on mount
+  // Fetch user id on mount. The user id is stable for the session, but the
+  // access token is short-lived and auto-refreshed by Supabase, so it must
+  // be fetched fresh immediately before each API call (see getAccessToken).
   useEffect(() => {
     const supabase = createClient();
     void supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
         setUserId(data.session.user.id);
-        setAccessToken(data.session.access_token);
       }
     });
   }, []);
 
-  const fetchCredentials = useCallback(async (token: string) => {
+  // Always fetch a fresh access token right before making an API call so we
+  // never send a stale/expired token (Supabase rotates tokens roughly hourly).
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, []);
+
+  const fetchCredentials = useCallback(async () => {
     setLoadingList(true);
     setListError(null);
     try {
+      const token = await getAccessToken();
+      if (!token) {
+        setListError('Your session has expired. Please sign in again.');
+        return;
+      }
       const list = await listCredentials(token);
       setCredentials(list);
     } catch (err: unknown) {
@@ -280,7 +293,7 @@ export function BankAccountsSection() {
     } finally {
       setLoadingList(false);
     }
-  }, []);
+  }, [getAccessToken]);
 
   const fetchSyncedAccounts = useCallback(async (uid: string) => {
     setSyncInventoryError(null);
@@ -317,21 +330,27 @@ export function BankAccountsSection() {
   }, []);
 
   useEffect(() => {
-    if (userId && accessToken) {
-      void fetchCredentials(accessToken);
+    if (userId) {
+      void fetchCredentials();
       void fetchSyncedAccounts(userId);
     }
-  }, [userId, accessToken, fetchCredentials, fetchSyncedAccounts]);
+  }, [userId, fetchCredentials, fetchSyncedAccounts]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userId || !accessToken || !isValidBank(selectedBank)) return;
+    if (!userId || !isValidBank(selectedBank)) return;
 
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
 
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        setSaveError('Your session has expired. Please sign in again.');
+        return;
+      }
+
       // Encrypt credentials server-side so the key never touches the browser
       const [encUsername, encPassword] = await Promise.all([
         encryptValue(accessToken, username),
@@ -354,7 +373,7 @@ export function BankAccountsSection() {
       setSaveSuccess(true);
 
       // Refresh list
-      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to save credentials';
       setSaveError(message);
@@ -364,9 +383,14 @@ export function BankAccountsSection() {
   };
 
   const handleRemove = async (cred: CredentialInfo) => {
-    if (!userId || !accessToken) return;
+    if (!userId) return;
     setRemovingId(cred.id);
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        setListError('Your session has expired. Please sign in again.');
+        return;
+      }
       await deleteCredential(accessToken, cred.id);
       setCredentials((prev) => prev.filter((c) => c.id !== cred.id));
       await fetchSyncedAccounts(userId);
@@ -379,10 +403,15 @@ export function BankAccountsSection() {
   };
 
   const handleUpdate = async (cred: CredentialInfo) => {
-    if (!userId || !accessToken) return;
+    if (!userId) return;
     setUpdating(true);
     setUpdateError(null);
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        setUpdateError('Your session has expired. Please sign in again.');
+        return;
+      }
       const updates: { encryptedUsername?: string; encryptedPassword?: string; label?: string } = {};
       if (editUsername.trim()) {
         updates.encryptedUsername = await encryptValue(accessToken, editUsername);
@@ -402,7 +431,7 @@ export function BankAccountsSection() {
       setEditUsername('');
       setEditPassword('');
       setEditLabel('');
-      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update credentials';
       setUpdateError(message);
@@ -412,7 +441,7 @@ export function BankAccountsSection() {
   };
 
   const handleSync = async (cred: CredentialInfo) => {
-    if (!userId || !accessToken || !isValidBank(cred.bank)) return;
+    if (!userId || !isValidBank(cred.bank)) return;
     const key = cred.id;
 
     setSyncStates((prev) => ({
@@ -421,6 +450,20 @@ export function BankAccountsSection() {
     }));
 
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        setSyncStates((prev) => ({
+          ...prev,
+          [key]: {
+            loading: false,
+            error: 'Your session has expired. Please sign in again.',
+            lastResult: null,
+            startedAt: null,
+          },
+        }));
+        return;
+      }
+
       const result = await syncBank(accessToken, cred.bank as Bank, cred.id);
       setSyncStates((prev) => ({
         ...prev,
@@ -432,7 +475,7 @@ export function BankAccountsSection() {
         },
       }));
       // Refresh list to update last_synced_at and synced-domain coverage.
-      await Promise.all([fetchCredentials(accessToken), fetchSyncedAccounts(userId)]);
+      await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
