@@ -29,6 +29,7 @@ from playwright.async_api import (
     Browser,
     BrowserContext,
     Page,
+    Route,
     async_playwright,
 )
 
@@ -80,6 +81,46 @@ _USER_AGENTS: list[str] = [
         "Chrome/121.0.0.0 Safari/537.36"
     ),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Resource types blocked at the network layer to reduce Chromium renderer
+# memory.  Banking SPA portals (Oracle JET / OBDX, Temenos T24, etc.) load a
+# large number of images, web fonts, and stylesheets that have zero impact on
+# scraping — the data we need comes from the DOM/JSON XHR responses, not the
+# rendered visual layout.  Blocking these consistently shaves well over
+# 100-200MB off the Chromium renderer's resident memory on Render's 512MB
+# free-tier instance during a full multi-phase scrape.
+#
+# Deliberately NOT blocked: "document", "script", "xhr", "fetch" — the SPA's
+# JS bundle and its API calls (which we intercept via page.on("response"))
+# must load normally.
+# ---------------------------------------------------------------------------
+_BLOCKED_RESOURCE_TYPES: frozenset[str] = frozenset(
+    {"image", "media", "font", "stylesheet"}
+)
+
+
+async def _block_heavy_resources(route: Route) -> None:
+    """Abort requests for resource types in ``_BLOCKED_RESOURCE_TYPES``.
+
+    Registered via ``context.route("**/*", ...)`` so it applies to every
+    request made by every page opened in the context.  Any error while
+    inspecting/aborting a request falls back to letting it continue —
+    a blocked-resource optimisation must never break the scrape.
+    """
+    try:
+        if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+            return
+    except Exception:
+        pass
+    try:
+        await route.continue_()
+    except Exception:
+        # Route may already be handled/closed (e.g. page navigated away) —
+        # safe to ignore.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +345,11 @@ class BankScraper(ABC):
             });
             """
         )
+
+        # Block images, fonts, media, and stylesheets context-wide.  This is
+        # the single biggest memory win for headless scraping of image/CSS-
+        # heavy banking SPAs — see _BLOCKED_RESOURCE_TYPES docstring.
+        await context.route("**/*", _block_heavy_resources)
 
         page: Page = await context.new_page()
 

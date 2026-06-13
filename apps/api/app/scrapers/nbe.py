@@ -129,6 +129,19 @@ _SHORT_TIMEOUT_MS = 20_000
 # Maximum number of transactions to return per scrape run.
 _MAX_TRANSACTIONS = 50
 
+# Maximum number of characters retained per ScraperResult.raw_html entry.
+#
+# A full scrape() call captures page.content() up to ~7 times (dashboard,
+# credit_cards, transactions_0..N for up to 4 accounts, certificates).
+# Oracle JET hydrates each page with large inline JSON view-model state, so
+# each capture can be several hundred KB to a few MB. Holding all of these
+# full-size strings simultaneously in the Python heap — on top of the
+# Chromium process itself — was a contributing factor to OOM kills on
+# Render's 512MB instances. raw_html is debugging-only (not consumed by the
+# pipeline), so a head-only snippet is sufficient while still satisfying
+# "key present and non-empty" checks in tests/debugging.
+_RAW_HTML_MAX_CHARS = 20_000
+
 # ---------------------------------------------------------------------------
 # Selector catalogue (OBDX / Oracle JET SPA — alahlynet.com.eg)
 #
@@ -408,6 +421,20 @@ def _extract_currency_from_balance(balance_text: str) -> str:
     return "EGP"
 
 
+def _truncate_html(html: str, max_chars: int = _RAW_HTML_MAX_CHARS) -> str:
+    """Return ``html`` truncated to ``max_chars`` for ``ScraperResult.raw_html``.
+
+    ``raw_html`` is a debugging aid only — it is not consumed by the pipeline.
+    Storing full page captures (which can be several MB each once Oracle JET
+    hydrates inline view-model JSON) across multiple scrape phases inflates
+    peak Python heap usage. A head-only snippet is enough to inspect page
+    structure for debugging while keeping memory bounded.
+    """
+    if len(html) <= max_chars:
+        return html
+    return html[:max_chars] + f"...<truncated {len(html) - max_chars} chars>"
+
+
 def _parse_oj_table_rows(html: str) -> list[list[str]]:
     """Extract cell text from an Oracle JET ``oj-table#ViewStatement1`` element.
 
@@ -606,7 +633,7 @@ class NBEScraper(BankScraper):
         raw_html: dict[str, str] = {}
         try:
             # Capture dashboard HTML for audit trail (post-auth — safe to screenshot)
-            raw_html["dashboard"] = await page.content()
+            raw_html["dashboard"] = _truncate_html(await page.content())
 
             # ------------------------------------------------------------------
             # Scrape credit cards FIRST while the browser is fresh.
@@ -618,7 +645,7 @@ class NBEScraper(BankScraper):
                 cc_accounts = await self._scrape_credit_cards(page)
                 if cc_accounts:
                     logger.info("NBE: found %d credit card account(s)", len(cc_accounts))
-                    raw_html["credit_cards"] = await page.content()
+                    raw_html["credit_cards"] = _truncate_html(await page.content())
             except Exception as cc_exc:
                 logger.warning("NBE: credit card scraping failed (non-fatal): %s", cc_exc)
 
@@ -693,7 +720,7 @@ class NBEScraper(BankScraper):
                         await self._reveal_accounts_widget(page)
 
                     await self._navigate_to_transactions_for_account(page, idx)
-                    raw_html[f"transactions_{idx}"] = await page.content()
+                    raw_html[f"transactions_{idx}"] = _truncate_html(await page.content())
 
                     txns = await self._extract_transactions(page, account)
                     logger.info(
@@ -778,7 +805,7 @@ class NBEScraper(BankScraper):
                 cert_accounts = await self._scrape_certificates(page)
                 if cert_accounts:
                     logger.info("NBE: found %d certificate/deposit account(s)", len(cert_accounts))
-                    raw_html["certificates"] = await page.content()
+                    raw_html["certificates"] = _truncate_html(await page.content())
             except Exception as cert_exc:
                 logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
 
@@ -886,7 +913,7 @@ class NBEScraper(BankScraper):
                 break
 
         try:
-            raw_html["dashboard"] = await page.content()
+            raw_html["dashboard"] = _truncate_html(await page.content())
 
             await self._reveal_accounts_widget(page)
             accounts = await self._extract_all_accounts(page)
@@ -905,7 +932,7 @@ class NBEScraper(BankScraper):
                     if idx > 0:
                         await self._reveal_accounts_widget(page)
                     await self._navigate_to_transactions_for_account(page, idx)
-                    raw_html[f"transactions_{idx}"] = await page.content()
+                    raw_html[f"transactions_{idx}"] = _truncate_html(await page.content())
                     txns = await self._extract_transactions(page, account)
                     logger.info(
                         "NBE: scrape_accounts — account %d/%d extracted %d transactions",
@@ -1040,7 +1067,7 @@ class NBEScraper(BankScraper):
                 break
 
         try:
-            raw_html["dashboard"] = await page.content()
+            raw_html["dashboard"] = _truncate_html(await page.content())
 
             cc_accounts: list[BankAccount] = []
             try:
@@ -1049,7 +1076,7 @@ class NBEScraper(BankScraper):
                     logger.info(
                         "NBE: scrape_credit_cards — found %d CC account(s)", len(cc_accounts)
                     )
-                    raw_html["credit_cards"] = await page.content()
+                    raw_html["credit_cards"] = _truncate_html(await page.content())
             except Exception as cc_exc:
                 logger.warning("NBE: scrape_credit_cards — CC account scraping failed: %s", cc_exc)
 
@@ -1162,7 +1189,7 @@ class NBEScraper(BankScraper):
                 break
 
         try:
-            raw_html["dashboard"] = await page.content()
+            raw_html["dashboard"] = _truncate_html(await page.content())
 
             cert_accounts: list[BankAccount] = []
             try:
@@ -1172,7 +1199,7 @@ class NBEScraper(BankScraper):
                         "NBE: scrape_certificates — found %d certificate/deposit account(s)",
                         len(cert_accounts),
                     )
-                    raw_html["certificates"] = await page.content()
+                    raw_html["certificates"] = _truncate_html(await page.content())
             except Exception as cert_exc:
                 logger.warning(
                     "NBE: scrape_certificates — certificate scraping failed: %s", cert_exc
