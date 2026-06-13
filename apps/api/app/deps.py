@@ -4,10 +4,19 @@ Security contract
 ------------------
 * ``get_current_user_id`` is the SINGLE source of truth for "who is making
   this request".  It reads the ``Authorization: Bearer <jwt>`` header,
-  cryptographically verifies the token's signature against the project's
-  Supabase JWT secret, and checks ``exp`` (expiry), ``aud`` (audience), and
-  ``iss`` (issuer) claims.  The verified ``sub`` claim — a UUID controlled
-  ONLY by Supabase Auth — becomes ``user_id`` for every downstream query.
+  cryptographically verifies the token's signature, and checks ``exp``
+  (expiry), ``aud`` (audience), and ``iss`` (issuer) claims.  The verified
+  ``sub`` claim — a UUID controlled ONLY by Supabase Auth — becomes
+  ``user_id`` for every downstream query.
+* Signature verification supports BOTH of Supabase's signing models:
+    - New projects (and migrated projects) sign user access tokens with an
+      asymmetric key (ES256/RS256) published at this project's JWKS endpoint
+      (``<supabase_url>/auth/v1/.well-known/jwks.json``).
+    - Older projects sign with a shared HS256 secret
+      (``settings.supabase_jwt_secret``, from Project Settings -> API -> JWT
+      Settings -> JWT Secret).
+  ``PyJWKClient`` is tried first; if the project has no JWKS keys configured
+  (legacy-only projects), verification falls back to the HS256 secret.
 * This file deliberately does NOT accept a client-supplied user id from any
   header.  The previous ``x-user-id`` pattern allowed any caller to read or
   mutate any other user's data simply by supplying that user's UUID — a
@@ -25,10 +34,12 @@ Security contract
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from uuid import UUID
 
 import jwt
 from fastapi import Header, HTTPException, status
+from jwt import PyJWKClient
 from supabase import acreate_client, create_client
 from supabase._async.client import AsyncClient
 from supabase._sync.client import Client
@@ -40,17 +51,31 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # JWT validation constants
 # ---------------------------------------------------------------------------
-# Supabase issues HS256-signed access tokens for this project (legacy shared
-# JWT-secret model).  The audience for end-user session tokens is always the
-# literal string "authenticated".  The issuer is the project's GoTrue (Auth)
-# endpoint.
-_JWT_ALGORITHMS = ["HS256"]
+# The audience for end-user session tokens is always the literal string
+# "authenticated". The issuer is the project's GoTrue (Auth) endpoint.
+_JWT_ALGORITHMS = ["ES256", "RS256", "HS256"]
 _EXPECTED_AUDIENCE = "authenticated"
 
 
 def _expected_issuer() -> str:
     """Return the expected ``iss`` claim for this Supabase project."""
     return f"{settings.supabase_url.rstrip('/')}/auth/v1"
+
+
+@lru_cache(maxsize=4)
+def _jwk_client(supabase_url: str) -> PyJWKClient:
+    """Return a cached ``PyJWKClient`` for the given project's JWKS endpoint.
+
+    Cached per ``supabase_url`` (rather than globally) so tests that
+    monkeypatch ``settings.supabase_url`` get a fresh client instead of a
+    stale one from a previous configuration. ``PyJWKClient`` caches the
+    fetched keyset in-memory (default TTL) and re-fetches automatically on a
+    ``kid`` it hasn't seen, so this is safe to reuse across requests without
+    hammering the JWKS endpoint. A short timeout keeps an unreachable/invalid
+    issuer (e.g. in tests) from stalling a request.
+    """
+    jwks_url = f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+    return PyJWKClient(jwks_url, cache_keys=True, timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +91,8 @@ async def get_current_user_id(
     Reads the ``Authorization`` header, expects the form
     ``Bearer <supabase_access_token>``, and validates:
 
-    * signature — HS256, verified against ``settings.supabase_jwt_secret``
+    * signature — ES256/RS256 via this project's JWKS endpoint, or HS256
+      via ``settings.supabase_jwt_secret`` for legacy projects
     * ``exp``    — token must not be expired
     * ``aud``    — must equal ``"authenticated"``
     * ``iss``    — must match this project's Auth endpoint
@@ -78,7 +104,8 @@ async def get_current_user_id(
     Raises:
         HTTPException 401 — missing/malformed header, expired token, invalid
             signature, or any other JWT validation failure.
-        HTTPException 500 — server misconfiguration (JWT secret not set).
+        HTTPException 500 — server misconfiguration (neither JWKS nor JWT
+            secret available).
     """
     if not authorization:
         raise HTTPException(
@@ -95,40 +122,78 @@ async def get_current_user_id(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    secret = settings.supabase_jwt_secret.get_secret_value()
-    if not secret:
-        # Fail closed: never fall back to "trust the client" if the server
-        # is misconfigured.
-        logger.error("SUPABASE_JWT_SECRET is not configured")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication is not configured",
-        )
+    decode_kwargs = {
+        "audience": _EXPECTED_AUDIENCE,
+        "issuer": _expected_issuer(),
+        "options": {"require": ["exp", "sub", "aud", "iss"]},
+    }
 
+    signing_key: jwt.PyJWK | None = None
+    jwks_error: Exception | None = None
     try:
-        payload = jwt.decode(
-            token,
-            secret,
-            algorithms=_JWT_ALGORITHMS,
-            audience=_EXPECTED_AUDIENCE,
-            issuer=_expected_issuer(),
-            options={"require": ["exp", "sub", "aud", "iss"]},
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Access token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.InvalidTokenError:
-        # Covers bad signature, bad audience/issuer, malformed token, missing
-        # required claims, etc. Do not echo token contents in the log.
-        logger.warning("Rejected invalid access token")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired access token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        signing_key = _jwk_client(settings.supabase_url).get_signing_key_from_jwt(token)
+    except Exception as exc:  # noqa: BLE001 - fall back to legacy secret below
+        jwks_error = exc
+
+    if signing_key is not None:
+        try:
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=_JWT_ALGORITHMS,
+                **decode_kwargs,
+            )
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except jwt.InvalidTokenError:
+            logger.warning("Rejected invalid access token (JWKS)")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired access token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    else:
+        # Legacy fallback: project has no JWKS keys (or token predates JWKS
+        # rollout) — verify against the shared HS256 secret instead.
+        secret = settings.supabase_jwt_secret.get_secret_value()
+        if not secret:
+            logger.error(
+                "No JWKS signing key available and SUPABASE_JWT_SECRET is "
+                "not configured: %s",
+                jwks_error,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication is not configured",
+            )
+
+        try:
+            payload = jwt.decode(
+                token,
+                secret,
+                algorithms=["HS256"],
+                **decode_kwargs,
+            )
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except jwt.InvalidTokenError:
+            # Covers bad signature, bad audience/issuer, malformed token,
+            # missing required claims, etc. Do not echo token contents in
+            # the log.
+            logger.warning("Rejected invalid access token (HS256 fallback)")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired access token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     sub = payload.get("sub")
     try:
