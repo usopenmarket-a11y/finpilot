@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.crypto import CryptoError, decrypt
 from app.deps import get_async_service_role_client, get_current_user_id, get_service_role_client
+from app.models.db import SyncJobResult
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
@@ -93,15 +94,28 @@ _HEALTH_URL = "https://finpilot-api-lrfg.onrender.com/api/v1/health"
 
 
 async def _keepalive_while_running(job_id: str) -> None:
-    """Ping the external health endpoint every 30s until the job is no longer running.
+    """Ping the health endpoint and persist job state every 30s while running.
 
-    The first ping fires immediately (before the sleep) so even jobs that
-    complete or are killed in the first 30s window still trigger a keepalive.
+    Two responsibilities, combined into one loop so both run on the same
+    cadence without spawning extra tasks:
+
+    1. Ping the external health endpoint so Render free-tier does not
+       suspend the instance mid-scrape.
+    2. Mirror the current ``_JOBS[job_id]`` snapshot into the durable
+       ``sync_jobs`` table, so ``GET /accounts/sync/status/{job_id}`` can
+       recover job state if a redeploy/restart wipes the in-memory dict.
+
+    The first iteration fires immediately (before the sleep) so even jobs
+    that complete or are killed within the first 30s still get a final
+    persisted snapshot.
     """
     async with httpx.AsyncClient(timeout=10) as client:
         while True:
             job = _JOBS.get(job_id)
-            if job is None or job["status"] not in ("pending", "running"):
+            if job is None:
+                break
+            await _persist_job_to_db(job_id, job)
+            if job["status"] not in ("pending", "running"):
                 break
             try:
                 await client.get(_HEALTH_URL)
@@ -159,6 +173,94 @@ def _set_job_terminal(
     _JOBS[job_id]["result"] = result
     _JOBS[job_id]["error"] = error
     _JOBS[job_id]["finished_at"] = datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# Durable job persistence (public.sync_jobs)
+# ---------------------------------------------------------------------------
+# Mirrors in-memory _JOBS state into Supabase so GET .../sync/status/{job_id}
+# can recover after a Render redeploy/restart wipes _JOBS. Best-effort: a
+# failed write here must never break the sync itself.
+
+
+async def _create_job_in_db(
+    job_id: str,
+    user_id: UUID,
+    bank: str,
+    credential_id: str | None,
+    job_type: Literal["full", "accounts", "credit_cards", "certificates"],
+) -> None:
+    """Insert the initial durable row for a newly-created job. Best-effort."""
+    try:
+        client = await get_async_service_role_client()
+        await client.table("sync_jobs").insert(
+            {
+                "id": job_id,
+                "user_id": str(user_id),
+                "bank": bank,
+                "credential_id": credential_id,
+                "job_type": job_type,
+                "status": "pending",
+                "result": None,
+                "error": None,
+                "finished_at": None,
+            }
+        ).execute()
+    except Exception as exc:
+        logger.warning("Failed to persist new sync job %s to sync_jobs: %s", job_id, exc)
+
+
+async def _persist_job_to_db(job_id: str, job: dict[str, Any]) -> None:
+    """Upsert the current in-memory job state into sync_jobs. Best-effort."""
+    result = job.get("result")
+    finished_at = job.get("finished_at")
+    try:
+        client = await get_async_service_role_client()
+        await client.table("sync_jobs").update(
+            {
+                "status": job["status"],
+                "result": result.model_dump() if isinstance(result, SyncResponse) else result,
+                "error": job.get("error"),
+                "finished_at": finished_at.isoformat() if finished_at else None,
+            }
+        ).eq("id", job_id).execute()
+    except Exception as exc:
+        logger.warning("Failed to persist sync job %s state to sync_jobs: %s", job_id, exc)
+
+
+async def _load_job_from_db(job_id: str, user_id: UUID) -> SyncJobStatusResponse | None:
+    """Look up a job's durable record when it is no longer in _JOBS.
+
+    Returns ``None`` if no row exists for this job_id/user_id (the caller
+    should respond 404 in that case).
+    """
+    try:
+        client = await get_async_service_role_client()
+        response = (
+            await client.table("sync_jobs")
+            .select("status, result, error")
+            .eq("id", job_id)
+            .eq("user_id", str(user_id))
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("Failed to load sync job %s from sync_jobs: %s", job_id, exc)
+        return None
+
+    if not response.data:
+        return None
+
+    row = response.data[0]
+    assert isinstance(row, dict)
+    result_data = row.get("result")
+    result = SyncJobResult.model_validate(result_data) if result_data else None
+    return SyncJobStatusResponse(
+        job_id=job_id,
+        status=row["status"],
+        result=SyncResponse(**result.model_dump()) if result else None,
+        error=row.get("error"),
+    )
 
 
 async def _background_sync_task(
@@ -959,6 +1061,7 @@ async def start_sync_job(
         "bank": bank,
         "credential_id": credential_id,
     }
+    await _create_job_in_db(job_id, user_id, bank, credential_id, "full")
 
     # Schedule the background task and a keepalive without awaiting them.
     asyncio.create_task(_background_sync_task(job_id, user_id, bank, credential_id))
@@ -990,20 +1093,27 @@ async def get_sync_status(
     * 404 — job_id not found, or it belongs to a different user (the two
       cases are indistinguishable in the response to avoid leaking the
       existence of other users' jobs).
+
+    Falls back to the durable ``sync_jobs`` table when the job is no longer
+    in the in-memory ``_JOBS`` dict (e.g. a Render redeploy/restart happened
+    mid-scrape and wiped in-memory state on the new instance).
     """
     job = _JOBS.get(job_id)
-    if job is None or job.get("user_id") != str(user_id):
+    if job is not None and job.get("user_id") == str(user_id):
+        return SyncJobStatusResponse(
+            job_id=job_id,
+            status=job["status"],
+            result=job["result"],
+            error=job["error"],
+        )
+
+    db_status = await _load_job_from_db(job_id, user_id)
+    if db_status is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job {job_id} not found",
         )
-
-    return SyncJobStatusResponse(
-        job_id=job_id,
-        status=job["status"],
-        result=job["result"],
-        error=job["error"],
-    )
+    return db_status
 
 
 def _validate_credentials_exist(
@@ -1106,6 +1216,7 @@ async def start_sync_accounts_job(
         "bank": bank,
         "credential_id": credential_id,
     }
+    await _create_job_in_db(job_id, user_id, bank, credential_id, "accounts")
 
     asyncio.create_task(_background_sync_accounts_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
@@ -1156,6 +1267,7 @@ async def start_sync_cc_job(
         "bank": bank,
         "credential_id": credential_id,
     }
+    await _create_job_in_db(job_id, user_id, bank, credential_id, "credit_cards")
 
     asyncio.create_task(_background_sync_cc_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
@@ -1206,6 +1318,7 @@ async def start_sync_certificates_job(
         "bank": bank,
         "credential_id": credential_id,
     }
+    await _create_job_in_db(job_id, user_id, bank, credential_id, "certificates")
 
     asyncio.create_task(_background_sync_certificates_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))

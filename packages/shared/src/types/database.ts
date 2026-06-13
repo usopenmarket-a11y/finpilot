@@ -1,6 +1,6 @@
 // AUTO-GENERATED — do not edit manually.
 // Regenerate with: Supabase MCP → generate_typescript_types
-// Last generated: 2026-04-19
+// Last generated: 2026-06-13
 
 export type Json =
   | string
@@ -369,6 +369,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sync_jobs: {
+        Row: {
+          bank: string
+          created_at: string
+          credential_id: string | null
+          error: string | null
+          finished_at: string | null
+          id: string
+          job_type: string
+          result: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bank: string
+          created_at?: string
+          credential_id?: string | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type: string
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bank?: string
+          created_at?: string
+          credential_id?: string | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type?: string
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       transactions: {
         Row: {

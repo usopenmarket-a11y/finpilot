@@ -343,3 +343,87 @@ class InstallmentDB(BaseModel):
     )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
+
+
+# ---------------------------------------------------------------------------
+# Sync job (durable bank-sync background job state)
+# ---------------------------------------------------------------------------
+
+SYNC_JOB_TYPES = ("full", "accounts", "credit_cards", "certificates")
+SYNC_JOB_TYPE_LITERAL = Literal["full", "accounts", "credit_cards", "certificates"]
+SYNC_JOB_STATUSES = ("pending", "running", "complete", "failed")
+SYNC_JOB_STATUS_LITERAL = Literal["pending", "running", "complete", "failed"]
+
+# Matches the bank_name CHECK constraint on bank_accounts/bank_credentials and
+# the route-level Literal in apps/api/app/routers/sync.py (includes BDC_RETAIL,
+# unlike the narrower SUPPORTED_BANKS_LITERAL used by BankCredential).
+SYNC_JOB_BANK_LITERAL = Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"]
+
+
+class SyncJobResult(BaseModel):
+    """Shape stored in public.sync_jobs.result (JSONB) on success.
+
+    Mirrors ``SyncResponse`` in ``apps/api/app/routers/sync.py``. Duplicated
+    here (rather than imported) to avoid a models -> routers dependency;
+    routers may import and use this model when persisting/reading job state.
+    """
+
+    bank: str = Field(description="Bank identifier the sync was run for")
+    account_number_masked: str = Field(
+        description="Last 4 digits of the primary account scraped"
+    )
+    transactions_scraped: int = Field(description="Total transactions returned by the scraper")
+    transactions_saved: int = Field(
+        description="New transactions persisted by the pipeline (post-deduplication)"
+    )
+    synced_at: str = Field(description="ISO 8601 timestamp the sync completed")
+
+
+class SyncJobRecord(BaseModel):
+    """Mirrors public.sync_jobs — durable record of a bank-sync background job.
+
+    This table exists so GET /accounts/sync/status/{job_id} can recover job
+    state after a Render free-tier restart wipes the in-memory ``_JOBS`` dict
+    in ``apps/api/app/routers/sync.py``. ``id`` IS the ``job_id`` returned to
+    the client (the API inserts with an explicit ``id`` matching the value
+    already handed back in ``SyncJobStartResponse.job_id``).
+
+    Only the backend (service-role client) writes to this table; the RLS
+    SELECT policy (``auth.uid() = user_id``) is defence-in-depth only.
+
+    NOTE: rows are not currently purged — a periodic cleanup of old
+    finished rows may be needed later (out of scope for now).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(
+        description="Primary key AND the job_id returned to the client (explicit insert)"
+    )
+    user_id: UUID = Field(description="FK to auth.users(id) — verified caller, cascade-deleted")
+    bank: SYNC_JOB_BANK_LITERAL = Field(
+        description="Bank identifier — one of: NBE, CIB, BDC, BDC_RETAIL, UB"
+    )
+    credential_id: UUID | None = Field(
+        default=None,
+        description=(
+            "References bank_credentials(id) with no FK constraint, so credential "
+            "deletion is never blocked by historical job rows"
+        ),
+    )
+    job_type: SYNC_JOB_TYPE_LITERAL = Field(
+        description="Which background sync variant this job runs — one of: full, accounts, credit_cards, certificates"
+    )
+    status: SYNC_JOB_STATUS_LITERAL = Field(
+        default="pending",
+        description="Job lifecycle state — one of: pending, running, complete, failed",
+    )
+    result: SyncJobResult | None = Field(
+        default=None, description="Populated when status='complete'"
+    )
+    error: str | None = Field(default=None, description="Populated when status='failed'")
+    finished_at: datetime | None = Field(
+        default=None, description="Set when status becomes complete or failed"
+    )
+    created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
+    updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
