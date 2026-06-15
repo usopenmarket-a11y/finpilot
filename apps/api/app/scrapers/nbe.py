@@ -1295,7 +1295,14 @@ class NBEScraper(BankScraper):
         logger.info("NBE: clicking accounts widget to reveal account list")
         # Use page.click() instead of handle.click() — the Oracle JET SPA re-renders
         # elements after interaction, which detaches stored ElementHandles.
-        await page.click(_SEL_ACCOUNTS_WIDGET)
+        try:
+            await page.click(_SEL_ACCOUNTS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "accounts_widget_click_timeout")
+            raise ScraperTimeoutError(
+                f"NBE: clicking accounts widget ({_SEL_ACCOUNTS_WIDGET!r}) timed out",
+                bank_code="NBE",
+            ) from exc
         await self._random_delay(0.8, 1.5)
 
         logger.info("NBE: waiting for account rows %r", _SEL_ACCOUNT_ROWS)
