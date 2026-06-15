@@ -210,43 +210,76 @@ def _make_transactions() -> list[TransactionSummary]:
 
 
 def test_monthly_plan_health_score_up_trend() -> None:
-    """Upward spend trend subtracts 0.3 from the base health score of 1.0."""
+    """An upward trend scores lower than an otherwise-identical flat trend."""
     spending = _make_spending()
-    trends = _make_trend(spend_trend_direction="up")
+    trends_up = _make_trend(spend_trend_direction="up")
+    trends_flat = _make_trend(spend_trend_direction="flat")
 
-    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+    plan_up = generate_monthly_plan(spending, trends_up, target_month=3, target_year=2026)
+    plan_flat = generate_monthly_plan(spending, trends_flat, target_month=3, target_year=2026)
 
-    # Base 1.0 − 0.3 (up-trend penalty) = 0.7, net is positive so no net penalty
-    assert plan.health_score == pytest.approx(0.7, abs=1e-4)
+    assert plan_up.health_score < plan_flat.health_score
+    # savings-rate (0.3889) + trend (0.3 * (1 - 0.04/0.50) = 0.276) + concentration (0.2)
+    assert plan_up.health_score == pytest.approx(0.8649, abs=1e-4)
+    # savings-rate (0.3889) + trend (0.3) + concentration (0.2)
+    assert plan_flat.health_score == pytest.approx(0.8889, abs=1e-4)
 
 
 def test_monthly_plan_health_score_negative_net() -> None:
-    """Negative net subtracts 0.2 from health.  Flat trend, no category dominance."""
-    spending = _make_spending(net="-500.00")
+    """A deficit (negative net) scores lower than an otherwise-identical surplus."""
+    spending_deficit = _make_spending(net="-500.00")
+    spending_surplus = _make_spending()
     trends = _make_trend(spend_trend_direction="flat")
 
-    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+    plan_deficit = generate_monthly_plan(spending_deficit, trends, target_month=3, target_year=2026)
+    plan_surplus = generate_monthly_plan(spending_surplus, trends, target_month=3, target_year=2026)
 
-    assert plan.health_score == pytest.approx(0.8, abs=1e-4)
+    assert plan_deficit.health_score < plan_surplus.health_score
+    # savings-rate (rate=-1/12 -> 0.1806) + trend (0.3) + concentration (0.2)
+    assert plan_deficit.health_score == pytest.approx(0.6806, abs=1e-4)
 
 
 def test_monthly_plan_health_score_dominant_category() -> None:
-    """A single category above 40 % subtracts 0.1 from health."""
-    spending = _make_spending(
+    """A category above the 40% dominance threshold lowers the concentration component."""
+    spending_dominant = _make_spending(
         categories=[
             {"category": "food", "total": "2200.00", "percentage": 44.0},
             {"category": "transport", "total": "800.00", "percentage": 16.0},
         ]
     )
+    spending_balanced = _make_spending()
     trends = _make_trend(spend_trend_direction="flat")
 
-    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+    plan_dominant = generate_monthly_plan(
+        spending_dominant, trends, target_month=3, target_year=2026
+    )
+    plan_balanced = generate_monthly_plan(
+        spending_balanced, trends, target_month=3, target_year=2026
+    )
 
-    assert plan.health_score == pytest.approx(0.9, abs=1e-4)
+    assert plan_dominant.health_score < plan_balanced.health_score
+    # savings-rate (0.3889) + trend (0.3) + concentration (0.2 * (1 - 4/60) = 0.18667)
+    assert plan_dominant.health_score == pytest.approx(0.8756, abs=1e-4)
 
 
-def test_monthly_plan_health_score_all_penalties() -> None:
-    """All three penalty conditions active: 1.0 − 0.3 − 0.2 − 0.1 = 0.4."""
+def test_monthly_plan_health_score_higher_concentration_scores_lower() -> None:
+    """A higher top-category share produces a strictly lower health score."""
+    spending_44pct = _make_spending(
+        categories=[{"category": "food", "total": "2200.00", "percentage": 44.0}]
+    )
+    spending_50pct = _make_spending(
+        categories=[{"category": "food", "total": "2500.00", "percentage": 50.0}]
+    )
+    trends = _make_trend(spend_trend_direction="flat")
+
+    plan_44 = generate_monthly_plan(spending_44pct, trends, target_month=3, target_year=2026)
+    plan_50 = generate_monthly_plan(spending_50pct, trends, target_month=3, target_year=2026)
+
+    assert plan_50.health_score < plan_44.health_score
+
+
+def test_monthly_plan_health_score_all_negative_signals() -> None:
+    """Deficit + up trend + dominant category compound to a low but valid score."""
     spending = _make_spending(
         net="-200.00",
         categories=[
@@ -258,12 +291,12 @@ def test_monthly_plan_health_score_all_penalties() -> None:
 
     plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
 
-    assert plan.health_score == pytest.approx(0.4, abs=1e-4)
+    # savings-rate (rate=-1/30 -> 0.2222) + trend (0.276) + concentration (0.19333)
+    assert plan.health_score == pytest.approx(0.6916, abs=1e-4)
 
 
-def test_monthly_plan_health_score_clamped_above_zero() -> None:
-    """Health score never goes below 0.0 even with theoretically excessive penalties."""
-    # To trigger all three penalties and verify clamping we set them all.
+def test_monthly_plan_health_score_clamped_within_bounds() -> None:
+    """Health score is always within [0.0, 1.0] even under multiple negative signals."""
     spending = _make_spending(
         net="-200.00",
         categories=[{"category": "food", "total": "2500.00", "percentage": 50.0}],
@@ -272,7 +305,20 @@ def test_monthly_plan_health_score_clamped_above_zero() -> None:
 
     plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
 
-    assert plan.health_score >= 0.0
+    assert 0.0 <= plan.health_score <= 1.0
+    # savings-rate (0.2222) + trend (0.276) + concentration (0.16667)
+    assert plan.health_score == pytest.approx(0.6649, abs=1e-4)
+
+
+def test_monthly_plan_health_score_zero_total_credits_no_divide_by_zero() -> None:
+    """total_credits == 0 contributes 0 to the savings-rate component, no crash."""
+    spending = _make_spending(total_credits="0.00", net="-5000.00")
+    trends = _make_trend(spend_trend_direction="flat")
+
+    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+
+    # savings-rate (0.0) + trend (0.3) + concentration (0.2)
+    assert plan.health_score == pytest.approx(0.5, abs=1e-4)
 
 
 def test_monthly_plan_projected_savings_positive() -> None:
@@ -380,6 +426,139 @@ def test_monthly_plan_review_action_for_category_above_30pct() -> None:
     medium_items = [i for i in plan.action_items if i.priority == "medium"]
     assert len(medium_items) >= 1
     assert any("food" in i.title.lower() for i in medium_items)
+
+
+def test_monthly_plan_review_action_impact_is_15pct_of_category_total() -> None:
+    """'Review {category} Spending' estimated_impact equals 15% of the category's total."""
+    spending = _make_spending(
+        categories=[
+            {"category": "food", "total": "2000.00", "percentage": 35.0},
+            {"category": "transport", "total": "500.00", "percentage": 10.0},
+        ]
+    )
+    trends = _make_trend(spend_trend_direction="flat")
+
+    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+
+    food_item = next(i for i in plan.action_items if "food" in i.title.lower())
+    assert food_item.estimated_impact == Decimal("300.00")  # 2000 * 0.15
+
+
+def test_monthly_plan_reduce_spending_impact_is_mom_increase() -> None:
+    """'Reduce Spending' estimated_impact equals (most recent month - prior average)."""
+    spending = _make_spending()
+    trends = _make_trend(
+        spend_trend_direction="up",
+        monthly_points=[
+            {
+                "year": 2026,
+                "month": 1,
+                "total_debits": "4000",
+                "total_credits": "6000",
+                "net": "2000",
+                "transaction_count": 40,
+            },
+            {
+                "year": 2026,
+                "month": 2,
+                "total_debits": "5000",
+                "total_credits": "6000",
+                "net": "1000",
+                "transaction_count": 45,
+            },
+            {
+                "year": 2026,
+                "month": 3,
+                "total_debits": "6000",
+                "total_credits": "6000",
+                "net": "0",
+                "transaction_count": 50,
+            },
+        ],
+    )
+
+    plan = generate_monthly_plan(spending, trends, target_month=4, target_year=2026)
+
+    reduce_item = next(i for i in plan.action_items if i.title == "Reduce Spending")
+    # prior average of [4000, 5000] = 4500; most recent = 6000; increase = 1500
+    assert reduce_item.estimated_impact == Decimal("1500.00")
+
+
+def test_monthly_plan_reduce_spending_impact_zero_when_not_computable() -> None:
+    """'Reduce Spending' estimated_impact is 0 when monthly_points has < 2 entries."""
+    spending = _make_spending()
+    trends = _make_trend(
+        spend_trend_direction="up",
+        monthly_points=[
+            {
+                "year": 2026,
+                "month": 3,
+                "total_debits": "6000",
+                "total_credits": "6000",
+                "net": "0",
+                "transaction_count": 50,
+            },
+        ],
+    )
+
+    plan = generate_monthly_plan(spending, trends, target_month=4, target_year=2026)
+
+    reduce_item = next(i for i in plan.action_items if i.title == "Reduce Spending")
+    assert reduce_item.estimated_impact == Decimal("0")
+
+
+def test_monthly_plan_reduce_spending_impact_floored_at_zero_when_decreasing() -> None:
+    """'Reduce Spending' estimated_impact is 0 when the most recent month is lower."""
+    spending = _make_spending()
+    # spend_trend_direction is forced to "up" even though the recent month dipped,
+    # to exercise the floor-at-zero branch independently of direction logic.
+    trends = _make_trend(
+        spend_trend_direction="up",
+        monthly_points=[
+            {
+                "year": 2026,
+                "month": 1,
+                "total_debits": "6000",
+                "total_credits": "6000",
+                "net": "0",
+                "transaction_count": 50,
+            },
+            {
+                "year": 2026,
+                "month": 2,
+                "total_debits": "5000",
+                "total_credits": "6000",
+                "net": "1000",
+                "transaction_count": 45,
+            },
+        ],
+    )
+
+    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+
+    reduce_item = next(i for i in plan.action_items if i.title == "Reduce Spending")
+    assert reduce_item.estimated_impact == Decimal("0")
+
+
+def test_monthly_plan_action_items_ranked_by_impact_within_priority() -> None:
+    """Within the same priority tier, items are ordered by estimated_impact descending."""
+    spending = _make_spending(
+        net="-100.00",
+        categories=[
+            {"category": "food", "total": "5000.00", "percentage": 50.0},
+            {"category": "transport", "total": "2000.00", "percentage": 35.0},
+        ],
+    )
+    trends = _make_trend(spend_trend_direction="flat")
+
+    plan = generate_monthly_plan(spending, trends, target_month=3, target_year=2026)
+
+    medium_items = [i for i in plan.action_items if i.priority == "medium"]
+    impacts = [i.estimated_impact for i in medium_items]
+    assert impacts == sorted(impacts, reverse=True)
+    # food (5000 * 0.15 = 750) should outrank transport (2000 * 0.15 = 300)
+    assert medium_items[0].estimated_impact == Decimal("750.00")
+    assert medium_items[1].estimated_impact == Decimal("300.00")
 
 
 # ===========================================================================
