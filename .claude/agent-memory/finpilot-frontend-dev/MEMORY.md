@@ -8,3 +8,4 @@
 | [project_m9_real_data.md](./project_m9_real_data.md) | project | M9 patterns: server-side encrypt flow, credential management UI, typed api-client, dashboard real Supabase data |
 | [project_m10_dashboard_accounts.md](./project_m10_dashboard_accounts.md) | project | M10 patterns: account schema facts, CSS chart pattern, tab split, payroll income, account filter on transactions |
 | [supabase_access_token_pattern.md](./supabase_access_token_pattern.md) | project | Always fetch `access_token` fresh via `getSession()` per API call — never cache in long-lived state (caused "Access token has expired" bug) |
+| [project_nbe_split_sync_flow.md](./project_nbe_split_sync_flow.md) | project | "Sync All" for NBE runs 3 sequential split-sync phases (accounts/cards/certs); other banks use single full syncBank() |

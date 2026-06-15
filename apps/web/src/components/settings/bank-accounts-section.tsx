@@ -8,8 +8,12 @@ import {
   deleteCredential,
   updateCredential,
   syncBank,
+  syncBankAccounts,
+  syncBankCreditCards,
+  syncBankCertificates,
   encryptValue,
   type CredentialInfo,
+  type SyncResult,
 } from '@/lib/api-client';
 import { Card, CardHeader, CardBody } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -195,12 +199,29 @@ function SyncCoverageBar({
   );
 }
 
+interface SyncPhaseInfo {
+  /** 1-based index of the currently running phase. */
+  index: number;
+  /** Total number of phases in this sync run. */
+  total: number;
+  /** Human-readable phase label, e.g. "accounts", "cards", "certificates". */
+  label: string;
+}
+
 interface SyncState {
   loading: boolean;
   error: string | null;
   lastResult: string | null;
   startedAt: number | null;
+  /** Present only for multi-phase (NBE) syncs while a phase is in progress. */
+  phase: SyncPhaseInfo | null;
 }
+
+const NBE_SYNC_PHASES: { key: SyncDomain; label: string }[] = [
+  { key: 'accounts', label: 'accounts' },
+  { key: 'cards', label: 'cards' },
+  { key: 'certificates', label: 'certificates' },
+];
 
 export function BankAccountsSection() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -219,7 +240,9 @@ export function BankAccountsSection() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Per-credential sync state keyed by credential id (or `${credId}_accounts` etc for NBE)
+  // Per-credential sync state keyed by credential id. For NBE, a single
+  // "Sync All" run progresses through multiple phases (see `phase` on
+  // SyncState) under this same key.
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({});
 
   // Elapsed seconds counter - increments every second for any key currently loading
@@ -446,7 +469,7 @@ export function BankAccountsSection() {
 
     setSyncStates((prev) => ({
       ...prev,
-      [key]: { loading: true, error: null, lastResult: null, startedAt: Date.now() },
+      [key]: { loading: true, error: null, lastResult: null, startedAt: Date.now(), phase: null },
     }));
 
     try {
@@ -459,8 +482,84 @@ export function BankAccountsSection() {
             error: 'Your session has expired. Please sign in again.',
             lastResult: null,
             startedAt: null,
+            phase: null,
           },
         }));
+        return;
+      }
+
+      // NBE exposes three independent split-sync endpoints (accounts, credit
+      // cards, certificates), each launching its own fresh Playwright session
+      // with a clean memory baseline. Running them sequentially is faster and
+      // far less likely to time out / OOM on Render's free tier than the
+      // monolithic full sync. Other banks only have a single demand-deposit
+      // account and their split endpoints fall back to the same full
+      // scrape().scrape() under the hood, so calling all three would triple
+      // the work for no benefit — use the original single full sync for them.
+      if (cred.bank === 'NBE') {
+        const results: SyncResult[] = [];
+
+        for (const [i, phase] of NBE_SYNC_PHASES.entries()) {
+          const phaseInfo: SyncPhaseInfo = {
+            index: i + 1,
+            total: NBE_SYNC_PHASES.length,
+            label: phase.label,
+          };
+
+          setSyncStates((prev) => ({
+            ...prev,
+            [key]: {
+              loading: true,
+              error: null,
+              lastResult: null,
+              startedAt: Date.now(),
+              phase: phaseInfo,
+            },
+          }));
+
+          try {
+            let phaseResult: SyncResult;
+            if (phase.key === 'accounts') {
+              phaseResult = await syncBankAccounts(accessToken, cred.bank, cred.id);
+            } else if (phase.key === 'cards') {
+              phaseResult = await syncBankCreditCards(accessToken, cred.bank, cred.id);
+            } else {
+              phaseResult = await syncBankCertificates(accessToken, cred.bank, cred.id);
+            }
+            results.push(phaseResult);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Sync failed';
+            const phaseLabel = phase.label.charAt(0).toUpperCase() + phase.label.slice(1);
+            setSyncStates((prev) => ({
+              ...prev,
+              [key]: {
+                loading: false,
+                error: `${phaseLabel} sync failed: ${message}`,
+                lastResult: null,
+                startedAt: null,
+                phase: null,
+              },
+            }));
+            // Refresh so any phases that succeeded before this failure are
+            // reflected in the Sync Coverage bar.
+            await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
+            return;
+          }
+        }
+
+        const totalScraped = results.reduce((sum, r) => sum + r.transactions_scraped, 0);
+        const totalSaved = results.reduce((sum, r) => sum + r.transactions_saved, 0);
+        setSyncStates((prev) => ({
+          ...prev,
+          [key]: {
+            loading: false,
+            error: null,
+            lastResult: `Synced ${totalScraped} transactions (${totalSaved} new) across accounts, cards & certificates`,
+            startedAt: null,
+            phase: null,
+          },
+        }));
+        await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
         return;
       }
 
@@ -472,6 +571,7 @@ export function BankAccountsSection() {
           error: null,
           lastResult: `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
           startedAt: null,
+          phase: null,
         },
       }));
       // Refresh list to update last_synced_at and synced-domain coverage.
@@ -480,7 +580,7 @@ export function BankAccountsSection() {
       const message = err instanceof Error ? err.message : 'Sync failed';
       setSyncStates((prev) => ({
         ...prev,
-        [key]: { loading: false, error: message, lastResult: null, startedAt: null },
+        [key]: { loading: false, error: message, lastResult: null, startedAt: null, phase: null },
       }));
     }
   };
@@ -717,7 +817,9 @@ export function BankAccountsSection() {
                     )}
                     {activeSyncKeys.length > 0 && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        Syncing... {maxElapsed}s - this can take 2-4 minutes
+                        {syncState?.phase
+                          ? `Syncing ${syncState.phase.label} (${syncState.phase.index}/${syncState.phase.total})... ${maxElapsed}s`
+                          : `Syncing... ${maxElapsed}s - this can take 2-4 minutes`}
                       </p>
                     )}
                   </li>
