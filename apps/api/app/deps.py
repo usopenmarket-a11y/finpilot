@@ -122,11 +122,7 @@ async def get_current_user_id(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    decode_kwargs = {
-        "audience": _EXPECTED_AUDIENCE,
-        "issuer": _expected_issuer(),
-        "options": {"require": ["exp", "sub", "aud", "iss"]},
-    }
+    _required_claims = ["exp", "sub", "aud", "iss"]
 
     signing_key: jwt.PyJWK | None = None
     jwks_error: Exception | None = None
@@ -141,7 +137,9 @@ async def get_current_user_id(
                 token,
                 signing_key.key,
                 algorithms=_JWT_ALGORITHMS,
-                **decode_kwargs,
+                audience=_EXPECTED_AUDIENCE,
+                issuer=_expected_issuer(),
+                options={"require": _required_claims},
             )
         except jwt.ExpiredSignatureError:
             raise HTTPException(
@@ -175,7 +173,9 @@ async def get_current_user_id(
                 token,
                 secret,
                 algorithms=["HS256"],
-                **decode_kwargs,
+                audience=_EXPECTED_AUDIENCE,
+                issuer=_expected_issuer(),
+                options={"require": _required_claims},
             )
         except jwt.ExpiredSignatureError:
             raise HTTPException(
