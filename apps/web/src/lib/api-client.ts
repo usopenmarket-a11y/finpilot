@@ -373,3 +373,259 @@ export async function recategorizeTransactions(accessToken: string): Promise<{ p
     accessToken,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Recommendations — wire-format request types
+// ---------------------------------------------------------------------------
+//
+// These mirror the backend's Pydantic wire models in
+// `apps/api/app/routers/recommendations.py` exactly (field names and shapes).
+// All `*Request` models use `extra="forbid"`, so any extra field causes a 422.
+//
+// IMPORTANT — Decimal serialization: backend fields typed as `Decimal`
+// serialize to JSON **strings** (Pydantic v2 default), while `float` fields
+// serialize as JSON numbers. The response interfaces below reflect this:
+// money-like fields (`projected_savings`, `estimated_impact`,
+// `estimated_monthly_saving`, totals, balances, rates, payments, etc.) are
+// typed as `string` and must be parsed with `Number(...)` before use. Fields
+// like `health_score`, `confidence`, `confidence_score`, and `percentage`
+// are `float` and arrive as `number`.
+
+export interface CategoryBreakdownInput {
+  category: string;
+  total: number;
+  transaction_count: number;
+  percentage: number;
+}
+
+export interface SpendingBreakdownInput {
+  total_debits: number;
+  total_credits: number;
+  net: number;
+  by_category: CategoryBreakdownInput[];
+}
+
+export interface MonthlyPointInput {
+  year: number;
+  month: number;
+  total_debits: number;
+  total_credits: number;
+  net: number;
+  transaction_count: number;
+}
+
+export interface TrendReportInput {
+  lookback_months: number;
+  monthly_points: MonthlyPointInput[];
+  avg_monthly_spend: number;
+  avg_monthly_income: number;
+  spend_trend_direction: 'up' | 'down' | 'flat';
+}
+
+export interface DebtItemInput {
+  id: string;
+  name: string;
+  debt_type: 'loan' | 'lent' | 'borrowed';
+  outstanding_balance: number;
+  interest_rate: number;
+  minimum_payment: number;
+  currency: string;
+}
+
+export interface TransactionSummaryInput {
+  description: string;
+  amount: number;
+  transaction_type: 'debit' | 'credit';
+  transaction_date: string;
+  category: string | null;
+}
+
+export interface MonthlyPlanRequestBody {
+  spending: SpendingBreakdownInput;
+  trends: TrendReportInput;
+  target_month: number;
+  target_year: number;
+}
+
+export interface ForecastRequestBody {
+  trends: TrendReportInput;
+  from_date?: string;
+}
+
+export interface DebtOptimizerRequestBody {
+  debts: DebtItemInput[];
+  monthly_budget: number;
+}
+
+export interface SavingsRequestBody {
+  transactions: TransactionSummaryInput[];
+}
+
+// ---------------------------------------------------------------------------
+// Recommendations — response types
+// ---------------------------------------------------------------------------
+
+export interface ActionItemResponse {
+  priority: 'high' | 'medium' | 'low';
+  category: 'spending' | 'savings' | 'debt' | 'income';
+  title: string;
+  description: string;
+  /** Decimal on the wire -> JSON string. */
+  estimated_impact: string;
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface MonthlyPlanResponse {
+  month: number;
+  year: number;
+  summary: string;
+  action_items: ActionItemResponse[];
+  /** Decimal on the wire -> JSON string. */
+  projected_savings: string;
+  /** Float 0.0-1.0 -> JSON number. */
+  health_score: number;
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface ForecastPointResponse {
+  year: number;
+  month: number;
+  /** Decimal on the wire -> JSON string. */
+  projected_income: string;
+  /** Decimal on the wire -> JSON string. */
+  projected_expenses: string;
+  /** Decimal on the wire -> JSON string. */
+  projected_net: string;
+  confidence: number;
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface CashFlowForecastResponse {
+  forecast_points: ForecastPointResponse[];
+  /** Decimal on the wire -> JSON string. */
+  avg_projected_monthly_net: string;
+  trend_direction: string;
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface SavingsOpportunityResponse {
+  opportunity_type: 'duplicate_charge' | 'recurring_subscription' | 'high_fee' | 'irregular_spike';
+  title: string;
+  description: string;
+  /** Decimal on the wire -> JSON string. */
+  estimated_monthly_saving: string;
+  transactions: string[];
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface SavingsReportResponse {
+  opportunities: SavingsOpportunityResponse[];
+  /** Decimal on the wire -> JSON string. */
+  total_estimated_monthly_saving: string;
+  analysis_period_days: number;
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface PayoffStepResponse {
+  month: number;
+  debt_id: string;
+  /** Decimal on the wire -> JSON string. */
+  payment: string;
+  /** Decimal on the wire -> JSON string. */
+  remaining_balance: string;
+  /** Decimal on the wire -> JSON string. */
+  interest_charged: string;
+}
+
+export interface DebtStrategyResponse {
+  strategy_name: 'snowball' | 'avalanche';
+  total_months: number;
+  /** Decimal on the wire -> JSON string. */
+  total_interest_paid: string;
+  /** Decimal on the wire -> JSON string. */
+  total_paid: string;
+  monthly_steps: PayoffStepResponse[];
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface DebtItemResponse {
+  id: string;
+  name: string;
+  debt_type: 'loan' | 'lent' | 'borrowed';
+  /** Decimal on the wire -> JSON string. */
+  outstanding_balance: string;
+  /** Decimal on the wire -> JSON string. */
+  interest_rate: string;
+  /** Decimal on the wire -> JSON string. */
+  minimum_payment: string;
+  currency: string;
+}
+
+export interface DebtOptimizationReportResponse {
+  debts: DebtItemResponse[];
+  /** Decimal on the wire -> JSON string. */
+  monthly_budget: string;
+  snowball: DebtStrategyResponse;
+  avalanche: DebtStrategyResponse;
+  recommended_strategy: 'snowball' | 'avalanche';
+  recommended_reason: string;
+  /** Decimal on the wire -> JSON string. */
+  interest_savings: string;
+  confidence_score: number;
+  generated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Recommendations — API functions
+// ---------------------------------------------------------------------------
+
+export async function getMonthlyPlan(
+  accessToken: string,
+  body: MonthlyPlanRequestBody,
+): Promise<MonthlyPlanResponse> {
+  return apiFetch<MonthlyPlanResponse>('/api/v1/recommendations/monthly-plan', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getCashFlowForecast(
+  accessToken: string,
+  body: ForecastRequestBody,
+): Promise<CashFlowForecastResponse> {
+  return apiFetch<CashFlowForecastResponse>('/api/v1/recommendations/forecast', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getSavingsReport(
+  accessToken: string,
+  body: SavingsRequestBody,
+): Promise<SavingsReportResponse> {
+  return apiFetch<SavingsReportResponse>('/api/v1/recommendations/savings', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getDebtPayoffPlan(
+  accessToken: string,
+  body: DebtOptimizerRequestBody,
+): Promise<DebtOptimizationReportResponse> {
+  return apiFetch<DebtOptimizationReportResponse>('/api/v1/recommendations/debt-optimizer', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify(body),
+  });
+}

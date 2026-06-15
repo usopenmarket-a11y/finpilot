@@ -55,6 +55,8 @@ export interface SavingsOpportunity {
   title: string;
   description: string;
   estimated_monthly_saving: number;
+  /** Description strings of the transactions that triggered this finding. */
+  transactions?: string[];
 }
 
 export interface ForecastPoint {
