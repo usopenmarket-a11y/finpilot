@@ -45,29 +45,48 @@ export default function AssetsPage() {
           .map((a) => a.currency_code as string)
       )];
 
-      const allCurrencies = [...new Set(['USD', ...fxCurrencies])];
+      const needsMetals = currentAssets.some(
+        (a) => a.asset_type === 'gold' || a.asset_type === 'silver',
+      );
 
-      // Fetch metals and FX independently — a metals failure shouldn't block FX rates
-      const [metalsResult, fxRes] = await Promise.all([
-        fetch('https://metals.live/api/spot').then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetch(`https://api.frankfurter.app/latest?from=EGP&to=${allCurrencies.join(',')}`),
+      // FX rates: open.er-api.com is free, no API key, EGP-based. rates[code]
+      // is the value of 1 EGP in `code`, so we invert to get EGP per 1 unit.
+      // Metals: gold-api.com is free, no key, returns USD per troy ounce.
+      // Both are fetched independently so one failing doesn't block the other.
+      const [fxRes, goldRes, silverRes] = await Promise.all([
+        fetch('https://open.er-api.com/v6/latest/EGP'),
+        needsMetals
+          ? fetch('https://api.gold-api.com/price/XAU').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+          : Promise.resolve(null),
+        needsMetals
+          ? fetch('https://api.gold-api.com/price/XAG').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       if (!fxRes.ok) throw new Error('FX rate fetch failed');
 
-      const fxData = await fxRes.json() as { rates: Record<string, number> };
+      const fxData = await fxRes.json() as {
+        result?: string;
+        rates: Record<string, number>;
+      };
+      if (fxData.result === 'error' || !fxData.rates) throw new Error('FX rate fetch failed');
+
       const prices: Record<string, number> = {};
 
-      // Gold + silver (only if metals API responded)
+      // Gold + silver: convert USD/oz -> EGP/gram using the live USD rate.
       const usdPerEgp = fxData.rates['USD'];
       const egpPerUsd = usdPerEgp ? 1 / usdPerEgp : 0;
       const TROY_OZ_TO_GRAM = 31.1035;
-      const metals = metalsResult as Array<{ gold?: number; silver?: number }> | null;
-      const latestMetals = metals?.[0] ?? {};
-      if (latestMetals.gold && egpPerUsd) prices['gold'] = (latestMetals.gold / TROY_OZ_TO_GRAM) * egpPerUsd;
-      if (latestMetals.silver && egpPerUsd) prices['silver'] = (latestMetals.silver / TROY_OZ_TO_GRAM) * egpPerUsd;
+      const goldData = goldRes as { price?: number } | null;
+      const silverData = silverRes as { price?: number } | null;
+      if (goldData?.price && egpPerUsd) {
+        prices['gold'] = (goldData.price / TROY_OZ_TO_GRAM) * egpPerUsd;
+      }
+      if (silverData?.price && egpPerUsd) {
+        prices['silver'] = (silverData.price / TROY_OZ_TO_GRAM) * egpPerUsd;
+      }
 
-      // Foreign currencies — invert EGP-base rates to get EGP per 1 unit
+      // Foreign currencies — invert EGP-base rates to get EGP per 1 unit.
       for (const code of fxCurrencies) {
         const ratePerEgp = fxData.rates[code];
         if (ratePerEgp) prices[code] = 1 / ratePerEgp;
