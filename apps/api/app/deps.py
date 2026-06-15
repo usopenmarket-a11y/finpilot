@@ -162,8 +162,7 @@ async def get_current_user_id(
         secret = settings.supabase_jwt_secret.get_secret_value()
         if not secret:
             logger.error(
-                "No JWKS signing key available and SUPABASE_JWT_SECRET is "
-                "not configured: %s",
+                "No JWKS signing key available and SUPABASE_JWT_SECRET is not configured: %s",
                 jwks_error,
             )
             raise HTTPException(

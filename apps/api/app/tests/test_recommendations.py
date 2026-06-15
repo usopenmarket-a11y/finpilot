@@ -1332,9 +1332,7 @@ def test_savings_endpoint_missing_transactions(
     rec_client: TestClient, rec_auth_headers: dict[str, str]
 ) -> None:
     """POST without the 'transactions' field is rejected with 422."""
-    response = rec_client.post(
-        "/api/v1/recommendations/savings", json={}, headers=rec_auth_headers
-    )
+    response = rec_client.post("/api/v1/recommendations/savings", json={}, headers=rec_auth_headers)
 
     assert response.status_code == 422
 

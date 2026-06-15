@@ -278,9 +278,7 @@ def test_create_debt_negative_amount(client: TestClient, user_headers: dict[str,
     assert response.status_code == 422
 
 
-def test_create_debt_missing_counterparty(
-    client: TestClient, user_headers: dict[str, str]
-) -> None:
+def test_create_debt_missing_counterparty(client: TestClient, user_headers: dict[str, str]) -> None:
     """Error path: missing required counterparty_name → 422."""
     payload = {
         "debt_type": "lent",
@@ -629,9 +627,7 @@ def test_payment_partial_sets_status_partial(
     assert float(data["outstanding_balance"]) == pytest.approx(600.0)
 
 
-def test_payment_full_sets_status_settled(
-    client: TestClient, user_headers: dict[str, str]
-) -> None:
+def test_payment_full_sets_status_settled(client: TestClient, user_headers: dict[str, str]) -> None:
     """A payment equal to outstanding_balance sets status='settled' and balance to 0."""
     created = _create_debt(client, user_headers, _lent_payload(original_amount=500.0))
     debt_id = created["id"]
@@ -648,9 +644,7 @@ def test_payment_full_sets_status_settled(
     assert float(data["outstanding_balance"]) == pytest.approx(0.0)
 
 
-def test_payment_overpayment_returns_400(
-    client: TestClient, user_headers: dict[str, str]
-) -> None:
+def test_payment_overpayment_returns_400(client: TestClient, user_headers: dict[str, str]) -> None:
     """Error path: payment_amount > outstanding_balance → 400 Bad Request."""
     created = _create_debt(client, user_headers, _lent_payload(original_amount=200.0))
     debt_id = created["id"]
@@ -948,9 +942,7 @@ def test_overpayment_does_not_mutate_balance(
     assert float(detail["outstanding_balance"]) == pytest.approx(original_balance)
 
 
-def test_payment_date_is_stored_correctly(
-    client: TestClient, user_headers: dict[str, str]
-) -> None:
+def test_payment_date_is_stored_correctly(client: TestClient, user_headers: dict[str, str]) -> None:
     """The payment_date supplied by the caller is stored verbatim on the record."""
     created = _create_debt(client, user_headers, _lent_payload(original_amount=300.0))
     debt_id = created["id"]

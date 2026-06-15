@@ -96,9 +96,7 @@ _USER_AGENTS: list[str] = [
 # JS bundle and its API calls (which we intercept via page.on("response"))
 # must load normally.
 # ---------------------------------------------------------------------------
-_BLOCKED_RESOURCE_TYPES: frozenset[str] = frozenset(
-    {"image", "media", "font", "stylesheet"}
-)
+_BLOCKED_RESOURCE_TYPES: frozenset[str] = frozenset({"image", "media", "font", "stylesheet"})
 
 
 async def _block_heavy_resources(route: Route) -> None:

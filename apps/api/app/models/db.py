@@ -369,9 +369,7 @@ class SyncJobResult(BaseModel):
     """
 
     bank: str = Field(description="Bank identifier the sync was run for")
-    account_number_masked: str = Field(
-        description="Last 4 digits of the primary account scraped"
-    )
+    account_number_masked: str = Field(description="Last 4 digits of the primary account scraped")
     transactions_scraped: int = Field(description="Total transactions returned by the scraper")
     transactions_saved: int = Field(
         description="New transactions persisted by the pipeline (post-deduplication)"

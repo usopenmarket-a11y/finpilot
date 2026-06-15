@@ -122,9 +122,7 @@ def test_save_credential_returns_200(client: TestClient, user_headers: dict[str,
     assert response.status_code == 200
 
 
-def test_save_credential_response_shape(
-    client: TestClient, user_headers: dict[str, str]
-) -> None:
+def test_save_credential_response_shape(client: TestClient, user_headers: dict[str, str]) -> None:
     """Response contains exactly the expected safe fields."""
     fake_supabase = _make_supabase_mock([_fake_post_row("CIB")])
 

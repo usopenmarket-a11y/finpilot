@@ -193,19 +193,23 @@ async def _create_job_in_db(
     """Insert the initial durable row for a newly-created job. Best-effort."""
     try:
         client = await get_async_service_role_client()
-        await client.table("sync_jobs").insert(
-            {
-                "id": job_id,
-                "user_id": str(user_id),
-                "bank": bank,
-                "credential_id": credential_id,
-                "job_type": job_type,
-                "status": "pending",
-                "result": None,
-                "error": None,
-                "finished_at": None,
-            }
-        ).execute()
+        await (
+            client.table("sync_jobs")
+            .insert(
+                {
+                    "id": job_id,
+                    "user_id": str(user_id),
+                    "bank": bank,
+                    "credential_id": credential_id,
+                    "job_type": job_type,
+                    "status": "pending",
+                    "result": None,
+                    "error": None,
+                    "finished_at": None,
+                }
+            )
+            .execute()
+        )
     except Exception as exc:
         logger.warning("Failed to persist new sync job %s to sync_jobs: %s", job_id, exc)
 
@@ -216,14 +220,19 @@ async def _persist_job_to_db(job_id: str, job: dict[str, Any]) -> None:
     finished_at = job.get("finished_at")
     try:
         client = await get_async_service_role_client()
-        await client.table("sync_jobs").update(
-            {
-                "status": job["status"],
-                "result": result.model_dump() if isinstance(result, SyncResponse) else result,
-                "error": job.get("error"),
-                "finished_at": finished_at.isoformat() if finished_at else None,
-            }
-        ).eq("id", job_id).execute()
+        await (
+            client.table("sync_jobs")
+            .update(
+                {
+                    "status": job["status"],
+                    "result": result.model_dump() if isinstance(result, SyncResponse) else result,
+                    "error": job.get("error"),
+                    "finished_at": finished_at.isoformat() if finished_at else None,
+                }
+            )
+            .eq("id", job_id)
+            .execute()
+        )
     except Exception as exc:
         logger.warning("Failed to persist sync job %s state to sync_jobs: %s", job_id, exc)
 
@@ -1351,6 +1360,7 @@ async def hide_account(
     The .eq("user_id") filter ensures users can only hide their own accounts
     (defence-in-depth alongside Supabase RLS).
     """
+
     def _do_hide() -> None:
         client = get_service_role_client()
         try:
@@ -1399,6 +1409,7 @@ async def clear_user_data(
 
     Credentials are never removed.
     """
+
     def _do_clear() -> None:
         client = get_service_role_client()
         uid = str(user_id)
