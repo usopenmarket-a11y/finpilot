@@ -19,7 +19,6 @@ from app.routers import (
     sync,
     utils,
 )
-from app.scheduler import create_scheduler
 
 # ---------------------------------------------------------------------------
 # Root logging configuration
@@ -67,12 +66,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Playwright Chromium is installed at build time via:
     #   PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/src/.playwright-browsers playwright install chromium
     # No runtime installation needed.
-    scheduler = create_scheduler()
-    scheduler.start()
-    try:
-        yield
-    finally:
-        scheduler.shutdown(wait=False)
+    #
+    # Daily auto-sync (app.scheduler.create_scheduler) is currently disabled —
+    # see app/scheduler.py for the implementation, kept for future re-enabling.
+    yield
 
 
 def create_app() -> FastAPI:
