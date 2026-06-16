@@ -260,27 +260,62 @@ function SyncDropdown({
   onSyncAll: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // Fixed (viewport-relative) coordinates for the menu, computed on open so it
+  // escapes any ancestor overflow/stacking context and never gets clipped by
+  // the card. `top` may be flipped above the trigger when space below is tight.
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const MENU_WIDTH = 192; // w-48
+  const ESTIMATED_MENU_HEIGHT = 280; // 6 items + divider + Sync All
+
+  const place = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < ESTIMATED_MENU_HEIGHT && r.top > spaceBelow;
+    setPos({
+      top: openUp ? r.top - ESTIMATED_MENU_HEIGHT - 4 : r.bottom + 4,
+      right: Math.max(8, window.innerWidth - r.right),
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
+    place();
     function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (
+        triggerRef.current && !triggerRef.current.contains(t) &&
+        menuRef.current && !menuRef.current.contains(t)
+      ) {
+        setOpen(false);
+      }
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
     }
+    function onReflow() {
+      setOpen(false);
+    }
     document.addEventListener('mousedown', onDocClick);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onReflow);
+    window.addEventListener('scroll', onReflow, true);
     return () => {
       document.removeEventListener('mousedown', onDocClick);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('scroll', onReflow, true);
     };
-  }, [open]);
+  }, [open, place]);
 
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="menu"
@@ -302,10 +337,12 @@ function SyncDropdown({
           </>
         )}
       </button>
-      {open && !disabled && (
+      {open && !disabled && pos && (
         <div
+          ref={menuRef}
           role="menu"
-          className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg"
+          style={{ position: 'fixed', top: pos.top, right: pos.right, width: MENU_WIDTH }}
+          className="z-50 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg"
         >
           {SYNC_MENU_ITEMS.map((item) => (
             <button
@@ -335,7 +372,7 @@ function SyncDropdown({
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
