@@ -225,9 +225,16 @@ async function _pollSyncJob(
 ): Promise<SyncResult> {
   const pollIntervalMs = 5 * 1000; // 5 seconds
   const startTime = Date.now();
+  // The background job keeps running on the server regardless of whether an
+  // individual status poll succeeds. A transient network blip ("Failed to
+  // fetch"), a one-off request timeout, or a brief 5xx must NOT abort the whole
+  // sync — we just retry on the next interval. Only persistent failures
+  // (many consecutive misses) or the overall maxWaitMs give up.
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 6; // ~30s of uninterrupted failures before bailing
 
   while (Date.now() - startTime < maxWaitMs) {
-    let jobStatus: SyncJobStatusResponse;
+    let jobStatus: SyncJobStatusResponse | null = null;
     try {
       jobStatus = await apiFetch<SyncJobStatusResponse>(
         `/api/v1/accounts/sync/status/${jobId}`,
@@ -236,15 +243,30 @@ async function _pollSyncJob(
           accessToken,
         }
       );
+      consecutiveErrors = 0;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // 401 (auth) is fatal — bubble up so the caller can re-auth.
+      if (err instanceof UnauthorizedError) {
+        throw err;
+      }
       // 404 means the backend restarted mid-scrape and lost the in-memory job.
       if (msg.includes('Not Found') || msg.includes('not found')) {
         throw new Error(
           'Sync was interrupted — the server restarted mid-scrape. Please try again.',
         );
       }
-      throw err;
+      // Otherwise treat as a transient network/timeout error: count it and
+      // keep polling. The job is almost certainly still running server-side.
+      consecutiveErrors += 1;
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        throw new Error(
+          'Lost connection to the server while syncing. The sync may still be ' +
+            'running — please refresh in a minute to see the result.',
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      continue;
     }
 
     if (jobStatus.status === 'complete') {
