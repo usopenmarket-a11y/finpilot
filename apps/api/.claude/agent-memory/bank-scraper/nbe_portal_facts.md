@@ -48,3 +48,14 @@ NBE portal is alahlynet.com.eg (NOT ahly-net.com). The old ahly-net.com selector
 - Portal uses Oracle JET which fires XHR after clicking interactive elements.
 - Always use `networkidle` wait on goto. Use explicit `wait_for_selector` after clicks.
 - Human-like typing via `_type_human` is required on both credential fields.
+
+## Known empty-state: 0 demand-deposit accounts
+When `li.CSA a` is clicked and the bank returns zero current/savings accounts, the widget renders its final state showing the literal text **"0 Accounts"** inside `li.CSA`. The `li.flip-account-list__items` selector correctly never appears. This is a bank-side account-visibility condition — the login and widget click both succeed.
+
+`_reveal_accounts_widget` now returns `bool`:
+- `True` = rows appeared, proceed with extraction.
+- `False` = confirmed zero-accounts empty state after a 5-second settle window.
+
+Callers in `scrape_accounts()` detect `False` and return an empty `ScraperResult` immediately (no `ScraperTimeoutError`). Callers in `scrape()` skip demand-deposit extraction and continue to CC/cert scraping.
+
+Empty-state detection: `re.compile(r"(?:0|٠)\s*Accounts?\b", re.IGNORECASE)` matched against `await page.locator("li.CSA").inner_text(timeout=2_000)`. Detection is deferred until `_ZERO_ACCOUNTS_SETTLE_S` (5 s) after the widget click to allow the SPA time to hydrate.

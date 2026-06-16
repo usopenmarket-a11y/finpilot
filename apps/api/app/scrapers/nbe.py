@@ -241,6 +241,32 @@ _SEL_NEXT_PAGE = "button[title='Next Page']"
 # URL fragment that appears once Account Activity is loaded
 _TXN_PAGE_URL_FRAGMENT = "demand-deposit-transactions"
 
+# Compiled regex that matches the "0 Accounts" empty-state text rendered
+# inside the Accounts Summary widget (li.CSA) when the bank returns an empty
+# demand-deposit account list.  Matches the English text observed in production
+# ("0 Accounts") and also tolerates common variants ("0 Account", Arabic
+# Eastern-Arabic digit ٠).  Used by _reveal_accounts_widget to fast-fail
+# when the widget has fully rendered but contains no account rows.
+_RE_ZERO_ACCOUNTS = re.compile(
+    r"(?:0|٠)\s*Accounts?\b",
+    re.IGNORECASE,
+)
+
+# Seconds to wait after the widget click before declaring the "0 Accounts"
+# empty state conclusive.  This gives the Oracle JET SPA time to populate
+# account rows — we only conclude "empty" if no rows appear within this window
+# AND the zero-accounts text is already visible.
+_ZERO_ACCOUNTS_SETTLE_S: float = 5.0
+
+# How often (in seconds) to poll for account rows during the fast-path window.
+_ZERO_ACCOUNTS_POLL_INTERVAL_S: float = 1.0
+
+# Duration of the fast-path polling window (seconds).  If rows appear within
+# this window we succeed immediately; if the zero-state is confirmed after
+# _ZERO_ACCOUNTS_SETTLE_S we return False early.  If neither condition is met
+# within this window, fall back to the original long wait_for_selector.
+_ZERO_ACCOUNTS_FAST_WINDOW_S: float = 25.0
+
 # Certificates / Deposits widget selector
 _SEL_CERTIFICATES_WIDGET = "li.TRD a"
 
@@ -695,9 +721,17 @@ class NBEScraper(BankScraper):
                     "NBE: dashboard re-navigation timed out before demand-deposit scrape — proceeding anyway"
                 )
 
-            await self._reveal_accounts_widget(page)
+            _dd_rows_present = await self._reveal_accounts_widget(page)
 
-            accounts = await self._extract_all_accounts(page)
+            accounts: list[BankAccount]
+            if not _dd_rows_present:
+                logger.info(
+                    "NBE: scrape — 0 demand-deposit accounts visible in portal "
+                    "(widget empty state); skipping demand-deposit extraction"
+                )
+                accounts = []
+            else:
+                accounts = await self._extract_all_accounts(page)
             total = len(accounts)
             logger.info("NBE: found %d account(s) in widget", total)
 
@@ -915,7 +949,17 @@ class NBEScraper(BankScraper):
         try:
             raw_html["dashboard"] = _truncate_html(await page.content())
 
-            await self._reveal_accounts_widget(page)
+            _rows_present = await self._reveal_accounts_widget(page)
+            if not _rows_present:
+                logger.info(
+                    "NBE: scrape_accounts — 0 demand-deposit accounts visible in portal; "
+                    "returning empty result"
+                )
+                return ScraperResult(
+                    accounts=[],
+                    transactions=[],
+                    raw_html=raw_html,
+                )
             accounts = await self._extract_all_accounts(page)
             total = len(accounts)
             logger.info("NBE: scrape_accounts — found %d account(s)", total)
@@ -1276,11 +1320,22 @@ class NBEScraper(BankScraper):
 
         logger.info("NBE: login page ready — username field visible")
 
-    async def _reveal_accounts_widget(self, page: Page) -> None:
+    async def _reveal_accounts_widget(self, page: Page) -> bool:
         """Click the Accounts Summary widget and wait for account rows to appear.
 
         Must be called before ``_extract_account`` so that
         ``li.flip-account-list__items`` elements are present in the DOM.
+
+        Returns:
+            ``True``  — account rows are present and ready to be scraped.
+            ``False`` — the widget rendered but the bank returned zero demand-deposit
+                        accounts ("0 Accounts" empty state).  The caller should treat
+                        this as a successful but empty result rather than an error.
+
+        Raises:
+            ScraperTimeoutError: If the widget itself is not found, the click times
+                out, or neither account rows nor a confirmed zero-accounts empty state
+                appear within the allowed window.
         """
         logger.info("NBE: waiting for accounts widget %r", _SEL_ACCOUNTS_WIDGET)
         try:
@@ -1305,7 +1360,58 @@ class NBEScraper(BankScraper):
             ) from exc
         await self._random_delay(0.8, 1.5)
 
-        logger.info("NBE: waiting for account rows %r", _SEL_ACCOUNT_ROWS)
+        # ------------------------------------------------------------------
+        # Fast-path poll: check for account rows OR a "0 Accounts" empty
+        # state every ~1 s for up to _ZERO_ACCOUNTS_FAST_WINDOW_S seconds.
+        #
+        # Design rationale:
+        # - We do NOT declare "empty" in the first _ZERO_ACCOUNTS_SETTLE_S
+        #   seconds to give the Oracle JET SPA time to hydrate row data even
+        #   when the initial render already shows the empty-state placeholder.
+        # - If rows appear at any point → success (True).
+        # - If the zero-accounts text is visible AND the settle window has
+        #   elapsed AND still no rows → confirmed empty (False).
+        # - If neither condition is met within the fast window → fall through
+        #   to the original long wait_for_selector so a genuinely slow but
+        #   non-empty load still gets the full 180 s headroom.
+        # ------------------------------------------------------------------
+        logger.info(
+            "NBE: waiting for account rows %r (fast-path window %.0fs)",
+            _SEL_ACCOUNT_ROWS,
+            _ZERO_ACCOUNTS_FAST_WINDOW_S,
+        )
+        elapsed: float = 0.0
+        while elapsed < _ZERO_ACCOUNTS_FAST_WINDOW_S:
+            # Check for rows first — success path.
+            row_el = await page.query_selector(_SEL_ACCOUNT_ROWS)
+            if row_el is not None:
+                logger.info("NBE: account rows revealed")
+                return True
+
+            # After the settle window, check for the zero-accounts empty state.
+            if elapsed >= _ZERO_ACCOUNTS_SETTLE_S:
+                try:
+                    container_text = await page.locator("li.CSA").inner_text(timeout=2_000)
+                except PlaywrightTimeoutError:
+                    container_text = ""
+                if container_text and _RE_ZERO_ACCOUNTS.search(container_text):
+                    logger.info(
+                        "NBE: accounts widget shows zero-accounts empty state "
+                        "(text=%r) — no demand-deposit accounts visible in portal",
+                        container_text[:120],
+                    )
+                    return False
+
+            await asyncio.sleep(_ZERO_ACCOUNTS_POLL_INTERVAL_S)
+            elapsed += _ZERO_ACCOUNTS_POLL_INTERVAL_S
+
+        # Fast-path did not reach a conclusion — fall back to the original long
+        # wait so a slow-but-real account list load still gets the full timeout.
+        logger.info(
+            "NBE: fast-path window elapsed without conclusion — "
+            "falling back to long wait_for_selector (timeout=%ds)",
+            _WAIT_TIMEOUT_MS // 1000,
+        )
         try:
             await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError as exc:
@@ -1316,6 +1422,7 @@ class NBEScraper(BankScraper):
             ) from exc
 
         logger.info("NBE: account rows revealed")
+        return True
 
     async def _navigate_to_transactions_for_account(self, page: Page, account_index: int) -> None:
         """Navigate from the already-revealed account list to the Account Activity page.

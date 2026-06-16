@@ -860,13 +860,17 @@ def _build_nbe_mock_page(
     # go_back — called between accounts to return to the dashboard
     mock_page.go_back = AsyncMock(return_value=None)
 
-    # locator() chain — supports .nth(i).locator(sel).click()
-    # The scraper uses page.locator(SEL).nth(i).locator(SEL_MENU).click()
-    # Build a chainable mock: locator() → nth() → locator() → click()
+    # locator() chain — supports .nth(i).locator(sel).click() and
+    # .inner_text() (used by _reveal_accounts_widget zero-accounts check).
+    # The scraper calls page.locator("li.CSA").inner_text(timeout=2_000) —
+    # inner_text must return a string so _RE_ZERO_ACCOUNTS.search() does not
+    # raise TypeError.  Return a non-zero-accounts string so existing happy-path
+    # tests are unaffected.
     mock_locator = AsyncMock()
     mock_locator.nth = MagicMock(return_value=mock_locator)
     mock_locator.locator = MagicMock(return_value=mock_locator)
     mock_locator.click = AsyncMock(return_value=None)
+    mock_locator.inner_text = AsyncMock(return_value="Current & Savings\n2 Accounts")
     mock_page.locator = MagicMock(return_value=mock_locator)
 
     async def _query_selector(selector: str) -> Any:
@@ -1090,6 +1094,141 @@ class TestNbeScraperScrape:
         for txn in result.transactions:
             assert "account_number_masked" in txn.raw_data
             assert txn.raw_data["account_number_masked"].startswith("****")
+
+    async def test_scrape_accounts_zero_accounts_returns_empty_result(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """scrape_accounts() returns an empty ScraperResult when the portal shows 0 accounts.
+
+        Simulates the live failure mode where:
+        - Login succeeds and the dashboard loads.
+        - The CSA widget is found and clicked.
+        - page.query_selector("li.flip-account-list__items") always returns None
+          (the bank returned no demand-deposit accounts).
+        - page.locator("li.CSA").inner_text() returns "Current & Savings\\n0 Accounts"
+          which matches _RE_ZERO_ACCOUNTS after the settle window.
+
+        The expected outcome is a successful (non-raising) ScraperResult with
+        zero accounts and zero transactions — NOT a ScraperTimeoutError.
+
+        To avoid real asyncio.sleep delays in tests, _ZERO_ACCOUNTS_SETTLE_S and
+        _ZERO_ACCOUNTS_FAST_WINDOW_S are patched to 0 so the empty-state branch
+        is reached immediately on the first poll iteration.
+        """
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+
+        # query_selector: OTP selectors → None, account rows → None (empty portal),
+        # all other selectors → clickable element so login/dashboard steps succeed.
+        mock_element = AsyncMock()
+        mock_element.click = AsyncMock(return_value=None)
+        mock_element.inner_text = AsyncMock(return_value="")
+        mock_element.get_attribute = AsyncMock(return_value=None)
+        mock_element.query_selector = AsyncMock(return_value=mock_element)
+
+        async def _qs_zero_accounts(selector: str) -> Any:
+            if selector in _NBE_OTP_SELECTORS:
+                return None
+            if selector == "li.flip-account-list__items":
+                return None  # ← no account rows — the key condition
+            return mock_element
+
+        mock_page.query_selector = _qs_zero_accounts  # type: ignore[assignment]
+
+        # wait_for_selector succeeds for all elements (widget found, clicked, etc.)
+        mock_page.wait_for_selector = AsyncMock(return_value=mock_element)
+        mock_page.wait_for_load_state = AsyncMock(return_value=None)
+
+        # locator("li.CSA").inner_text() returns "0 Accounts" — the empty state text
+        mock_locator = AsyncMock()
+        mock_locator.inner_text = AsyncMock(return_value="Current & Savings\n0 Accounts")
+        mock_page.locator = MagicMock(return_value=mock_locator)
+
+        # page.content() → minimal dashboard HTML
+        mock_page.content = AsyncMock(return_value="<html><body>dashboard</body></html>")
+        mock_page.inner_text = AsyncMock(return_value="Welcome to Ahly Net")
+        mock_page.goto = AsyncMock(return_value=None)
+        mock_page.click = AsyncMock(return_value=None)
+        mock_page.keyboard = AsyncMock()
+        mock_page.keyboard.type = AsyncMock(return_value=None)
+
+        with (
+            patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm),
+            # Collapse the settle and fast-window to 0 s so the empty-state
+            # branch is reached on the first poll without any real sleep.
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_SETTLE_S", 0.0),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_FAST_WINDOW_S", 5.0),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_POLL_INTERVAL_S", 0.0),
+            # Patch asyncio.sleep inside the nbe module to avoid real delays.
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+        ):
+            result = await nbe_scraper.scrape_accounts()
+
+        assert isinstance(result, ScraperResult)
+        assert result.accounts == []
+        assert result.transactions == []
+        # Browser must always be closed — even on the empty-result path.
+        mock_browser.close.assert_awaited_once()
+
+    async def test_scrape_zero_accounts_does_not_raise(self, nbe_scraper: NBEScraper) -> None:
+        """scrape() returns a ScraperResult with 0 demand-deposit accounts when portal is empty.
+
+        When the CSA widget shows "0 Accounts", scrape() skips demand-deposit
+        extraction and returns whatever CC/cert accounts were found (here: none).
+        The full scrape must succeed rather than raise ScraperTimeoutError.
+        """
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+
+        mock_element = AsyncMock()
+        mock_element.click = AsyncMock(return_value=None)
+        mock_element.inner_text = AsyncMock(return_value="")
+        mock_element.get_attribute = AsyncMock(return_value=None)
+        mock_element.query_selector = AsyncMock(return_value=mock_element)
+
+        async def _qs_no_dd_rows(selector: str) -> Any:
+            if selector in _NBE_OTP_SELECTORS:
+                return None
+            if selector == "li.flip-account-list__items":
+                return None
+            return mock_element
+
+        mock_page.query_selector = _qs_no_dd_rows  # type: ignore[assignment]
+        mock_page.wait_for_selector = AsyncMock(return_value=mock_element)
+        mock_page.wait_for_load_state = AsyncMock(return_value=None)
+        mock_page.evaluate = AsyncMock(return_value=0)
+
+        mock_locator = AsyncMock()
+        mock_locator.inner_text = AsyncMock(return_value="Current & Savings\n0 Accounts")
+        mock_locator.nth = MagicMock(return_value=mock_locator)
+        mock_locator.locator = MagicMock(return_value=mock_locator)
+        mock_locator.click = AsyncMock(return_value=None)
+        mock_page.locator = MagicMock(return_value=mock_locator)
+
+        mock_page.content = AsyncMock(
+            return_value="<html><body><li class='loggedInUser'>User</li></body></html>"
+        )
+        mock_page.inner_text = AsyncMock(return_value="Welcome to Ahly Net")
+        mock_page.goto = AsyncMock(return_value=None)
+        mock_page.click = AsyncMock(return_value=None)
+        mock_page.keyboard = AsyncMock()
+        mock_page.keyboard.type = AsyncMock(return_value=None)
+        mock_page.go_back = AsyncMock(return_value=None)
+        mock_page.url = "https://www.alahlynet.com.eg/?page=home"
+
+        with (
+            patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_SETTLE_S", 0.0),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_FAST_WINDOW_S", 5.0),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_POLL_INTERVAL_S", 0.0),
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+        ):
+            result = await nbe_scraper.scrape()
+
+        assert isinstance(result, ScraperResult)
+        # Demand-deposit accounts: zero (CSA widget empty state)
+        # CC accounts: zero (no li.CCA rows in fixture)
+        # Cert accounts: zero (no li.TRD rows in fixture)
+        assert result.accounts == []
+        assert result.transactions == []
 
 
 # ===========================================================================
