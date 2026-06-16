@@ -90,7 +90,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-4xl p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight text-ink">Settings</h1>
         <p className="text-sm text-ink-muted mt-1">
@@ -98,87 +98,90 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Profile section */}
-      <Card>
-        <CardHeader>
-          <h2 className="text-base font-semibold text-ink">Profile</h2>
-        </CardHeader>
-        <CardBody>
-          <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
-            <Input
-              label="Display Name"
-              placeholder="Your name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-            <Input
-              label="Email Address"
-              type="email"
-              value={email}
-              readOnly
-              disabled
-              helperText="Email cannot be changed here."
-            />
-            {saveMsg && (
-              <p
-                className={`text-sm px-3 py-2 rounded-lg ${
-                  saveMsg.startsWith('Failed')
-                    ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
-                    : 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
-                }`}
-              >
-                {saveMsg}
-              </p>
-            )}
-            <div className="flex justify-end">
-              <Button type="submit" loading={saving}>
-                Save Profile
-              </Button>
-            </div>
-          </form>
-        </CardBody>
-      </Card>
+      {/* Profile + Preferences — side by side on large screens to use the width */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Profile section */}
+        <Card>
+          <CardHeader>
+            <h2 className="text-base font-semibold text-ink">Profile</h2>
+          </CardHeader>
+          <CardBody>
+            <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
+              <Input
+                label="Display Name"
+                placeholder="Your name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+              <Input
+                label="Email Address"
+                type="email"
+                value={email}
+                readOnly
+                disabled
+                helperText="Email cannot be changed here."
+              />
+              {saveMsg && (
+                <p
+                  className={`text-sm px-3 py-2 rounded-lg ${
+                    saveMsg.startsWith('Failed')
+                      ? 'text-negative bg-negative-soft'
+                      : 'text-positive bg-positive-soft'
+                  }`}
+                >
+                  {saveMsg}
+                </p>
+              )}
+              <div className="flex justify-end">
+                <Button type="submit" loading={saving}>
+                  Save Profile
+                </Button>
+              </div>
+            </form>
+          </CardBody>
+        </Card>
 
-      {/* Credit Card Preferences */}
-      <Card>
-        <CardHeader>
-          <h2 className="text-base font-semibold text-ink">Credit Card Preferences</h2>
-        </CardHeader>
-        <CardBody>
-          <form onSubmit={handleSavePreferences} className="flex flex-col gap-4">
-            <Input
-              label="Fawry Interest Rate (%)"
-              type="number"
-              value={fawryRatePct}
-              onChange={(e) => setFawryRatePct(e.target.value)}
-              min="0"
-              max="100"
-              step="0.01"
-              helperText="Applied to Fawry charges in the Repayment Tracker (e.g. 1 for 1%)"
-            />
-            {prefsMsg && (
-              <p className={`text-sm px-3 py-2 rounded-lg ${
-                prefsMsg.startsWith('Failed') || prefsMsg.startsWith('Enter')
-                  ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
-                  : 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
-              }`}>
-                {prefsMsg}
-              </p>
-            )}
-            <div className="flex justify-end">
-              <Button type="submit" loading={savingPrefs}>Save Preferences</Button>
-            </div>
-          </form>
-        </CardBody>
-      </Card>
+        {/* Credit Card Preferences */}
+        <Card>
+          <CardHeader>
+            <h2 className="text-base font-semibold text-ink">Credit Card Preferences</h2>
+          </CardHeader>
+          <CardBody>
+            <form onSubmit={handleSavePreferences} className="flex flex-col gap-4">
+              <Input
+                label="Fawry Interest Rate (%)"
+                type="number"
+                value={fawryRatePct}
+                onChange={(e) => setFawryRatePct(e.target.value)}
+                min="0"
+                max="100"
+                step="0.01"
+                helperText="Applied to Fawry charges in the Repayment Tracker (e.g. 1 for 1%)"
+              />
+              {prefsMsg && (
+                <p className={`text-sm px-3 py-2 rounded-lg ${
+                  prefsMsg.startsWith('Failed') || prefsMsg.startsWith('Enter')
+                    ? 'text-negative bg-negative-soft'
+                    : 'text-positive bg-positive-soft'
+                }`}>
+                  {prefsMsg}
+                </p>
+              )}
+              <div className="flex justify-end">
+                <Button type="submit" loading={savingPrefs}>Save Preferences</Button>
+              </div>
+            </form>
+          </CardBody>
+        </Card>
+      </div>
 
       {/* Bank Accounts section */}
       <BankAccountsSection />
 
       {/* Danger Zone */}
-      <Card className="border-red-200 dark:border-red-900">
+      <Card className="border-negative/40">
         <CardHeader>
-          <h2 className="text-base font-semibold text-red-600 dark:text-red-400">Danger Zone</h2>
+          <h2 className="text-base font-semibold text-negative">Danger Zone</h2>
         </CardHeader>
         <CardBody className="space-y-3">
           <p className="text-xs text-ink-muted">

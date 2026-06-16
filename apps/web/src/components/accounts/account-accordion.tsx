@@ -148,11 +148,19 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide, creden
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-ink">
-              {credentialLabel ? `${account.bank_name} - ${credentialLabel}` : account.bank_name}
+              {account.bank_name}
             </p>
             <p className="text-xs text-ink-muted font-mono mt-0.5">
               {account.account_number_masked}
             </p>
+            {credentialLabel && (
+              <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-xs text-ink-muted">
+                <svg className="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span className="truncate">{credentialLabel}</span>
+              </span>
+            )}
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-4">

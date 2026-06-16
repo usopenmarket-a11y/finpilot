@@ -163,7 +163,7 @@ export default async function PrepaidCardsPage() {
               <PrepaidCardRow
                 key={account.id}
                 account={account}
-                credentialLabel={bankNameToLabel[account.bank_name]}
+                credentialLabel={account.credential_label ?? bankNameToLabel[account.bank_name]}
               />
             ))}
           </CardBody>

@@ -304,7 +304,7 @@ export default async function CertificatesPage() {
             </CardHeader>
             <CardBody className="space-y-3">
               {accounts.map((account) => (
-                <CertificateRow key={account.id} account={account} credentialLabel={bankNameToLabel[account.bank_name]} />
+                <CertificateRow key={account.id} account={account} credentialLabel={account.credential_label ?? bankNameToLabel[account.bank_name]} />
               ))}
             </CardBody>
           </Card>

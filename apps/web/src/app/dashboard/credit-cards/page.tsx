@@ -224,7 +224,7 @@ export default async function CreditCardsPage() {
 
   const cards: CreditCardData[] = creditCardAccounts.map((account) => ({
     ...buildPerCardData(account, allTransactions),
-    credentialLabel: bankNameToLabel[account.bank_name] ?? null,
+    credentialLabel: account.credential_label ?? bankNameToLabel[account.bank_name] ?? null,
   }));
 
   return (

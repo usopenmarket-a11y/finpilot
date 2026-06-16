@@ -40,14 +40,12 @@ const BANK_LABELS: Record<Bank, string> = {
   UB: 'United Bank',
 };
 
-// Coverage-bar domains (what the Sync Coverage progress bar tracks). Kept to
-// the three demand-deposit / cards / certificates domains.
-type SyncDomain = 'accounts' | 'cards' | 'certificates';
+// All five syncable NBE products — tracked by the Sync Coverage bar AND
+// individually syncable via the Sync dropdown.
+type SyncDomain = 'accounts' | 'cards' | 'certificates' | 'loans' | 'prepaid_cards';
 
-// Individually-syncable NBE products. A superset of SyncDomain that also
-// includes loans and prepaid cards (which have their own split-sync endpoints
-// but are intentionally not shown in the coverage bar).
-type SyncPhaseKey = 'accounts' | 'cards' | 'certificates' | 'loans' | 'prepaid_cards';
+// Alias kept for the sync-phase machinery (identical set).
+type SyncPhaseKey = SyncDomain;
 
 interface BankAccountSyncRow {
   bank_name: string;
@@ -67,12 +65,16 @@ const SYNC_DOMAINS: { key: SyncDomain; label: string; completeClass: string }[] 
   { key: 'accounts', label: 'Accounts', completeClass: 'bg-info' },
   { key: 'cards', label: 'Cards', completeClass: 'bg-accent' },
   { key: 'certificates', label: 'Certificates', completeClass: 'bg-warning' },
+  { key: 'loans', label: 'Loans', completeClass: 'bg-negative' },
+  { key: 'prepaid_cards', label: 'Prepaid', completeClass: 'bg-gold' },
 ];
 
 const EMPTY_SYNC_SUMMARY: SyncSummary = {
   accounts: { count: 0, lastSyncedAt: null },
   cards: { count: 0, lastSyncedAt: null },
   certificates: { count: 0, lastSyncedAt: null },
+  loans: { count: 0, lastSyncedAt: null },
+  prepaid_cards: { count: 0, lastSyncedAt: null },
 };
 
 const CERTIFICATE_TYPES = new Set(['certificate', 'deposit', 'term_deposit']);
@@ -95,6 +97,8 @@ function cloneEmptySyncSummary(): SyncSummary {
     accounts: { ...EMPTY_SYNC_SUMMARY.accounts },
     cards: { ...EMPTY_SYNC_SUMMARY.cards },
     certificates: { ...EMPTY_SYNC_SUMMARY.certificates },
+    loans: { ...EMPTY_SYNC_SUMMARY.loans },
+    prepaid_cards: { ...EMPTY_SYNC_SUMMARY.prepaid_cards },
   };
 }
 
@@ -106,6 +110,8 @@ function newerDate(a: string | null, b: string | null): string | null {
 
 function classifySyncDomain(accountType: string): SyncDomain | null {
   if (accountType === 'credit_card') return 'cards';
+  if (accountType === 'prepaid_card') return 'prepaid_cards';
+  if (accountType === 'loan') return 'loans';
   if (CERTIFICATE_TYPES.has(accountType)) return 'certificates';
   if (DEMAND_ACCOUNT_TYPES.has(accountType)) return 'accounts';
   return null;
@@ -157,7 +163,7 @@ function SyncCoverageBar({
 }) {
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-1 h-2.5 overflow-hidden rounded-full bg-surface-sunken">
+      <div className="grid grid-cols-5 gap-1 h-2.5 overflow-hidden rounded-full bg-surface-sunken">
         {SYNC_DOMAINS.map((domain) => {
           const domainSummary = summary[domain.key];
           const isSynced = domainSummary.count > 0;
@@ -174,7 +180,7 @@ function SyncCoverageBar({
           );
         })}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {SYNC_DOMAINS.map((domain) => {
           const domainSummary = summary[domain.key];
           const isSynced = domainSummary.count > 0;
