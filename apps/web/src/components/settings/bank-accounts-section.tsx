@@ -260,32 +260,45 @@ function SyncDropdown({
   onSyncAll: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  // Fixed (viewport-relative) coordinates for the menu, computed on open so it
-  // escapes any ancestor overflow/stacking context and never gets clipped by
-  // the card. `top` may be flipped above the trigger when space below is tight.
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  // Fixed (viewport-relative) coordinates for the menu, computed on open and on
+  // scroll/resize so it escapes any ancestor overflow/stacking context and never
+  // gets clipped. `top` flips above the trigger when space below is tight; `left`
+  // is clamped to both viewport edges so it never runs off-screen on mobile.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const MENU_WIDTH = 192; // w-48
-  const ESTIMATED_MENU_HEIGHT = 280; // 6 items + divider + Sync All
+  const MENU_WIDTH = 208; // w-52
+  const VIEWPORT_MARGIN = 8;
 
   const place = useCallback(() => {
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - r.bottom;
-    const openUp = spaceBelow < ESTIMATED_MENU_HEIGHT && r.top > spaceBelow;
-    setPos({
-      top: openUp ? r.top - ESTIMATED_MENU_HEIGHT - 4 : r.bottom + 4,
-      right: Math.max(8, window.innerWidth - r.right),
-    });
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Cap the menu height to the available viewport so it scrolls instead of
+    // overflowing; estimate from the larger of space above/below the trigger.
+    const spaceBelow = vh - r.bottom - VIEWPORT_MARGIN;
+    const spaceAbove = r.top - VIEWPORT_MARGIN;
+    const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+
+    // Right-align the menu to the trigger, then clamp so it stays fully on-screen.
+    let left = r.right - MENU_WIDTH;
+    left = Math.min(left, vw - MENU_WIDTH - VIEWPORT_MARGIN);
+    left = Math.max(VIEWPORT_MARGIN, left);
+
+    const top = openUp
+      ? Math.max(VIEWPORT_MARGIN, r.top - 4) // bottom anchored via maxHeight below
+      : r.bottom + 4;
+
+    setPos({ top: openUp ? VIEWPORT_MARGIN : top, left });
   }, []);
 
   useEffect(() => {
     if (!open) return;
     place();
-    function onDocClick(e: MouseEvent) {
+    function onDocPointer(e: Event) {
       const t = e.target as Node;
       if (
         triggerRef.current && !triggerRef.current.contains(t) &&
@@ -297,18 +310,19 @@ function SyncDropdown({
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
     }
-    function onReflow() {
-      setOpen(false);
-    }
-    document.addEventListener('mousedown', onDocClick);
+    // Reposition (don't close) on scroll/resize so the menu tracks the trigger
+    // on mobile, where opening can nudge the page.
+    document.addEventListener('mousedown', onDocPointer);
+    document.addEventListener('touchstart', onDocPointer);
     document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onReflow);
-    window.addEventListener('scroll', onReflow, true);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
     return () => {
-      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('mousedown', onDocPointer);
+      document.removeEventListener('touchstart', onDocPointer);
       document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', onReflow);
-      window.removeEventListener('scroll', onReflow, true);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
     };
   }, [open, place]);
 
@@ -341,8 +355,14 @@ function SyncDropdown({
         <div
           ref={menuRef}
           role="menu"
-          style={{ position: 'fixed', top: pos.top, right: pos.right, width: MENU_WIDTH }}
-          className="z-50 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg"
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: MENU_WIDTH,
+            maxHeight: `calc(100vh - ${pos.top + VIEWPORT_MARGIN}px)`,
+          }}
+          className="z-50 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg"
         >
           {SYNC_MENU_ITEMS.map((item) => (
             <button
@@ -353,7 +373,7 @@ function SyncDropdown({
                 setOpen(false);
                 onSelectDomain(item.domain);
               }}
-              className="block w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
+              className="block w-full px-3 py-2.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
             >
               {item.label}
             </button>
@@ -366,7 +386,7 @@ function SyncDropdown({
               setOpen(false);
               onSyncAll();
             }}
-            className="block w-full px-3 py-2 text-left text-sm font-medium text-brand-600 dark:text-brand-400 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
+            className="block w-full px-3 py-2.5 text-left text-sm font-medium text-brand-600 dark:text-brand-400 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
           >
             Sync All
           </button>
