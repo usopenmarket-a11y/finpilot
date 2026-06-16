@@ -463,6 +463,87 @@ export function BankAccountsSection() {
     }
   };
 
+  // Run a single NBE split-sync phase. Returns the result on success, or null
+  // on failure (after recording the error in syncState). Shared by both the
+  // per-item buttons and the sequential "Sync All" run.
+  const runNbePhase = async (
+    accessToken: string,
+    cred: CredentialInfo,
+    bank: 'NBE',
+    phase: { key: SyncDomain; label: string },
+    phaseInfo: SyncPhaseInfo | null,
+  ): Promise<SyncResult | null> => {
+    const key = cred.id;
+    setSyncStates((prev) => ({
+      ...prev,
+      [key]: { loading: true, error: null, lastResult: null, startedAt: Date.now(), phase: phaseInfo },
+    }));
+
+    try {
+      if (phase.key === 'accounts') {
+        return await syncBankAccounts(accessToken, bank, cred.id);
+      } else if (phase.key === 'cards') {
+        return await syncBankCreditCards(accessToken, bank, cred.id);
+      }
+      return await syncBankCertificates(accessToken, bank, cred.id);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Sync failed';
+      const phaseLabel = phase.label.charAt(0).toUpperCase() + phase.label.slice(1);
+      setSyncStates((prev) => ({
+        ...prev,
+        [key]: {
+          loading: false,
+          error: `${phaseLabel} sync failed: ${message}`,
+          lastResult: null,
+          startedAt: null,
+          phase: null,
+        },
+      }));
+      return null;
+    }
+  };
+
+  // Sync a single NBE item independently (Accounts / Credit Cards /
+  // Certificates). Each fires its own fresh Playwright session, so the user can
+  // run just the one they need without waiting through the full chain.
+  const handleSyncItem = async (cred: CredentialInfo, domain: SyncDomain) => {
+    if (!userId || cred.bank !== 'NBE') return;
+    const key = cred.id;
+    const phase = NBE_SYNC_PHASES.find((p) => p.key === domain);
+    if (!phase) return;
+
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      setSyncStates((prev) => ({
+        ...prev,
+        [key]: {
+          loading: false,
+          error: 'Your session has expired. Please sign in again.',
+          lastResult: null,
+          startedAt: null,
+          phase: null,
+        },
+      }));
+      return;
+    }
+
+    const result = await runNbePhase(accessToken, cred, 'NBE', phase, null);
+    if (result) {
+      const label = phase.label.charAt(0).toUpperCase() + phase.label.slice(1);
+      setSyncStates((prev) => ({
+        ...prev,
+        [key]: {
+          loading: false,
+          error: null,
+          lastResult: `${label}: synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`,
+          startedAt: null,
+          phase: null,
+        },
+      }));
+    }
+    await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
+  };
+
   const handleSync = async (cred: CredentialInfo) => {
     if (!userId || !isValidBank(cred.bank)) return;
     const key = cred.id;
@@ -506,45 +587,14 @@ export function BankAccountsSection() {
             label: phase.label,
           };
 
-          setSyncStates((prev) => ({
-            ...prev,
-            [key]: {
-              loading: true,
-              error: null,
-              lastResult: null,
-              startedAt: Date.now(),
-              phase: phaseInfo,
-            },
-          }));
-
-          try {
-            let phaseResult: SyncResult;
-            if (phase.key === 'accounts') {
-              phaseResult = await syncBankAccounts(accessToken, cred.bank, cred.id);
-            } else if (phase.key === 'cards') {
-              phaseResult = await syncBankCreditCards(accessToken, cred.bank, cred.id);
-            } else {
-              phaseResult = await syncBankCertificates(accessToken, cred.bank, cred.id);
-            }
-            results.push(phaseResult);
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Sync failed';
-            const phaseLabel = phase.label.charAt(0).toUpperCase() + phase.label.slice(1);
-            setSyncStates((prev) => ({
-              ...prev,
-              [key]: {
-                loading: false,
-                error: `${phaseLabel} sync failed: ${message}`,
-                lastResult: null,
-                startedAt: null,
-                phase: null,
-              },
-            }));
-            // Refresh so any phases that succeeded before this failure are
-            // reflected in the Sync Coverage bar.
+          const phaseResult = await runNbePhase(accessToken, cred, 'NBE', phase, phaseInfo);
+          if (!phaseResult) {
+            // runNbePhase already recorded the error. Refresh so any phases
+            // that succeeded before this failure show in the coverage bar.
             await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
             return;
           }
+          results.push(phaseResult);
         }
 
         const totalScraped = results.reduce((sum, r) => sum + r.transactions_scraped, 0);
@@ -731,6 +781,34 @@ export function BankAccountsSection() {
 
                       {/* Actions */}
                       <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+                        {cred.bank === 'NBE' && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={isSyncing || isRemoving}
+                              onClick={() => void handleSyncItem(cred, 'accounts')}
+                            >
+                              Accounts
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={isSyncing || isRemoving}
+                              onClick={() => void handleSyncItem(cred, 'cards')}
+                            >
+                              Cards
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={isSyncing || isRemoving}
+                              onClick={() => void handleSyncItem(cred, 'certificates')}
+                            >
+                              Certificates
+                            </Button>
+                          </>
+                        )}
                         <Button
                           size="sm"
                           variant="secondary"
@@ -738,7 +816,7 @@ export function BankAccountsSection() {
                           disabled={isSyncing || isRemoving}
                           onClick={() => void handleSync(cred)}
                         >
-                          Sync All
+                          {cred.bank === 'NBE' ? 'Sync All' : 'Sync'}
                         </Button>
                         <Button
                           size="sm"

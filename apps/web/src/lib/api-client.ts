@@ -292,7 +292,7 @@ export async function syncBank(
 /**
  * Sync NBE demand-deposit accounts and transactions only (skip CC and certs).
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 10 minutes.
+ * Timeout: 15 minutes (heaviest phase).
  */
 export async function syncBankAccounts(
   accessToken: string,
@@ -304,7 +304,10 @@ export async function syncBankAccounts(
     `/api/v1/accounts/sync/${bank}/accounts${qs}`,
     { method: 'POST', accessToken }
   );
-  const maxWaitMs = 10 * 60 * 1000;
+  // Accounts is the heaviest NBE phase (login + up to 4 demand-deposit
+  // accounts, each with transaction pagination, plus session recovery), so it
+  // gets the most client-side polling headroom before we give up on the job.
+  const maxWaitMs = 15 * 60 * 1000;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
