@@ -188,7 +188,7 @@ async def _create_job_in_db(
     user_id: UUID,
     bank: str,
     credential_id: str | None,
-    job_type: Literal["full", "accounts", "credit_cards", "certificates"],
+    job_type: Literal["full", "accounts", "credit_cards", "certificates", "loans", "prepaid_cards"],
 ) -> None:
     """Insert the initial durable row for a newly-created job. Best-effort."""
     try:
@@ -825,6 +825,378 @@ async def _background_sync_cc_task(
         _JOBS[job_id]["error"] = "Unexpected error during sync"
 
 
+async def _background_sync_loans_task(
+    job_id: str,
+    user_id: UUID,
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    credential_id: str | None = None,
+) -> None:
+    """Background task: scrape loan / finance accounts only."""
+    _JOBS[job_id]["status"] = "running"
+
+    try:
+        client = get_service_role_client()
+        try:
+            query = (
+                client.table("bank_credentials")
+                .select("encrypted_username, encrypted_password, label")
+                .eq("user_id", str(user_id))
+                .eq("is_active", True)
+            )
+            if credential_id is not None:
+                query = query.eq("id", credential_id)
+            else:
+                query = query.eq("bank", bank)
+            response = query.limit(1).execute()
+        except Exception as exc:
+            logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Failed to retrieve stored credentials"
+            return
+
+        if not response.data:
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = f"No active credentials found for bank {bank}"
+            return
+
+        row = response.data[0]
+        assert isinstance(row, dict)
+        enc_username = row["encrypted_username"]
+        enc_password = row["encrypted_password"]
+        cred_label: str | None = row.get("label")
+
+        username: str | None = None
+        password: str | None = None
+        try:
+            username = decrypt(enc_username, settings.encryption_key)
+            password = decrypt(enc_password, settings.encryption_key)
+        except CryptoError:
+            logger.warning("Stored credential token is malformed for bank=%s", bank)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Stored credential token is malformed"
+            return
+        except ValueError:
+            logger.warning("Stored credential token authentication failed for bank=%s", bank)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Stored credential token could not be authenticated"
+            return
+
+        result = None
+        try:
+            assert username is not None and password is not None
+            scraper_class = _SCRAPER_MAP[bank]
+            scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
+            logger.info("Loans-only sync initiated via stored credentials", extra={"bank": bank})
+            async with _SCRAPE_SEMAPHORE:
+                if bank == "NBE":
+                    assert isinstance(scraper, NBEScraper)
+                    result = await scraper.scrape_loans()
+                else:
+                    result = await scraper.scrape()
+        except ScraperPasswordChangeRequired:
+            _JOBS[job_id]["error"] = (
+                "NBE requires a password change — go to Settings to update your credentials"
+            )
+        except ScraperLoginError:
+            logger.warning("Loans sync failed: bank rejected credentials", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Invalid bank credentials"
+            return
+        except ScraperTimeoutError:
+            logger.warning("Loans sync failed: portal timed out", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Bank portal timed out"
+            return
+        except ScraperParseError:
+            logger.warning(
+                "Loans sync failed: could not parse portal response", extra={"bank": bank}
+            )
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Failed to parse bank portal response"
+            return
+        except BankPortalUnreachableError:
+            logger.warning("Loans sync failed: portal unreachable", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            return
+        except Exception as exc:
+            logger.error("Loans sync failed: unexpected error", extra={"bank": bank}, exc_info=exc)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Scraper error"
+            return
+        finally:
+            if username is not None:
+                del username
+            if password is not None:
+                del password
+
+        if result is None:
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Scraper returned no result"
+            return
+
+        transactions_saved = 0
+        try:
+            pipeline_client = await get_async_service_role_client()
+            pipeline_result = await run_pipeline(
+                result,
+                user_id=user_id,
+                supabase_client=pipeline_client,
+                credential_label=cred_label,
+            )
+            transactions_saved = pipeline_result.transactions_new
+        except Exception as exc:
+            logger.warning(
+                "Pipeline failed during loans sync (scrape succeeded): %s",
+                exc,
+                extra={"bank": bank},
+            )
+
+        now_iso = datetime.now(UTC).isoformat()
+        try:
+            update_client = get_service_role_client()
+            upd = (
+                update_client.table("bank_credentials")
+                .update({"last_synced_at": now_iso})
+                .eq("user_id", str(user_id))
+            )
+            if credential_id is not None:
+                upd = upd.eq("id", credential_id)
+            else:
+                upd = upd.eq("bank", bank)
+            upd.execute()
+        except Exception:
+            pass
+
+        transactions_scraped = len(result.transactions)
+        if not result.accounts:
+            _JOBS[job_id]["status"] = "complete"
+            _JOBS[job_id]["result"] = SyncResponse(
+                bank=bank,
+                account_number_masked="****",
+                transactions_scraped=transactions_scraped,
+                transactions_saved=transactions_saved,
+                synced_at=now_iso,
+            )
+            return
+
+        primary_account = result.accounts[0]
+        accounts_scraped = len(result.accounts)
+        logger.info(
+            "Loans sync completed",
+            extra={
+                "bank": bank,
+                "accounts_scraped": accounts_scraped,
+                "account_number_masked": primary_account.account_number_masked,
+                "transactions_scraped": transactions_scraped,
+                "transactions_saved": transactions_saved,
+            },
+        )
+
+        _JOBS[job_id]["status"] = "complete"
+        _JOBS[job_id]["result"] = SyncResponse(
+            bank=primary_account.bank_name,
+            account_number_masked=primary_account.account_number_masked,
+            transactions_scraped=transactions_scraped,
+            transactions_saved=transactions_saved,
+            synced_at=now_iso,
+        )
+
+    except Exception as exc:
+        logger.error("Background loans sync task failed unexpectedly", exc_info=exc)
+        _JOBS[job_id]["status"] = "failed"
+        _JOBS[job_id]["error"] = "Unexpected error during sync"
+
+
+async def _background_sync_prepaid_cards_task(
+    job_id: str,
+    user_id: UUID,
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    credential_id: str | None = None,
+) -> None:
+    """Background task: scrape prepaid card accounts only."""
+    _JOBS[job_id]["status"] = "running"
+
+    try:
+        client = get_service_role_client()
+        try:
+            query = (
+                client.table("bank_credentials")
+                .select("encrypted_username, encrypted_password, label")
+                .eq("user_id", str(user_id))
+                .eq("is_active", True)
+            )
+            if credential_id is not None:
+                query = query.eq("id", credential_id)
+            else:
+                query = query.eq("bank", bank)
+            response = query.limit(1).execute()
+        except Exception as exc:
+            logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Failed to retrieve stored credentials"
+            return
+
+        if not response.data:
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = f"No active credentials found for bank {bank}"
+            return
+
+        row = response.data[0]
+        assert isinstance(row, dict)
+        enc_username = row["encrypted_username"]
+        enc_password = row["encrypted_password"]
+        cred_label: str | None = row.get("label")
+
+        username: str | None = None
+        password: str | None = None
+        try:
+            username = decrypt(enc_username, settings.encryption_key)
+            password = decrypt(enc_password, settings.encryption_key)
+        except CryptoError:
+            logger.warning("Stored credential token is malformed for bank=%s", bank)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Stored credential token is malformed"
+            return
+        except ValueError:
+            logger.warning("Stored credential token authentication failed for bank=%s", bank)
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Stored credential token could not be authenticated"
+            return
+
+        result = None
+        try:
+            assert username is not None and password is not None
+            scraper_class = _SCRAPER_MAP[bank]
+            scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
+            logger.info(
+                "Prepaid-cards-only sync initiated via stored credentials", extra={"bank": bank}
+            )
+            async with _SCRAPE_SEMAPHORE:
+                if bank == "NBE":
+                    assert isinstance(scraper, NBEScraper)
+                    result = await scraper.scrape_prepaid_cards()
+                else:
+                    result = await scraper.scrape()
+        except ScraperPasswordChangeRequired:
+            _JOBS[job_id]["error"] = (
+                "NBE requires a password change — go to Settings to update your credentials"
+            )
+        except ScraperLoginError:
+            logger.warning(
+                "Prepaid cards sync failed: bank rejected credentials", extra={"bank": bank}
+            )
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Invalid bank credentials"
+            return
+        except ScraperTimeoutError:
+            logger.warning("Prepaid cards sync failed: portal timed out", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Bank portal timed out"
+            return
+        except ScraperParseError:
+            logger.warning(
+                "Prepaid cards sync failed: could not parse portal response", extra={"bank": bank}
+            )
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Failed to parse bank portal response"
+            return
+        except BankPortalUnreachableError:
+            logger.warning("Prepaid cards sync failed: portal unreachable", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            return
+        except Exception as exc:
+            logger.error(
+                "Prepaid cards sync failed: unexpected error", extra={"bank": bank}, exc_info=exc
+            )
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Scraper error"
+            return
+        finally:
+            if username is not None:
+                del username
+            if password is not None:
+                del password
+
+        if result is None:
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = "Scraper returned no result"
+            return
+
+        transactions_saved = 0
+        try:
+            pipeline_client = await get_async_service_role_client()
+            pipeline_result = await run_pipeline(
+                result,
+                user_id=user_id,
+                supabase_client=pipeline_client,
+                credential_label=cred_label,
+            )
+            transactions_saved = pipeline_result.transactions_new
+        except Exception as exc:
+            logger.warning(
+                "Pipeline failed during prepaid cards sync (scrape succeeded): %s",
+                exc,
+                extra={"bank": bank},
+            )
+
+        now_iso = datetime.now(UTC).isoformat()
+        try:
+            update_client = get_service_role_client()
+            upd = (
+                update_client.table("bank_credentials")
+                .update({"last_synced_at": now_iso})
+                .eq("user_id", str(user_id))
+            )
+            if credential_id is not None:
+                upd = upd.eq("id", credential_id)
+            else:
+                upd = upd.eq("bank", bank)
+            upd.execute()
+        except Exception:
+            pass
+
+        transactions_scraped = len(result.transactions)
+        if not result.accounts:
+            _JOBS[job_id]["status"] = "complete"
+            _JOBS[job_id]["result"] = SyncResponse(
+                bank=bank,
+                account_number_masked="****",
+                transactions_scraped=transactions_scraped,
+                transactions_saved=transactions_saved,
+                synced_at=now_iso,
+            )
+            return
+
+        primary_account = result.accounts[0]
+        accounts_scraped = len(result.accounts)
+        logger.info(
+            "Prepaid cards sync completed",
+            extra={
+                "bank": bank,
+                "accounts_scraped": accounts_scraped,
+                "account_number_masked": primary_account.account_number_masked,
+                "transactions_scraped": transactions_scraped,
+                "transactions_saved": transactions_saved,
+            },
+        )
+
+        _JOBS[job_id]["status"] = "complete"
+        _JOBS[job_id]["result"] = SyncResponse(
+            bank=primary_account.bank_name,
+            account_number_masked=primary_account.account_number_masked,
+            transactions_scraped=transactions_scraped,
+            transactions_saved=transactions_saved,
+            synced_at=now_iso,
+        )
+
+    except Exception as exc:
+        logger.error("Background prepaid cards sync task failed unexpectedly", exc_info=exc)
+        _JOBS[job_id]["status"] = "failed"
+        _JOBS[job_id]["error"] = "Unexpected error during sync"
+
+
 async def _background_sync_certificates_task(
     job_id: str,
     user_id: UUID,
@@ -1333,6 +1705,108 @@ async def start_sync_certificates_job(
     asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "certificates"))
 
     asyncio.create_task(_background_sync_certificates_task(job_id, user_id, bank, credential_id))
+    asyncio.create_task(_keepalive_while_running(job_id))
+
+    return SyncJobStartResponse(job_id=job_id, status="pending")
+
+
+@router.post(
+    "/accounts/sync/{bank}/loans",
+    response_model=SyncJobStartResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Start a loans-only sync job",
+)
+async def start_sync_loans_job(
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    user_id: UUID = Depends(get_current_user_id),
+    credential_id: str | None = None,
+) -> SyncJobStartResponse:
+    """Start a background sync that scrapes loan / finance accounts only.
+
+    For NBE this calls ``scraper.scrape_loans()`` instead of the full
+    ``scraper.scrape()``.  For all other banks the full ``scrape()`` is used.
+
+    HTTP response
+    -------------
+    * 202 — job started. Poll /accounts/sync/status/{job_id} for results.
+    * 404 — no credentials stored for this bank / user.
+    * 429 — a scrape is already running.
+    * 500 — credential lookup failed.
+    """
+    await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
+
+    if _SCRAPE_SEMAPHORE.locked():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A sync is already in progress. Please wait and retry.",
+        )
+
+    _purge_old_jobs()
+
+    job_id = str(uuid4())
+    _JOBS[job_id] = {
+        "status": "pending",
+        "result": None,
+        "error": None,
+        "finished_at": None,
+        "user_id": str(user_id),
+        "bank": bank,
+        "credential_id": credential_id,
+    }
+    asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "loans"))
+
+    asyncio.create_task(_background_sync_loans_task(job_id, user_id, bank, credential_id))
+    asyncio.create_task(_keepalive_while_running(job_id))
+
+    return SyncJobStartResponse(job_id=job_id, status="pending")
+
+
+@router.post(
+    "/accounts/sync/{bank}/prepaid-cards",
+    response_model=SyncJobStartResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Start a prepaid-cards-only sync job",
+)
+async def start_sync_prepaid_cards_job(
+    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    user_id: UUID = Depends(get_current_user_id),
+    credential_id: str | None = None,
+) -> SyncJobStartResponse:
+    """Start a background sync that scrapes prepaid card accounts only.
+
+    For NBE this calls ``scraper.scrape_prepaid_cards()`` instead of the full
+    ``scraper.scrape()``.  For all other banks the full ``scrape()`` is used.
+
+    HTTP response
+    -------------
+    * 202 — job started. Poll /accounts/sync/status/{job_id} for results.
+    * 404 — no credentials stored for this bank / user.
+    * 429 — a scrape is already running.
+    * 500 — credential lookup failed.
+    """
+    await asyncio.to_thread(_validate_credentials_exist, user_id, bank, credential_id)
+
+    if _SCRAPE_SEMAPHORE.locked():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A sync is already in progress. Please wait and retry.",
+        )
+
+    _purge_old_jobs()
+
+    job_id = str(uuid4())
+    _JOBS[job_id] = {
+        "status": "pending",
+        "result": None,
+        "error": None,
+        "finished_at": None,
+        "user_id": str(user_id),
+        "bank": bank,
+        "credential_id": credential_id,
+    }
+    asyncio.create_task(_create_job_in_db(job_id, user_id, bank, credential_id, "prepaid_cards"))
+
+    asyncio.create_task(_background_sync_prepaid_cards_task(job_id, user_id, bank, credential_id))
     asyncio.create_task(_keepalive_while_running(job_id))
 
     return SyncJobStartResponse(job_id=job_id, status="pending")

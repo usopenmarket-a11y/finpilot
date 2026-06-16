@@ -358,8 +358,17 @@ class InstallmentDB(BaseModel):
 # Sync job (durable bank-sync background job state)
 # ---------------------------------------------------------------------------
 
-SYNC_JOB_TYPES = ("full", "accounts", "credit_cards", "certificates")
-SYNC_JOB_TYPE_LITERAL = Literal["full", "accounts", "credit_cards", "certificates"]
+SYNC_JOB_TYPES = (
+    "full",
+    "accounts",
+    "credit_cards",
+    "certificates",
+    "loans",
+    "prepaid_cards",
+)
+SYNC_JOB_TYPE_LITERAL = Literal[
+    "full", "accounts", "credit_cards", "certificates", "loans", "prepaid_cards"
+]
 SYNC_JOB_STATUSES = ("pending", "running", "complete", "failed")
 SYNC_JOB_STATUS_LITERAL = Literal["pending", "running", "complete", "failed"]
 
@@ -419,7 +428,7 @@ class SyncJobRecord(BaseModel):
         ),
     )
     job_type: SYNC_JOB_TYPE_LITERAL = Field(
-        description="Which background sync variant this job runs — one of: full, accounts, credit_cards, certificates"
+        description="Which background sync variant this job runs — one of: full, accounts, credit_cards, certificates, loans, prepaid_cards"
     )
     status: SYNC_JOB_STATUS_LITERAL = Field(
         default="pending",
