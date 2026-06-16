@@ -370,7 +370,7 @@ export async function hideAccount(accessToken: string, accountId: string): Promi
 /**
  * Sync NBE certificate/term-deposit accounts only (skip demand-deposit and CC).
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 4 minutes.
+ * Timeout: 8 minutes.
  */
 export async function syncBankCertificates(
   accessToken: string,
@@ -382,7 +382,9 @@ export async function syncBankCertificates(
     `/api/v1/accounts/sync/${bank}/certificates${qs}`,
     { method: 'POST', accessToken }
   );
-  const maxWaitMs = 4 * 60 * 1000;
+  // 8 min to match the other products: on Render the ~76s login plus the TRD
+  // widget reveal/row waits can exceed the old 4-min cap.
+  const maxWaitMs = 8 * 60 * 1000;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 

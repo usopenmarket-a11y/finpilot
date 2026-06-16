@@ -3364,38 +3364,63 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping certificates/deposits via %r widget", _SEL_CERTIFICATES_WIDGET)
 
-        # Always navigate to dashboard for a clean SPA state — the CCA flip-card or CC
-        # statement page may be active after _scrape_credit_cards, hiding the TRD widget.
+        # Skip re-navigation when already on the dashboard (split-sync path).
+        # In the full scrape() path the page is on a CC statement URL so navigation
+        # is needed; in scrape_certificates() the page is already at _LOGIN_URL after
+        # _wait_for_dashboard() and a redundant goto hangs on Render.
+        # Detection mirrors _scrape_credit_cards: check URL for "page=home" fragment.
         current_url = page.url
-        logger.info(
-            "NBE: navigating to dashboard for certificate scrape (current url: %s)", current_url
+        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip(
+            "/"
         )
-        try:
-            await page.goto(
-                _LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=_PAGE_LOAD_TIMEOUT_MS,
-            )
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "NBE: dashboard navigation timed out before certificate scrape — skipping"
-            )
-            return []
+        logger.info(
+            "NBE: certificate scrape — current_url=%s on_dashboard=%s",
+            current_url,
+            on_dashboard,
+        )
+        if not on_dashboard:
+            # Full scrape() path — navigating from a CC statement page.
+            # Use wait_until="commit" (returns as soon as navigation commits) to avoid
+            # hanging on domcontentloaded when the Oracle JET SPA is slow to hydrate.
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="commit",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    "NBE: dashboard navigation timed out before certificate scrape — skipping"
+                )
+                return []
 
-        # Wait for session + widget hydration — same pattern as _scrape_credit_cards.
-        try:
-            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: session lost after navigation — cannot scrape certificates")
-            return []
+            # Confirm session is still active after navigation.
+            try:
+                await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+            except PlaywrightTimeoutError:
+                logger.warning("NBE: session lost after navigation — cannot scrape certificates")
+                return []
 
-        try:
-            await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=120_000)
-        except PlaywrightTimeoutError:
-            logger.info(
-                "NBE: no TRD (certificates) widget found — user has no certificates/deposits"
-            )
-            return []
+            # Widget presence check — use full timeout since we just navigated and the
+            # Oracle JET SPA may still be hydrating the dashboard tiles.
+            try:
+                await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=120_000)
+            except PlaywrightTimeoutError:
+                logger.info(
+                    "NBE: no TRD (certificates) widget found — user has no certificates/deposits"
+                )
+                return []
+        else:
+            # Already on dashboard (split-sync path) — tiles are already hydrated
+            # post-login.  Use a short presence check; the dashboard tiles render
+            # immediately after _wait_for_dashboard() confirms loggedInUser.
+            try:
+                await page.wait_for_selector(_SEL_CERTIFICATES_WIDGET, timeout=_SHORT_TIMEOUT_MS)
+            except PlaywrightTimeoutError:
+                logger.info(
+                    "NBE: no TRD (certificates) widget found — user has no certificates/deposits"
+                )
+                return []
 
         # Click the widget to flip the card and reveal the list.
         # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
@@ -3549,29 +3574,46 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping loans via %r widget", _SEL_LOANS_WIDGET)
 
+        # Skip re-navigation when already on the dashboard (split-sync path).
+        # Same guard as _scrape_certificates / _scrape_credit_cards.
         current_url = page.url
-        logger.info("NBE: navigating to dashboard for loan scrape (current url: %s)", current_url)
-        try:
-            await page.goto(
-                _LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=_PAGE_LOAD_TIMEOUT_MS,
-            )
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: dashboard navigation timed out before loan scrape — skipping")
-            return []
+        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip(
+            "/"
+        )
+        logger.info(
+            "NBE: loan scrape — current_url=%s on_dashboard=%s",
+            current_url,
+            on_dashboard,
+        )
+        if not on_dashboard:
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="commit",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning("NBE: dashboard navigation timed out before loan scrape — skipping")
+                return []
 
-        try:
-            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: session lost after navigation — cannot scrape loans")
-            return []
+            try:
+                await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+            except PlaywrightTimeoutError:
+                logger.warning("NBE: session lost after navigation — cannot scrape loans")
+                return []
 
-        try:
-            await page.wait_for_selector(_SEL_LOANS_WIDGET, timeout=120_000)
-        except PlaywrightTimeoutError:
-            logger.info("NBE: no LON (loans) widget found — user has no loan products")
-            return []
+            try:
+                await page.wait_for_selector(_SEL_LOANS_WIDGET, timeout=120_000)
+            except PlaywrightTimeoutError:
+                logger.info("NBE: no LON (loans) widget found — user has no loan products")
+                return []
+        else:
+            # Already on dashboard — short presence check only.
+            try:
+                await page.wait_for_selector(_SEL_LOANS_WIDGET, timeout=_SHORT_TIMEOUT_MS)
+            except PlaywrightTimeoutError:
+                logger.info("NBE: no LON (loans) widget found — user has no loan products")
+                return []
 
         # Click the widget to reveal the loan list.
         # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
@@ -3702,33 +3744,48 @@ class NBEScraper(BankScraper):
         """
         logger.info("NBE: scraping prepaid cards via %r widget", _SEL_PREPAID_CARDS_WIDGET)
 
+        # Skip re-navigation when already on the dashboard (split-sync path).
+        # Same guard as _scrape_certificates / _scrape_credit_cards.
         current_url = page.url
-        logger.info(
-            "NBE: navigating to dashboard for prepaid card scrape (current url: %s)", current_url
+        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip(
+            "/"
         )
-        try:
-            await page.goto(
-                _LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=_PAGE_LOAD_TIMEOUT_MS,
-            )
-        except PlaywrightTimeoutError:
-            logger.warning(
-                "NBE: dashboard navigation timed out before prepaid card scrape — skipping"
-            )
-            return []
+        logger.info(
+            "NBE: prepaid card scrape — current_url=%s on_dashboard=%s",
+            current_url,
+            on_dashboard,
+        )
+        if not on_dashboard:
+            try:
+                await page.goto(
+                    _LOGIN_URL,
+                    wait_until="commit",
+                    timeout=_PAGE_LOAD_TIMEOUT_MS,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    "NBE: dashboard navigation timed out before prepaid card scrape — skipping"
+                )
+                return []
 
-        try:
-            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: session lost after navigation — cannot scrape prepaid cards")
-            return []
+            try:
+                await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+            except PlaywrightTimeoutError:
+                logger.warning("NBE: session lost after navigation — cannot scrape prepaid cards")
+                return []
 
-        try:
-            await page.wait_for_selector(_SEL_PREPAID_CARDS_WIDGET, timeout=120_000)
-        except PlaywrightTimeoutError:
-            logger.info("NBE: no PRE (prepaid cards) widget found — user has no prepaid cards")
-            return []
+            try:
+                await page.wait_for_selector(_SEL_PREPAID_CARDS_WIDGET, timeout=120_000)
+            except PlaywrightTimeoutError:
+                logger.info("NBE: no PRE (prepaid cards) widget found — user has no prepaid cards")
+                return []
+        else:
+            # Already on dashboard — short presence check only.
+            try:
+                await page.wait_for_selector(_SEL_PREPAID_CARDS_WIDGET, timeout=_SHORT_TIMEOUT_MS)
+            except PlaywrightTimeoutError:
+                logger.info("NBE: no PRE (prepaid cards) widget found — user has no prepaid cards")
+                return []
 
         # Click the widget to reveal the prepaid card list.
         # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
