@@ -2485,38 +2485,110 @@ class NBEScraper(BankScraper):
 
         page.on("response", _capture_cc_details)
         _cc_rows_loaded = False
+        # ---------------------------------------------------------------------------
+        # Retry loop — mirrors the accounts zero-state retry in scrape_accounts().
+        #
+        # On Render's free tier the Oracle JET SPA sometimes renders the CCA flip-card
+        # widget but the oj-listview rows hydrate intermittently (observed: two identical
+        # prepaid runs minutes apart — one found rows in 13 s, the next found nothing).
+        #
+        # Strategy
+        # --------
+        # Attempt 1  : full _WAIT_TIMEOUT_MS (240 s) — needed after a cold login where
+        #              the SPA can take 60+ s to hydrate tiles.
+        # Attempts 2+ : _SHORT_TIMEOUT_MS * 3 (60 s) — if rows are going to render
+        #              after a re-click they typically appear within ~15-20 s; 60 s gives
+        #              3× that margin without blocking the client for too long.
+        #
+        # True-empty vs flaky
+        # --------------------
+        # After a PlaywrightTimeoutError we inspect the DOM before retrying:
+        # - If div.flip-account.CCA is present in the page HTML (the flip-card rendered
+        #   but no row children appeared) → genuine empty product; return [] immediately.
+        # - If div.flip-account.CCA is absent (the widget click did not flip the card at
+        #   all) → flaky hydration; re-click the widget and retry the wait.
+        #
+        # Worst-case time budget (all retries time out)
+        # -----------------------------------------------
+        # Attempt 1: 240 s + Attempt 2: 60 s + Attempt 3: 60 s ≈ 6 min for this product.
+        # Across all 4 product helpers the absolute worst case (every attempt for every
+        # product times out) exceeds the 8-min overall cap, but that scenario means the
+        # bank portal is down for all products simultaneously — a broader failure. Under
+        # the realistic intermittent-flake scenario only 1 attempt usually fails per
+        # product, keeping total scrape time well within budget.
+        # ---------------------------------------------------------------------------
+        _CCA_RETRY_TIMEOUT_MS = _SHORT_TIMEOUT_MS * 3  # 60 s for retry attempts
+        _total_cca_attempts = 0
+        _max_cca_attempts = _ZERO_ACCOUNTS_MAX_RETRIES + 1  # 3 total
         try:
-            # Explicit timeout required: without it Playwright defaults to 30s.
-            # Production logs (2026-06-16) showed 63s elapsed before the "rows
-            # did not appear" warning — the 30s default click timeout was firing
-            # inside the try block, landing in `except PlaywrightTimeoutError:
-            # pass` which set _cc_rows_loaded=False, not the wait_for_selector.
-            await page.click(_SEL_CREDIT_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
-            await self._random_delay(1.5, 2.5)
-            # Keep listening until the account rows appear — the creditcarddetails API
-            # response may arrive after the click delay.
-            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
-            _cc_rows_loaded = True
-            # The creditcarddetails API response may arrive after the DOM rows render —
-            # wait up to 10s for it so billed_amount / credit_limit are captured.
-            if not cc_api_data:
-                _api_wait_start = asyncio.get_event_loop().time()
-                while (asyncio.get_event_loop().time() - _api_wait_start) < 10:
-                    if cc_api_data:
-                        break
-                    await asyncio.sleep(0.5)
-                if not cc_api_data:
-                    logger.warning(
-                        "NBE: creditcarddetails API response not captured within 10s — "
-                        "billed_amount/credit_limit will be missing"
+            while not _cc_rows_loaded and _total_cca_attempts < _max_cca_attempts:
+                _attempt_timeout = (
+                    _WAIT_TIMEOUT_MS if _total_cca_attempts == 0 else _CCA_RETRY_TIMEOUT_MS
+                )
+                if _total_cca_attempts > 0:
+                    logger.info(
+                        "NBE: CCA retry %d/%d — re-clicking widget",
+                        _total_cca_attempts,
+                        _ZERO_ACCOUNTS_MAX_RETRIES,
                     )
-        except PlaywrightTimeoutError:
-            pass
+                    await self._random_delay(1.0, 2.0)
+                try:
+                    # Explicit timeout required: without it Playwright defaults to 30s.
+                    # Production logs (2026-06-16) showed 63s elapsed before the "rows
+                    # did not appear" warning — the 30s default click timeout was firing
+                    # inside the try block, landing in `except PlaywrightTimeoutError:
+                    # pass` which set _cc_rows_loaded=False, not the wait_for_selector.
+                    await page.click(_SEL_CREDIT_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
+                    await self._random_delay(1.5, 2.5)
+                    # Keep listening until the account rows appear — the creditcarddetails
+                    # API response may arrive after the click delay.
+                    await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_attempt_timeout)
+                    _cc_rows_loaded = True
+                    # The creditcarddetails API response may arrive after the DOM rows
+                    # render — wait up to 10s for it so billed_amount / credit_limit
+                    # are captured.
+                    if not cc_api_data:
+                        _api_wait_start = asyncio.get_event_loop().time()
+                        while (asyncio.get_event_loop().time() - _api_wait_start) < 10:
+                            if cc_api_data:
+                                break
+                            await asyncio.sleep(0.5)
+                        if not cc_api_data:
+                            logger.warning(
+                                "NBE: creditcarddetails API response not captured within 10s — "
+                                "billed_amount/credit_limit will be missing"
+                            )
+                except PlaywrightTimeoutError:
+                    _total_cca_attempts += 1
+                    if _total_cca_attempts >= _max_cca_attempts:
+                        break
+                    # True-empty check: if the CCA flip-card container is already in the
+                    # DOM (widget flipped but oj-listview rows absent) the product is
+                    # genuinely empty — no point retrying.
+                    _interim_html = await page.content()
+                    if (
+                        "flip-account CCA" in _interim_html
+                        or 'class="flip-account CCA"' in _interim_html
+                    ):
+                        logger.info(
+                            "NBE: CCA flip-card container found but no rows — "
+                            "treating as truly empty (no retry)"
+                        )
+                        break
+                    continue
+                else:
+                    # Success path — exit the while loop.
+                    break
+                _total_cca_attempts += 1
         finally:
             page.remove_listener("response", _capture_cc_details)
 
         if not _cc_rows_loaded:
-            logger.warning("NBE: credit card rows did not appear after clicking CCA widget")
+            logger.warning(
+                "NBE: credit card rows did not appear after %d attempt(s) — "
+                "CCA widget did not hydrate",
+                _total_cca_attempts or 1,
+            )
             return []
 
         html = await page.content()
@@ -3424,14 +3496,64 @@ class NBEScraper(BankScraper):
 
         # Click the widget to flip the card and reveal the list.
         # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
-        await page.click(_SEL_CERTIFICATES_WIDGET, timeout=_WAIT_TIMEOUT_MS)
-        await self._random_delay(1.5, 2.5)
+        #
+        # Retry loop — mirrors the accounts zero-state retry in scrape_accounts().
+        # See _scrape_credit_cards for the full rationale; the same intermittent-SPA
+        # hydration failure applies to the TRD widget on Render's free tier.
+        #
+        # Attempt 1  : full _WAIT_TIMEOUT_MS (240 s).
+        # Attempts 2+: _SHORT_TIMEOUT_MS * 3 (60 s) — rows appear within ~20 s when
+        #              they render at all; 60 s gives headroom without excessive delays.
+        #
+        # True-empty: if div.flip-account.TRD is present in the DOM after a timeout
+        # the card flipped but the product list is genuinely empty — return [] now.
+        # Flaky: container absent → re-click and retry.
+        _TRD_RETRY_TIMEOUT_MS = _SHORT_TIMEOUT_MS * 3  # 60 s
+        _trd_rows_loaded = False
+        _total_trd_attempts = 0
+        _max_trd_attempts = _ZERO_ACCOUNTS_MAX_RETRIES + 1  # 3 total
+        while not _trd_rows_loaded and _total_trd_attempts < _max_trd_attempts:
+            _attempt_timeout = (
+                _WAIT_TIMEOUT_MS if _total_trd_attempts == 0 else _TRD_RETRY_TIMEOUT_MS
+            )
+            if _total_trd_attempts > 0:
+                logger.info(
+                    "NBE: TRD retry %d/%d — re-clicking widget",
+                    _total_trd_attempts,
+                    _ZERO_ACCOUNTS_MAX_RETRIES,
+                )
+                await self._random_delay(1.0, 2.0)
+            await page.click(_SEL_CERTIFICATES_WIDGET, timeout=_WAIT_TIMEOUT_MS)
+            await self._random_delay(1.5, 2.5)
+            try:
+                await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_attempt_timeout)
+                _trd_rows_loaded = True
+            except PlaywrightTimeoutError:
+                _total_trd_attempts += 1
+                if _total_trd_attempts >= _max_trd_attempts:
+                    break
+                # True-empty check: TRD container present but no row children means the
+                # widget flipped cleanly and the product list is genuinely empty.
+                _interim_html = await page.content()
+                if (
+                    "flip-account TRD" in _interim_html
+                    or 'class="flip-account TRD"' in _interim_html
+                ):
+                    logger.info(
+                        "NBE: TRD flip-card container found but no rows — "
+                        "treating as truly empty (no retry)"
+                    )
+                    break
+                continue
+            else:
+                break
 
-        # Wait for the account rows to appear
-        try:
-            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: certificate rows did not appear after clicking TRD widget")
+        if not _trd_rows_loaded:
+            logger.warning(
+                "NBE: certificate rows did not appear after %d attempt(s) — "
+                "TRD widget did not hydrate",
+                _total_trd_attempts or 1,
+            )
             return []
 
         # Parse the HTML
@@ -3617,18 +3739,70 @@ class NBEScraper(BankScraper):
 
         # Click the widget to reveal the loan list.
         # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
-        await page.click(_SEL_LOANS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
-        await self._random_delay(1.5, 2.5)
-
-        # Wait for account rows OR the no-data message.
-        # LON shows oj-listview-no-data-message when user has no active loans.
-        # We use a combined selector so we do not block for the full 180s when
-        # the no-data state is already visible.
+        #
+        # Retry loop — mirrors the accounts zero-state retry in scrape_accounts().
+        # See _scrape_credit_cards for the full rationale; the same intermittent-SPA
+        # hydration failure applies to the LON widget on Render's free tier.
+        #
+        # LON uses a combined selector (rows OR no-data message) so a genuinely empty
+        # product list (user has no loans) succeeds fast without consuming full timeout.
+        #
+        # Attempt 1  : full _WAIT_TIMEOUT_MS (240 s).
+        # Attempts 2+: _SHORT_TIMEOUT_MS * 3 (60 s) — rows appear within ~20 s when
+        #              they render at all; 60 s gives headroom without excessive delays.
+        #
+        # True-empty: if div.flip-account.LON is present after a timeout (the card
+        # flipped but neither rows nor a no-data message appeared) we treat it as empty.
+        # In practice a no-data message fires via _SEL_LON_READY so this branch only
+        # triggers when the widget flipped but the SPA stalled before emitting any child.
+        # Flaky: LON container absent after timeout → re-click and retry.
         _SEL_LON_READY = f"{_SEL_ACCOUNT_ROWS}, li.oj-listview-no-data-message"
-        try:
-            await page.wait_for_selector(_SEL_LON_READY, timeout=_WAIT_TIMEOUT_MS)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: loan rows/no-data did not appear after clicking LON widget")
+        _LON_RETRY_TIMEOUT_MS = _SHORT_TIMEOUT_MS * 3  # 60 s
+        _lon_rows_loaded = False
+        _total_lon_attempts = 0
+        _max_lon_attempts = _ZERO_ACCOUNTS_MAX_RETRIES + 1  # 3 total
+        while not _lon_rows_loaded and _total_lon_attempts < _max_lon_attempts:
+            _attempt_timeout = (
+                _WAIT_TIMEOUT_MS if _total_lon_attempts == 0 else _LON_RETRY_TIMEOUT_MS
+            )
+            if _total_lon_attempts > 0:
+                logger.info(
+                    "NBE: LON retry %d/%d — re-clicking widget",
+                    _total_lon_attempts,
+                    _ZERO_ACCOUNTS_MAX_RETRIES,
+                )
+                await self._random_delay(1.0, 2.0)
+            await page.click(_SEL_LOANS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
+            await self._random_delay(1.5, 2.5)
+            try:
+                await page.wait_for_selector(_SEL_LON_READY, timeout=_attempt_timeout)
+                _lon_rows_loaded = True
+            except PlaywrightTimeoutError:
+                _total_lon_attempts += 1
+                if _total_lon_attempts >= _max_lon_attempts:
+                    break
+                # True-empty check: LON container present but no rows/no-data means the
+                # widget flipped cleanly but the product list is genuinely empty.
+                _interim_html = await page.content()
+                if (
+                    "flip-account LON" in _interim_html
+                    or 'class="flip-account LON"' in _interim_html
+                ):
+                    logger.info(
+                        "NBE: LON flip-card container found but no rows/no-data — "
+                        "treating as truly empty (no retry)"
+                    )
+                    break
+                continue
+            else:
+                break
+
+        if not _lon_rows_loaded:
+            logger.warning(
+                "NBE: loan rows/no-data did not appear after %d attempt(s) — "
+                "LON widget did not hydrate",
+                _total_lon_attempts or 1,
+            )
             return []
 
         html = await page.content()
@@ -3789,13 +3963,66 @@ class NBEScraper(BankScraper):
 
         # Click the widget to reveal the prepaid card list.
         # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
-        await page.click(_SEL_PREPAID_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
-        await self._random_delay(1.5, 2.5)
+        #
+        # Retry loop — mirrors the accounts zero-state retry in scrape_accounts().
+        # See _scrape_credit_cards for the full rationale; the same intermittent-SPA
+        # hydration failure applies to the PRE widget on Render's free tier.
+        # Production evidence (2026-06-16): prepaid run at 17:15 found 1 card in 13 s;
+        # run at 17:32 found 0 rows — same card, same session — pure SPA flakiness.
+        #
+        # Attempt 1  : full _WAIT_TIMEOUT_MS (240 s).
+        # Attempts 2+: _SHORT_TIMEOUT_MS * 3 (60 s) — rows appear within ~20 s when
+        #              they render at all; 60 s gives headroom without excessive delays.
+        #
+        # True-empty: if div.flip-account.PRE is present after a timeout the card
+        # flipped but the product list is genuinely empty — return [] immediately.
+        # Flaky: container absent → re-click and retry.
+        _PRE_RETRY_TIMEOUT_MS = _SHORT_TIMEOUT_MS * 3  # 60 s
+        _pre_rows_loaded = False
+        _total_pre_attempts = 0
+        _max_pre_attempts = _ZERO_ACCOUNTS_MAX_RETRIES + 1  # 3 total
+        while not _pre_rows_loaded and _total_pre_attempts < _max_pre_attempts:
+            _attempt_timeout = (
+                _WAIT_TIMEOUT_MS if _total_pre_attempts == 0 else _PRE_RETRY_TIMEOUT_MS
+            )
+            if _total_pre_attempts > 0:
+                logger.info(
+                    "NBE: PRE retry %d/%d — re-clicking widget",
+                    _total_pre_attempts,
+                    _ZERO_ACCOUNTS_MAX_RETRIES,
+                )
+                await self._random_delay(1.0, 2.0)
+            await page.click(_SEL_PREPAID_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
+            await self._random_delay(1.5, 2.5)
+            try:
+                await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_attempt_timeout)
+                _pre_rows_loaded = True
+            except PlaywrightTimeoutError:
+                _total_pre_attempts += 1
+                if _total_pre_attempts >= _max_pre_attempts:
+                    break
+                # True-empty check: PRE container present but no row children means the
+                # widget flipped cleanly and the product list is genuinely empty.
+                _interim_html = await page.content()
+                if (
+                    "flip-account PRE" in _interim_html
+                    or 'class="flip-account PRE"' in _interim_html
+                ):
+                    logger.info(
+                        "NBE: PRE flip-card container found but no rows — "
+                        "treating as truly empty (no retry)"
+                    )
+                    break
+                continue
+            else:
+                break
 
-        try:
-            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: prepaid card rows did not appear after clicking PRE widget")
+        if not _pre_rows_loaded:
+            logger.warning(
+                "NBE: prepaid card rows did not appear after %d attempt(s) — "
+                "PRE widget did not hydrate",
+                _total_pre_attempts or 1,
+            )
             return []
 
         html = await page.content()

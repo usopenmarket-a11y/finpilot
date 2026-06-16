@@ -1927,3 +1927,372 @@ class TestNbeScrapePrepaidsPublic:
                 await nbe_scraper.scrape_prepaid_cards()
 
         assert exc_info.value.bank_code == "NBE"
+
+
+# ===========================================================================
+# Section 9 — Product helper retry-on-empty tests
+# ===========================================================================
+#
+# These tests verify that _scrape_prepaid_cards / _scrape_certificates /
+# _scrape_loans / _scrape_credit_cards all retry when the first wait_for_selector
+# call times out AND the flip-card container is absent from the DOM (flaky SPA
+# hydration).  The pattern mirrors the existing accounts retry tests in
+# TestNbeScraperScrapeAccounts.
+#
+# Structure per product:
+#   test_*_flaky_then_success  — first wait times out (no container in interim
+#                                HTML), second wait succeeds → rows returned.
+#   test_*_true_empty_no_retry — first wait times out but flip-card container IS
+#                                present (genuinely empty product) → returns []
+#                                after exactly 1 attempt (no re-click).
+#
+# All asyncio.sleep calls are patched to no-ops so tests are instant.
+# _ZERO_ACCOUNTS_MAX_RETRIES is patched to 1 (2 total attempts) to keep tests
+# fast while still exercising the retry code path.
+# ===========================================================================
+
+# Minimal "no rows yet" HTML — flip-card container ABSENT (pure flake).
+_EMPTY_DOM_HTML = "<html><body><li class='loggedInUser'>U</li></body></html>"
+
+# Minimal "container present, no rows" HTML per product — signals TRUE empty.
+_PRE_CONTAINER_NO_ROWS_HTML = """
+<html><body>
+<li class="loggedInUser">U</li>
+<div class="flip-account PRE"></div>
+</body></html>
+"""
+_TRD_CONTAINER_NO_ROWS_HTML = """
+<html><body>
+<li class="loggedInUser">U</li>
+<div class="flip-account TRD"></div>
+</body></html>
+"""
+_LON_CONTAINER_NO_ROWS_HTML = """
+<html><body>
+<li class="loggedInUser">U</li>
+<div class="flip-account LON"></div>
+</body></html>
+"""
+_CCA_CONTAINER_NO_ROWS_HTML = """
+<html><body>
+<li class="loggedInUser">U</li>
+<div class="flip-account CCA"></div>
+</body></html>
+"""
+
+
+def _make_page_for_product_retry(
+    *,
+    first_wait_raises: bool,
+    interim_html: str,
+    success_html: str,
+) -> AsyncMock:
+    """Build a mock Page for a single product-helper retry scenario.
+
+    Parameters
+    ----------
+    first_wait_raises:
+        If True, the FIRST wait_for_selector call whose selector contains
+        ``"li.flip-account-list__items"`` (the account/product rows selector)
+        raises PlaywrightTimeoutError.  All widget-presence checks succeed
+        immediately so the retry loop is entered at the right point.
+        Subsequent rows-selector calls succeed.
+    interim_html:
+        The HTML returned by page.content() immediately after the first
+        PlaywrightTimeoutError (used for the true-empty DOM check inside the
+        retry loop).
+    success_html:
+        The HTML returned by page.content() on all subsequent calls (parsed
+        by BeautifulSoup to extract product rows after a successful wait).
+    """
+    from playwright.async_api import TimeoutError as _PwTimeout
+
+    # Selector substring that identifies a "rows / no-data" wait (as opposed to
+    # a widget-presence check).  LON uses a combined selector that still starts
+    # with this string; CCA, TRD, and PRE all use exactly this string.
+    _ROWS_SELECTOR_MARKER = "li.flip-account-list__items"
+
+    mock_page = AsyncMock()
+    mock_element = AsyncMock()
+    mock_element.click = AsyncMock(return_value=None)
+    mock_element.inner_text = AsyncMock(return_value="")
+    mock_element.get_attribute = AsyncMock(return_value=None)
+    mock_element.query_selector = AsyncMock(return_value=mock_element)
+
+    # wait_for_selector: raise only on the FIRST rows-selector call.
+    # Widget-presence checks (different selectors) always succeed.
+    _rows_wfs_call_count = [0]
+
+    async def _wfs(selector: str, **kwargs: Any) -> Any:
+        if _ROWS_SELECTOR_MARKER in selector:
+            _rows_wfs_call_count[0] += 1
+            if first_wait_raises and _rows_wfs_call_count[0] == 1:
+                raise _PwTimeout("simulated timeout")
+        return mock_element
+
+    mock_page.wait_for_selector = _wfs  # type: ignore[assignment]
+
+    # page.content(): first call (immediately after a timeout, inside the retry
+    # loop's true-empty check) returns interim_html; all later calls return
+    # success_html (used by BeautifulSoup to parse rows).
+    _content_call_count = [0]
+
+    async def _content() -> str:
+        _content_call_count[0] += 1
+        if first_wait_raises and _content_call_count[0] == 1:
+            return interim_html
+        return success_html
+
+    mock_page.content = _content  # type: ignore[assignment]
+
+    mock_page.url = "https://www.alahlynet.com.eg/?page=home"
+    mock_page.goto = AsyncMock(return_value=None)
+    mock_page.click = AsyncMock(return_value=None)
+    mock_page.go_back = AsyncMock(return_value=None)
+    mock_page.screenshot = AsyncMock(return_value=None)
+    mock_page.inner_text = AsyncMock(return_value="Welcome to Ahly Net")
+    mock_page.evaluate = AsyncMock(return_value=0)
+    mock_page.on = MagicMock(return_value=None)
+    mock_page.remove_listener = MagicMock(return_value=None)
+
+    mock_locator = AsyncMock()
+    mock_locator.nth = MagicMock(return_value=mock_locator)
+    mock_locator.locator = MagicMock(return_value=mock_locator)
+    mock_locator.click = AsyncMock(return_value=None)
+    mock_locator.inner_text = AsyncMock(return_value="1 Account")
+    mock_locator.all = AsyncMock(return_value=[])
+    mock_page.locator = MagicMock(return_value=mock_locator)
+
+    async def _qs(selector: str) -> Any:
+        return None
+
+    mock_page.query_selector = _qs  # type: ignore[assignment]
+
+    return mock_page
+
+
+class TestNbeProductRetryLogic:
+    """Per-product helper retry-on-flaky-hydration logic.
+
+    Each helper (_scrape_prepaid_cards, _scrape_certificates, _scrape_loans,
+    _scrape_credit_cards) must:
+    1. Retry when first wait times out AND flip-card container is absent.
+    2. NOT retry when flip-card container is present (true-empty).
+    """
+
+    @pytest.fixture
+    def nbe_scraper(self) -> NBEScraper:
+        return NBEScraper(username="test_user", password="test_password_123")
+
+    # -----------------------------------------------------------------------
+    # Prepaid cards
+    # -----------------------------------------------------------------------
+
+    async def test_prepaid_flaky_then_success_returns_rows(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_prepaid_cards() returns rows when first wait times out (no
+        container) and second attempt succeeds.
+
+        The mock page raises PlaywrightTimeoutError on the first
+        wait_for_selector call, then returns the real PRE HTML on the second
+        call.  With _ZERO_ACCOUNTS_MAX_RETRIES=1 (2 total attempts) the retry
+        fires exactly once and the parsed BankAccount is returned.
+        """
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_EMPTY_DOM_HTML,  # container absent → retry
+            success_html=_NBE_PRE_WITH_CARD_HTML,
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_prepaid_cards(mock_page)
+
+        assert len(result) == 1
+        assert result[0].account_type == "prepaid_card"
+        assert result[0].balance == Decimal("25.24")
+        # click should have been called at least twice (initial + retry)
+        assert mock_page.click.await_count >= 2
+
+    async def test_prepaid_true_empty_no_retry(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_prepaid_cards() returns [] immediately when flip-card
+        container is present after the first timeout (genuinely empty).
+
+        The interim HTML contains div.flip-account.PRE (container rendered,
+        no row children) — the helper should break out of the retry loop
+        without re-clicking the widget.
+        """
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_PRE_CONTAINER_NO_ROWS_HTML,  # container present → no retry
+            success_html=_NBE_PRE_WITH_CARD_HTML,
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_prepaid_cards(mock_page)
+
+        # Genuinely empty — no rows returned despite success_html having rows
+        assert result == []
+        # Only 1 click attempt (no retry click fired)
+        assert mock_page.click.await_count == 1
+
+    # -----------------------------------------------------------------------
+    # Certificates
+    # -----------------------------------------------------------------------
+
+    async def test_certificates_flaky_then_success_returns_rows(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """_scrape_certificates() returns rows when first wait times out (no
+        container) and second attempt succeeds."""
+        # Minimal TRD HTML with one certificate row
+        _trd_html = """
+        <html><body>
+        <li class="loggedInUser">U</li>
+        <div class="flip-account TRD">
+          <ul class="flip-account-list">
+            <li class="flip-account-list__items">
+              <div class="account-no">1234567890</div>
+              <div class="account-name">Platinum Certificate</div>
+              <div class="balance-amount">EGP 100,000.00</div>
+            </li>
+          </ul>
+        </div>
+        </body></html>
+        """
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_EMPTY_DOM_HTML,  # container absent → retry
+            success_html=_trd_html,
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_certificates(mock_page)
+
+        assert len(result) == 1
+        assert result[0].account_type == "certificate"
+        assert result[0].balance == Decimal("100000.00")
+        assert mock_page.click.await_count >= 2
+
+    async def test_certificates_true_empty_no_retry(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_certificates() returns [] immediately when TRD container is
+        present after first timeout."""
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_TRD_CONTAINER_NO_ROWS_HTML,  # container present → no retry
+            success_html="<html/>",
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_certificates(mock_page)
+
+        assert result == []
+        assert mock_page.click.await_count == 1
+
+    # -----------------------------------------------------------------------
+    # Loans
+    # -----------------------------------------------------------------------
+
+    async def test_loans_flaky_then_success_returns_rows(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_loans() returns rows when first wait times out (no
+        container) and second attempt succeeds."""
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_EMPTY_DOM_HTML,  # container absent → retry
+            success_html=_NBE_LON_WITH_LOAN_HTML,
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_loans(mock_page)
+
+        assert len(result) == 1
+        assert result[0].account_type == "loan"
+        assert result[0].balance == Decimal("50000.00")
+        assert mock_page.click.await_count >= 2
+
+    async def test_loans_true_empty_no_retry(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_loans() returns [] immediately when LON container is
+        present after first timeout."""
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_LON_CONTAINER_NO_ROWS_HTML,  # container present → no retry
+            success_html="<html/>",
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_loans(mock_page)
+
+        assert result == []
+        assert mock_page.click.await_count == 1
+
+    # -----------------------------------------------------------------------
+    # Credit cards
+    # -----------------------------------------------------------------------
+
+    async def test_credit_cards_flaky_then_success_returns_rows(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """_scrape_credit_cards() returns rows when first wait times out (no
+        container) and second attempt succeeds.
+
+        The CCA helper registers a response listener before the retry loop.
+        We wire mock_page.on / remove_listener to no-ops so the listener
+        management does not interfere with the retry counter.
+        """
+        # Minimal CCA HTML with one credit card row
+        _cca_html = """
+        <html><body>
+        <li class="loggedInUser">U</li>
+        <div class="flip-account CCA">
+          <ul class="flip-account-list">
+            <li class="flip-account-list__items">
+              <div class="account-no">544111******1204 | 07/28</div>
+              <div class="account-name">Gold Credit Card</div>
+              <div class="balance-amount">EGP 3,500.00</div>
+            </li>
+          </ul>
+        </div>
+        </body></html>
+        """
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_EMPTY_DOM_HTML,  # container absent → retry
+            success_html=_cca_html,
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_credit_cards(mock_page)
+
+        assert len(result) == 1
+        assert result[0].account_type == "credit_card"
+        # click must have been called at least twice (initial + retry)
+        assert mock_page.click.await_count >= 2
+
+    async def test_credit_cards_true_empty_no_retry(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_credit_cards() returns [] immediately when CCA container is
+        present after first timeout."""
+        mock_page = _make_page_for_product_retry(
+            first_wait_raises=True,
+            interim_html=_CCA_CONTAINER_NO_ROWS_HTML,  # container present → no retry
+            success_html="<html/>",
+        )
+        with (
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+        ):
+            result = await nbe_scraper._scrape_credit_cards(mock_page)
+
+        assert result == []
+        assert mock_page.click.await_count == 1
