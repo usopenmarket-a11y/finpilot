@@ -44,7 +44,7 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -52,22 +52,22 @@ export function Modal({ open, onClose, title, children, className = '' }: ModalP
       {/* Panel */}
       <div
         className={`
-          relative w-full max-w-lg flex flex-col rounded-t-2xl sm:rounded-2xl
-          bg-white dark:bg-gray-900
-          border border-gray-200 dark:border-gray-800
-          shadow-xl max-h-[92vh] sm:max-h-[90vh]
+          ledger-rise relative w-full max-w-lg flex flex-col rounded-t-2xl sm:rounded-2xl
+          bg-surface
+          border border-line
+          shadow-lg max-h-[92vh] sm:max-h-[90vh]
           ${className}
         `}
       >
         {/* Header */}
         {title && (
-          <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-4 sm:px-6 border-b border-gray-200 dark:border-gray-800">
-            <h2 id="modal-title" className="min-w-0 text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
+          <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-4 sm:px-6 border-b border-line">
+            <h2 id="modal-title" className="min-w-0 text-base sm:text-lg font-semibold text-ink truncate">
               {title}
             </h2>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="p-1.5 rounded-lg text-ink-faint hover:text-ink hover:bg-surface-sunken transition-colors"
               aria-label="Close modal"
             >
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

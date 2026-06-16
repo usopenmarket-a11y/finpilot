@@ -1,15 +1,31 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Hanken_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Inter({
+// Body: Hanken Grotesk — a refined humanist grotesk with genuine character
+// (deliberately not Inter/Roboto). The workhorse of the "Ledger" aesthetic.
+const geistSans = Hanken_Grotesk({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = JetBrains_Mono({
+// Display: Fraunces — an old-style serif with optical sizing for editorial
+// gravitas on headings and page titles.
+const fraunces = Fraunces({
+  variable: "--font-display",
+  subsets: ["latin"],
+  display: "swap",
+  axes: ["opsz", "SOFT", "WONK"],
+});
+
+// Numerics & code: IBM Plex Mono — editorial, characterful monospace with
+// tabular figures for money.
+const geistMono = IBM_Plex_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -41,7 +57,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-50`}
+        className={`${geistSans.variable} ${fraunces.variable} ${geistMono.variable} antialiased min-h-screen bg-canvas text-ink`}
       >
         {children}
       </body>

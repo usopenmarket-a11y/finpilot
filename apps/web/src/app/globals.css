@@ -2,42 +2,173 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+   FinPilot — "Ledger" design system
+   Refined editorial fintech: warm paper canvas, ink type, deep emerald accent,
+   a restrained warm-amber secondary, hairline rules, subtle grain.
+   Light is the primary theme; dark is a true ink-on-charcoal companion.
+   =========================================================================== */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces — warm paper, not cold gray */
+  --canvas: #faf9f5;        /* page background */
+  --surface: #ffffff;       /* raised cards */
+  --surface-sunken: #f3f1ea;/* wells, inset rows */
+  --overlay: rgba(20, 18, 14, 0.45);
+
+  /* Ink */
+  --ink: #1b1a17;           /* primary text */
+  --ink-muted: #6c685e;     /* secondary text */
+  --ink-faint: #9a958a;     /* tertiary / placeholders */
+
+  /* Hairlines & borders */
+  --line: #e7e3d9;          /* default border */
+  --line-strong: #d8d3c5;
+
+  /* Brand — deep editorial emerald */
+  --accent: #0f7b5a;
+  --accent-hover: #0c6549;
+  --accent-soft: #e3f1ea;   /* tinted fills */
+  --accent-ink: #0a4a37;    /* text on soft */
+
+  /* Secondary — warm amber (Egypt nod), used sparingly */
+  --gold: #b9802f;
+  --gold-soft: #f6ecdb;
+
+  /* Semantic */
+  --positive: #0f7b5a;
+  --negative: #b4452f;
+  --warning: #b9802f;
+  --info: #2f6db4;
+
+  --positive-soft: #e3f1ea;
+  --negative-soft: #f7e6e1;
+  --warning-soft: #f6ecdb;
+  --info-soft: #e4edf7;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(27, 26, 23, 0.04), 0 1px 3px rgba(27, 26, 23, 0.06);
+  --shadow-md: 0 4px 12px rgba(27, 26, 23, 0.06), 0 2px 4px rgba(27, 26, 23, 0.05);
+  --shadow-lg: 0 18px 40px -12px rgba(27, 26, 23, 0.20);
+
+  --radius: 0.625rem;
 }
 
+/* Dark theme tokens. Driven by the OS preference (the app has no manual
+   toggle and existing pages use Tailwind's media-based `dark:` variants), and
+   ALSO by an explicit `.dark` class for forward-compatibility. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --canvas: #100f0d;
+    --surface: #1a1916;
+    --surface-sunken: #201e1a;
+    --overlay: rgba(0, 0, 0, 0.6);
+
+    --ink: #ece8df;
+    --ink-muted: #a7a195;
+    --ink-faint: #6f6a5f;
+
+    --line: #2a2823;
+    --line-strong: #38352e;
+
+    --accent: #2bb487;
+    --accent-hover: #34c997;
+    --accent-soft: #15302a;
+    --accent-ink: #7fe0c0;
+
+    --gold: #d6a458;
+    --gold-soft: #2c2417;
+
+    --positive: #2bb487;
+    --negative: #e08163;
+    --warning: #d6a458;
+    --info: #6ea3df;
+
+    --positive-soft: #15302a;
+    --negative-soft: #341f19;
+    --warning-soft: #2c2417;
+    --info-soft: #182634;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 24px 50px -12px rgba(0, 0, 0, 0.7);
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
+@layer base {
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-feature-settings: "ss01", "cv01";
+  }
+
+  /* Paper grain — barely-there texture for atmosphere, fixed to viewport */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  }
+  @media (prefers-color-scheme: dark) {
+    body::before { opacity: 0.4; }
+  }
+
+  /* Display serif for headings */
+  h1, h2, h3 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    letter-spacing: -0.01em;
+  }
+
+  /* Tabular numerics everywhere money is shown */
+  .tabular-nums, [class*="tabular"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+  }
 }
 
+/* ---------------------------------------------------------------------------
+   Orchestrated entrance — one tasteful page-load stagger
+   --------------------------------------------------------------------------- */
+@keyframes ledger-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ledger-rise {
+  animation: ledger-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ledger-stagger > * {
+  animation: ledger-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ledger-stagger > *:nth-child(1) { animation-delay: 0.04s; }
+.ledger-stagger > *:nth-child(2) { animation-delay: 0.10s; }
+.ledger-stagger > *:nth-child(3) { animation-delay: 0.16s; }
+.ledger-stagger > *:nth-child(4) { animation-delay: 0.22s; }
+.ledger-stagger > *:nth-child(5) { animation-delay: 0.28s; }
+.ledger-stagger > *:nth-child(6) { animation-delay: 0.34s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-rise, .ledger-stagger > * { animation: none; }
+}
+
+/* Sync progress bar stripes (kept, retinted to accent) */
 @keyframes sync-bar-stripes {
-  from {
-    background-position: 0 0;
-  }
-  to {
-    background-position: 1rem 0;
-  }
+  from { background-position: 0 0; }
+  to   { background-position: 1rem 0; }
 }
-
 .sync-bar-animated {
   background-image: linear-gradient(
     45deg,
-    rgba(255, 255, 255, 0.35) 25%,
-    transparent 25%,
-    transparent 50%,
-    rgba(255, 255, 255, 0.35) 50%,
-    rgba(255, 255, 255, 0.35) 75%,
-    transparent 75%,
-    transparent
+    rgba(255, 255, 255, 0.35) 25%, transparent 25%,
+    transparent 50%, rgba(255, 255, 255, 0.35) 50%,
+    rgba(255, 255, 255, 0.35) 75%, transparent 75%, transparent
   );
   background-size: 1rem 1rem;
   animation: sync-bar-stripes 0.8s linear infinite;

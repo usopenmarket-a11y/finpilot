@@ -14,13 +14,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    'bg-brand-500 hover:bg-green-600 text-white border border-transparent focus-visible:ring-brand-500',
+    'bg-accent hover:bg-accent-hover text-white border border-transparent shadow-sm hover:shadow-md focus-visible:ring-accent',
   secondary:
-    'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 focus-visible:ring-gray-400',
+    'bg-surface hover:bg-surface-sunken text-ink border border-line-strong focus-visible:ring-accent',
   ghost:
-    'bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 border border-transparent focus-visible:ring-gray-400',
+    'bg-transparent hover:bg-surface-sunken text-ink-muted hover:text-ink border border-transparent focus-visible:ring-accent',
   danger:
-    'bg-red-600 hover:bg-red-700 text-white border border-transparent focus-visible:ring-red-500',
+    'bg-negative hover:opacity-90 text-white border border-transparent shadow-sm focus-visible:ring-negative',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -44,10 +44,10 @@ export function Button({
     <button
       disabled={isDisabled}
       className={`
-        inline-flex items-center justify-center gap-2 font-medium
-        transition-colors duration-150
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-        disabled:opacity-50 disabled:cursor-not-allowed
+        inline-flex items-center justify-center gap-2 font-medium tracking-tight
+        transition-all duration-150 active:translate-y-px
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
+        disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none
         ${variantClasses[variant]}
         ${sizeClasses[size]}
         ${className}
