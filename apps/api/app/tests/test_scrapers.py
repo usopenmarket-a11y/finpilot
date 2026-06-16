@@ -245,6 +245,71 @@ _NBE_LOGIN_ERROR_HTML = """
 </body></html>
 """
 
+# NBE Loans (LON) widget HTML — post-click state with no active loans.
+# The LON flip-card renders oj-listview-no-data-message when the user has
+# no active loan products (confirmed via live recon 2026-06-16).
+_NBE_LON_NO_DATA_HTML = """
+<html><body>
+<nav><a href="#">Logout</a>
+  <li class="loggedInUser">TestUser</li>
+</nav>
+<ul>
+  <li class="LON"><a href="#">Loans and Finances</a></li>
+</ul>
+<div class="flip-account LON">
+  <ul class="oj-listview-element">
+    <li class="oj-listview-no-data-message">No Loans/Finance found</li>
+  </ul>
+</div>
+</body></html>
+"""
+
+# NBE Loans (LON) widget HTML — post-click state with one active loan row.
+_NBE_LON_WITH_LOAN_HTML = """
+<html><body>
+<nav><a href="#">Logout</a>
+  <li class="loggedInUser">TestUser</li>
+</nav>
+<ul>
+  <li class="LON"><a href="#">Loans and Finances</a></li>
+</ul>
+<div class="flip-account LON">
+  <ul class="flip-account-list">
+    <li class="flip-account-list__items">
+      <div class="account-no">0765000645195400099</div>
+      <div class="account-name">قرض شخصي</div>
+      <div class="balance-amount">EGP 50,000.00</div>
+      <a class="menu-icon" href="#">...</a>
+    </li>
+  </ul>
+</div>
+</body></html>
+"""
+
+# NBE Prepaid Cards (PRE) widget HTML — post-click state with one card.
+# Key difference from other product types: balance uses span.balance-amount
+# (not div.balance-amount) as confirmed in post-click recon 2026-06-16.
+_NBE_PRE_WITH_CARD_HTML = """
+<html><body>
+<nav><a href="#">Logout</a>
+  <li class="loggedInUser">TestUser</li>
+</nav>
+<ul>
+  <li class="PRE"><a href="#">Prepaid Cards</a></li>
+</ul>
+<div class="flip-account PRE">
+  <ul class="flip-account-list">
+    <li class="flip-account-list__items">
+      <div class="account-no">411739xxxxxx1286 | Feb-2026</div>
+      <div class="account-name">FADY ADEL HABIB</div>
+      <span class="balance-amount">EGP 25.24</span>
+      <a class="menu-icon" href="#">...</a>
+    </li>
+  </ul>
+</div>
+</body></html>
+"""
+
 # CIB dashboard HTML — minimal account-summary card.
 _CIB_DASHBOARD_HTML = """
 <html><body>
@@ -536,6 +601,24 @@ class TestNbeNormaliseHelpers:
 
     def test_loan_keyword(self) -> None:
         assert nbe_normalise_account_type("personal loan") == "loan"
+
+    def test_arabic_loan_qard_keyword(self) -> None:
+        assert nbe_normalise_account_type("قرض شخصي") == "loan"
+
+    def test_arabic_loan_tamweel_keyword(self) -> None:
+        assert nbe_normalise_account_type("تمويل سكني") == "loan"
+
+    def test_arabic_loan_madyoun_keyword(self) -> None:
+        assert nbe_normalise_account_type("جاري مدين") == "loan"
+
+    def test_prepaid_keyword(self) -> None:
+        assert nbe_normalise_account_type("prepaid card") == "prepaid_card"
+
+    def test_arabic_prepaid_keyword(self) -> None:
+        assert nbe_normalise_account_type("بطاقة مدفوعة مسبقاً") == "prepaid_card"
+
+    def test_certificate_keyword(self) -> None:
+        assert nbe_normalise_account_type("platinum certificate") == "certificate"
 
     def test_unknown_defaults_to_current(self) -> None:
         assert nbe_normalise_account_type("cheque account") == "current"
@@ -1098,22 +1181,24 @@ class TestNbeScraperScrape:
     async def test_scrape_accounts_zero_accounts_returns_empty_result(
         self, nbe_scraper: NBEScraper
     ) -> None:
-        """scrape_accounts() returns an empty ScraperResult when the portal shows 0 accounts.
+        """scrape_accounts() returns an empty ScraperResult when ALL retries yield 0 accounts.
 
-        Simulates the live failure mode where:
+        Simulates the persistent empty-state failure mode where:
         - Login succeeds and the dashboard loads.
-        - The CSA widget is found and clicked.
+        - The CSA widget is found and clicked on every attempt.
         - page.query_selector("li.flip-account-list__items") always returns None
-          (the bank returned no demand-deposit accounts).
+          (the bank consistently returns no demand-deposit accounts).
         - page.locator("li.CSA").inner_text() returns "Current & Savings\\n0 Accounts"
-          which matches _RE_ZERO_ACCOUNTS after the settle window.
+          which matches _RE_ZERO_ACCOUNTS after the settle window on every attempt.
 
-        The expected outcome is a successful (non-raising) ScraperResult with
-        zero accounts and zero transactions — NOT a ScraperTimeoutError.
+        _ZERO_ACCOUNTS_MAX_RETRIES is patched to 1 so only one reload+retry fires,
+        keeping the test fast while still exercising the retry path.  The expected
+        outcome is a successful (non-raising) ScraperResult with zero accounts and
+        zero transactions after all retry attempts are exhausted.
 
         To avoid real asyncio.sleep delays in tests, _ZERO_ACCOUNTS_SETTLE_S and
         _ZERO_ACCOUNTS_FAST_WINDOW_S are patched to 0 so the empty-state branch
-        is reached immediately on the first poll iteration.
+        is reached immediately on each poll iteration.
         """
         mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
 
@@ -1160,6 +1245,8 @@ class TestNbeScraperScrape:
             patch("app.scrapers.nbe._ZERO_ACCOUNTS_POLL_INTERVAL_S", 0.0),
             # Patch asyncio.sleep inside the nbe module to avoid real delays.
             patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            # Cap retries at 1 so the test completes in one reload+retry cycle.
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
         ):
             result = await nbe_scraper.scrape_accounts()
 
@@ -1167,6 +1254,112 @@ class TestNbeScraperScrape:
         assert result.accounts == []
         assert result.transactions == []
         # Browser must always be closed — even on the empty-result path.
+        mock_browser.close.assert_awaited_once()
+
+    async def test_scrape_accounts_zero_accounts_retries_and_recovers(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """scrape_accounts() recovers when a retry reveals real accounts.
+
+        The first _reveal_accounts_widget call returns False (transient 0 Accounts
+        empty state).  After the reload+retry, the second call returns True and the
+        scraper proceeds to extract the real account list.
+
+        Implementation: _reveal_accounts_widget is patched with a side_effect list
+        [False, True] so the first call signals empty and the second signals success.
+        _reload_to_dashboard is also patched to a no-op coroutine (avoiding a real
+        page.goto → _wait_for_dashboard chain), since we only care about the retry
+        loop in scrape_accounts() and the final account-extraction result.
+
+        _ZERO_ACCOUNTS_MAX_RETRIES is patched to 1 so only one retry fires.
+        asyncio.sleep is patched to a no-op to keep the test instant.
+        """
+        import app.scrapers.nbe as nbe_module
+
+        # Build the full mock playwright stack — we need a real page mock so that
+        # the login, dashboard, widget click, and account-extraction steps all work.
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+
+        mock_element = AsyncMock()
+        mock_element.click = AsyncMock(return_value=None)
+        mock_element.inner_text = AsyncMock(return_value="")
+        mock_element.get_attribute = AsyncMock(return_value=None)
+        mock_element.query_selector = AsyncMock(return_value=mock_element)
+
+        async def _qs_happy(selector: str) -> Any:
+            if selector in _NBE_OTP_SELECTORS:
+                return None
+            # No next-page button — stops transaction pagination after first page
+            if selector == "button[title='Next Page']":
+                return None
+            return mock_element
+
+        mock_page.query_selector = _qs_happy  # type: ignore[assignment]
+        mock_page.wait_for_selector = AsyncMock(return_value=mock_element)
+        mock_page.wait_for_load_state = AsyncMock(return_value=None)
+        mock_page.evaluate = AsyncMock(return_value=7)
+
+        # locator chain for _navigate_to_transactions_for_account and inner_text
+        mock_locator = AsyncMock()
+        mock_locator.nth = MagicMock(return_value=mock_locator)
+        mock_locator.locator = MagicMock(return_value=mock_locator)
+        mock_locator.click = AsyncMock(return_value=None)
+        # inner_text returns a non-zero-accounts string (used inside
+        # _reveal_accounts_widget's empty-state check — but since we patch
+        # _reveal_accounts_widget itself, this path is never reached).
+        mock_locator.inner_text = AsyncMock(return_value="Current & Savings\n2 Accounts")
+        mock_page.locator = MagicMock(return_value=mock_locator)
+
+        # page.content() returns the single-account dashboard HTML for the
+        # _extract_all_accounts call, then transaction HTML for extraction.
+        # We use a single-account fixture so the per-account loop only fires once.
+        mock_page.content = AsyncMock(
+            side_effect=[
+                _NBE_DASHBOARD_HTML_SINGLE,  # raw_html["dashboard"]
+                _NBE_DASHBOARD_HTML_SINGLE,  # _extract_all_accounts
+                _NBE_TRANSACTIONS_HTML,  # raw_html["transactions_0"]
+                _NBE_TRANSACTIONS_HTML,  # _extract_transactions page 1
+                _NBE_DASHBOARD_HTML_SINGLE,  # safety padding
+            ]
+        )
+        mock_page.inner_text = AsyncMock(return_value="Welcome to Ahly Net")
+        mock_page.goto = AsyncMock(return_value=None)
+        mock_page.click = AsyncMock(return_value=None)
+        mock_page.go_back = AsyncMock(return_value=None)
+        mock_page.keyboard = AsyncMock()
+        mock_page.keyboard.type = AsyncMock(return_value=None)
+
+        with (
+            patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_SETTLE_S", 0.0),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_FAST_WINDOW_S", 5.0),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_POLL_INTERVAL_S", 0.0),
+            patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)),
+            patch("app.scrapers.nbe._ZERO_ACCOUNTS_MAX_RETRIES", 1),
+            # Patch _reveal_accounts_widget: first call → False (empty state),
+            # second call (after reload) → True (real accounts present).
+            patch.object(
+                nbe_module.NBEScraper,
+                "_reveal_accounts_widget",
+                new=AsyncMock(side_effect=[False, True]),
+            ),
+            # Patch _reload_to_dashboard to a no-op: we're testing the retry
+            # loop logic, not the reload navigation itself.
+            patch.object(
+                nbe_module.NBEScraper,
+                "_reload_to_dashboard",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = await nbe_scraper.scrape_accounts()
+
+        assert isinstance(result, ScraperResult)
+        # After recovery the scraper must return the real account(s).
+        assert len(result.accounts) == 1
+        assert result.accounts[0].bank_name == "NBE"
+        # Transactions must also be populated (the fixture has 2 rows).
+        assert len(result.transactions) == 2
+        # Browser lifecycle: closed exactly once in the finally block.
         mock_browser.close.assert_awaited_once()
 
     async def test_scrape_zero_accounts_does_not_raise(self, nbe_scraper: NBEScraper) -> None:
@@ -1410,3 +1603,327 @@ class TestScraperResult:
         result = ScraperResult(accounts=[acct_a])
         assert len(result.accounts) == 1
         assert result.accounts[0] is acct_a
+
+
+# ===========================================================================
+# Section 8 — NBE Loans and Prepaid Cards product scraping tests
+# ===========================================================================
+
+# Selectors used by _scrape_loans / _scrape_prepaid_cards for OTP suppression.
+_NBE_OTP_SELECTORS_LOANS = {"#otpSection", "input[id*='otp' i]"}
+# _SEL_NEXT_PAGE — must return None so pagination terminates.
+_SEL_NEXT_PAGE_BTN = "button[title='Next Page']"
+
+
+def _build_nbe_mock_for_loans_or_prepaid(
+    product_html: str,
+) -> tuple[Any, Any, Any, Any]:
+    """Build a minimal mock playwright stack for _scrape_loans / _scrape_prepaid_cards.
+
+    The mock is set up with:
+    - page.content() returning ``product_html`` for all calls.
+    - wait_for_selector() succeeding (returns a clickable element) for all selectors.
+    - query_selector() returning None for OTP selectors (so login/dashboard proceeds)
+      and for "button[title='Next Page']" (so pagination terminates).
+    - locator() chain, go_back(), evaluate(), etc. all wired up to no-ops.
+
+    Returns (mock_pw_cm, mock_pw, mock_browser, mock_page).
+    """
+    mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+
+    mock_page.content = AsyncMock(return_value=product_html)
+
+    mock_element = AsyncMock()
+    mock_element.click = AsyncMock(return_value=None)
+    mock_element.inner_text = AsyncMock(return_value="")
+    mock_element.get_attribute = AsyncMock(return_value=None)
+    mock_element.query_selector = AsyncMock(return_value=mock_element)
+    mock_element.is_visible = AsyncMock(return_value=False)
+
+    mock_page.wait_for_selector = AsyncMock(return_value=mock_element)
+    mock_page.wait_for_load_state = AsyncMock(return_value=None)
+    mock_page.evaluate = AsyncMock(return_value=0)
+    mock_page.go_back = AsyncMock(return_value=None)
+    mock_page.inner_text = AsyncMock(return_value="Welcome to Ahly Net")
+
+    mock_locator = AsyncMock()
+    mock_locator.nth = MagicMock(return_value=mock_locator)
+    mock_locator.locator = MagicMock(return_value=mock_locator)
+    mock_locator.click = AsyncMock(return_value=None)
+    mock_locator.inner_text = AsyncMock(return_value="Loans and Finances\n1 Account")
+    mock_locator.all = AsyncMock(return_value=[])
+    mock_page.locator = MagicMock(return_value=mock_locator)
+
+    async def _qs_product(selector: str) -> Any:
+        if selector in _NBE_OTP_SELECTORS_LOANS:
+            return None
+        if selector == _SEL_NEXT_PAGE_BTN:
+            return None
+        return mock_element
+
+    mock_page.query_selector = _qs_product  # type: ignore[assignment]
+
+    return mock_pw_cm, mock_pw, mock_browser, mock_page
+
+
+class TestNbeScrapeLoanPrivate:
+    """NBEScraper._scrape_loans — HTML parsing with BSoup4 (no live browser needed)."""
+
+    @pytest.fixture
+    def nbe_scraper(self) -> NBEScraper:
+        return NBEScraper(username="test_user", password="test_password_123")
+
+    async def _run_scrape_loans_on_html(self, scraper: NBEScraper, html: str) -> list:
+        """Run _scrape_loans() with a mock page that returns ``html`` from content()."""
+        from unittest.mock import AsyncMock
+
+        mock_page = AsyncMock()
+        mock_element = AsyncMock()
+        mock_element.click = AsyncMock(return_value=None)
+
+        mock_page.url = "https://www.alahlynet.com.eg/?page=home"
+        mock_page.goto = AsyncMock(return_value=None)
+        mock_page.content = AsyncMock(return_value=html)
+        mock_page.click = AsyncMock(return_value=None)
+
+        async def _qs(selector: str) -> Any:
+            if selector == "button[title='Next Page']":
+                return None
+            return mock_element
+
+        mock_page.query_selector = _qs  # type: ignore[assignment]
+
+        async def _wfs(selector: str, **kwargs: Any) -> Any:
+            return mock_element
+
+        mock_page.wait_for_selector = _wfs  # type: ignore[assignment]
+        mock_page.screenshot = AsyncMock(return_value=None)
+
+        with patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)):
+            return await scraper._scrape_loans(mock_page)
+
+    async def test_no_active_loans_returns_empty_list(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_loans() returns [] when LON widget shows oj-listview-no-data-message."""
+        accounts = await self._run_scrape_loans_on_html(nbe_scraper, _NBE_LON_NO_DATA_HTML)
+        assert accounts == []
+
+    async def test_loan_row_parsed_correctly(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_loans() extracts one BankAccount from a single loan row."""
+        accounts = await self._run_scrape_loans_on_html(nbe_scraper, _NBE_LON_WITH_LOAN_HTML)
+        assert len(accounts) == 1
+        acc = accounts[0]
+        assert acc.bank_name == "NBE"
+        assert acc.account_type == "loan"
+        assert acc.currency == "EGP"
+        assert acc.balance == Decimal("50000.00")
+
+    async def test_loan_account_number_is_masked(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_loans() masks the account number to ****XXXX format."""
+        accounts = await self._run_scrape_loans_on_html(nbe_scraper, _NBE_LON_WITH_LOAN_HTML)
+        assert len(accounts) == 1
+        assert accounts[0].account_number_masked.startswith("****")
+        # Last four digits of 0765000645195400099 → 0099
+        assert accounts[0].account_number_masked == "****0099"
+
+    async def test_loan_missing_lon_container_returns_empty_list(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """_scrape_loans() returns [] when div.flip-account.LON is not in the page HTML."""
+        html_without_container = """
+        <html><body>
+        <nav><li class="loggedInUser">TestUser</li></nav>
+        <li class="LON"><a href="#">Loans</a></li>
+        </body></html>
+        """
+        accounts = await self._run_scrape_loans_on_html(nbe_scraper, html_without_container)
+        assert accounts == []
+
+    async def test_loan_account_type_is_loan(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_loans() sets account_type='loan' (valid DB type, no schema change needed)."""
+        accounts = await self._run_scrape_loans_on_html(nbe_scraper, _NBE_LON_WITH_LOAN_HTML)
+        assert accounts[0].account_type == "loan"
+
+
+class TestNbeScrapeLoansPublic:
+    """NBEScraper.scrape_loans() — public method with full Playwright mock."""
+
+    @pytest.fixture
+    def nbe_scraper(self) -> NBEScraper:
+        return NBEScraper(username="test_user", password="test_password_123")
+
+    async def test_scrape_loans_happy_path_empty(self, nbe_scraper: NBEScraper) -> None:
+        """scrape_loans() returns ScraperResult with [] when user has no loans."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_LON_NO_DATA_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape_loans()
+
+        assert isinstance(result, ScraperResult)
+        assert result.accounts == []
+        assert result.transactions == []
+        assert "dashboard" in result.raw_html
+
+    async def test_scrape_loans_bank_name_is_nbe(self, nbe_scraper: NBEScraper) -> None:
+        """scrape_loans() ScraperResult has bank_name 'NBE' on all accounts."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_LON_WITH_LOAN_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape_loans()
+
+        assert isinstance(result, ScraperResult)
+        if result.accounts:
+            assert result.accounts[0].bank_name == "NBE"
+
+    async def test_scrape_loans_browser_always_closed(self, nbe_scraper: NBEScraper) -> None:
+        """scrape_loans() closes the browser in the finally block."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_LON_NO_DATA_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            await nbe_scraper.scrape_loans()
+
+        mock_browser.close.assert_awaited_once()
+
+    async def test_scrape_loans_no_transactions(self, nbe_scraper: NBEScraper) -> None:
+        """scrape_loans() always returns empty transaction list (not yet implemented)."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_LON_WITH_LOAN_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape_loans()
+
+        assert result.transactions == []
+
+
+class TestNbeScrapePrepaidsPrivate:
+    """NBEScraper._scrape_prepaid_cards — HTML parsing with BSoup4 (no live browser)."""
+
+    @pytest.fixture
+    def nbe_scraper(self) -> NBEScraper:
+        return NBEScraper(username="test_user", password="test_password_123")
+
+    async def _run_scrape_prepaid_on_html(self, scraper: NBEScraper, html: str) -> list:
+        """Run _scrape_prepaid_cards() with a mock page that returns ``html``."""
+        mock_page = AsyncMock()
+        mock_element = AsyncMock()
+        mock_element.click = AsyncMock(return_value=None)
+
+        mock_page.url = "https://www.alahlynet.com.eg/?page=home"
+        mock_page.goto = AsyncMock(return_value=None)
+        mock_page.content = AsyncMock(return_value=html)
+        mock_page.click = AsyncMock(return_value=None)
+
+        async def _qs(selector: str) -> Any:
+            return None
+
+        mock_page.query_selector = _qs  # type: ignore[assignment]
+
+        async def _wfs(selector: str, **kwargs: Any) -> Any:
+            return mock_element
+
+        mock_page.wait_for_selector = _wfs  # type: ignore[assignment]
+        mock_page.screenshot = AsyncMock(return_value=None)
+
+        with patch("app.scrapers.nbe.asyncio.sleep", new=AsyncMock(return_value=None)):
+            return await scraper._scrape_prepaid_cards(mock_page)
+
+    async def test_prepaid_card_parsed_correctly(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_prepaid_cards() extracts one BankAccount from a single PRE row."""
+        accounts = await self._run_scrape_prepaid_on_html(nbe_scraper, _NBE_PRE_WITH_CARD_HTML)
+        assert len(accounts) == 1
+        acc = accounts[0]
+        assert acc.bank_name == "NBE"
+        assert acc.account_type == "prepaid_card"
+        assert acc.currency == "EGP"
+        assert acc.balance == Decimal("25.24")
+
+    async def test_prepaid_span_balance_parsed(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_prepaid_cards() reads balance from span.balance-amount (not div)."""
+        accounts = await self._run_scrape_prepaid_on_html(nbe_scraper, _NBE_PRE_WITH_CARD_HTML)
+        assert len(accounts) == 1
+        # Balance should reflect the span.balance-amount value: EGP 25.24
+        assert accounts[0].balance == Decimal("25.24")
+
+    async def test_prepaid_expiry_stripped_from_card_number(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_prepaid_cards() strips the '| Feb-2026' expiry from account_no."""
+        accounts = await self._run_scrape_prepaid_on_html(nbe_scraper, _NBE_PRE_WITH_CARD_HTML)
+        assert len(accounts) == 1
+        # Raw: "411739xxxxxx1286 | Feb-2026" — after split on "|" and masking:
+        # "411739xxxxxx1286" → last four = "1286"
+        assert accounts[0].account_number_masked == "****1286"
+
+    async def test_prepaid_missing_pre_container_returns_empty(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """_scrape_prepaid_cards() returns [] when div.flip-account.PRE is absent."""
+        html_without_container = """
+        <html><body>
+        <nav><li class="loggedInUser">TestUser</li></nav>
+        <li class="PRE"><a href="#">Prepaid Cards</a></li>
+        </body></html>
+        """
+        accounts = await self._run_scrape_prepaid_on_html(nbe_scraper, html_without_container)
+        assert accounts == []
+
+    async def test_prepaid_account_type_is_prepaid_card(self, nbe_scraper: NBEScraper) -> None:
+        """_scrape_prepaid_cards() sets account_type='prepaid_card' (requires DB schema update)."""
+        accounts = await self._run_scrape_prepaid_on_html(nbe_scraper, _NBE_PRE_WITH_CARD_HTML)
+        assert accounts[0].account_type == "prepaid_card"
+
+
+class TestNbeScrapePrepaidsPublic:
+    """NBEScraper.scrape_prepaid_cards() — public method with full Playwright mock."""
+
+    @pytest.fixture
+    def nbe_scraper(self) -> NBEScraper:
+        return NBEScraper(username="test_user", password="test_password_123")
+
+    async def test_scrape_prepaid_cards_happy_path(self, nbe_scraper: NBEScraper) -> None:
+        """scrape_prepaid_cards() returns ScraperResult with prepaid card accounts."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_PRE_WITH_CARD_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape_prepaid_cards()
+
+        assert isinstance(result, ScraperResult)
+        assert "dashboard" in result.raw_html
+
+    async def test_scrape_prepaid_cards_no_transactions(self, nbe_scraper: NBEScraper) -> None:
+        """scrape_prepaid_cards() always returns empty transaction list."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_PRE_WITH_CARD_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            result = await nbe_scraper.scrape_prepaid_cards()
+
+        assert result.transactions == []
+
+    async def test_scrape_prepaid_cards_browser_always_closed(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """scrape_prepaid_cards() closes the browser in the finally block."""
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_nbe_mock_for_loans_or_prepaid(
+            _NBE_PRE_WITH_CARD_HTML
+        )
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            await nbe_scraper.scrape_prepaid_cards()
+
+        mock_browser.close.assert_awaited_once()
+
+    async def test_scrape_prepaid_cards_timeout_raises_scraper_timeout(
+        self, nbe_scraper: NBEScraper
+    ) -> None:
+        """scrape_prepaid_cards() wraps PlaywrightTimeoutError in ScraperTimeoutError."""
+        from playwright.async_api import TimeoutError as _PwTimeout
+
+        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+        mock_page.wait_for_selector = AsyncMock(side_effect=_PwTimeout("timeout"))
+
+        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
+            with pytest.raises(ScraperTimeoutError) as exc_info:
+                await nbe_scraper.scrape_prepaid_cards()
+
+        assert exc_info.value.bank_code == "NBE"

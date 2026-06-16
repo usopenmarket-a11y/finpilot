@@ -145,8 +145,45 @@ _RAW_HTML_MAX_CHARS = 20_000
 # ---------------------------------------------------------------------------
 # Selector catalogue (OBDX / Oracle JET SPA — alahlynet.com.eg)
 #
-# All selectors below were verified against live HTML captured by recon_nbe.py
-# on 2026-03-17.  Re-run recon_nbe.py whenever portal changes are suspected.
+# All selectors below were verified against live HTML captured by post-click
+# recon (scripts/nbe_post_click_recon.py) on 2026-06-16.  Selectors are
+# stable across the new oj-listview dashboard layout introduced in 2026.
+# Re-run the recon script whenever portal changes are suspected.
+#
+# Dashboard tile layout (confirmed 2026-06-16):
+#   li.CSA — Accounts (Current & Savings)
+#   li.TRD — Certificates / Deposits
+#   li.LON — Loans and Finances       ← NEW (never scraped before)
+#   li.CCA — Credit Cards
+#   li.PRE — Prepaid Cards             ← NEW (never scraped before)
+#   li.MF  — Mutual Funds (out of scope)
+#
+# Each tile carries the product-code class along with oj-listview classes:
+#   class="help-panel mar-bottom CSA oj-listview-item-element oj-listview-item ..."
+# The anchor inside the tile is still the click target: li.CSA a, li.TRD a, etc.
+#
+# Post-click account rows: All five product types use the SAME row selector:
+#   li.flip-account-list__items
+# Rows are KnockoutJS-rendered from the <script id="flip-account-data-script">
+# template AFTER the tile click triggers a backend API call.  On Render Oregon
+# (→ NBE Egypt) this can take 5–30 s.  Always use the full _WAIT_TIMEOUT_MS
+# window rather than assuming a shorter fast path.
+#
+# Field selectors within each row (confirmed 2026-06-16):
+#   CSA: div.account-no (account number via span.account-name inside it),
+#        div.account-name (Arabic product description e.g. "توفير بعائد سنوي"),
+#        div.balance-amount (e.g. "EGP 0.00"), a.menu-icon (3-dots)
+#   TRD: div.account-no, div.account-name (product name e.g. "Platinum Certificate"),
+#        div.account-type (detail: "Interest Rate X% | Maturing DD Mon YYYY | ..."),
+#        div.balance-amount, a.menu-icon
+#   CCA: div.account-no (masked card + expiry e.g. "544111******1204 | 07/28"),
+#        div.account-name (cardholder name), div.balance-amount (available cash),
+#        a.menu-icon → oj-option "Credit Card Statement"
+#   PRE: div.account-no (masked card + expiry e.g. "411739xxxxxx1286 | Feb-2026"),
+#        div.account-name (cardholder name), span.balance-amount (NOT div),
+#        a.menu-icon → oj-option "View Statement"
+#   LON: li.flip-account-list__items NOT rendered when user has no active loans
+#        (only li.oj-listview-no-data-message appears) — scraper returns [] gracefully.
 # ---------------------------------------------------------------------------
 
 # Step 1 — username input and submit button.
@@ -205,7 +242,12 @@ _SEL_OTP_INPUT = "input[id*='otp' i]"
 # Accounts widget — click to flip the card and reveal account list
 _SEL_ACCOUNTS_WIDGET = "li.CSA a"
 
-# Account rows inside the flipped card
+# Account rows inside the flipped card.
+# Confirmed present on 2026-06-16 post-click recon for CSA/TRD/CCA/PRE.
+# Rows are rendered from the KnockoutJS template "flip-account-data-script"
+# after the AJAX backend call returns (5–30 s on Render Oregon → Egypt).
+# LON shows oj-listview-no-data-message (no li.flip-account-list__items) when
+# user has no active loans — callers must handle the empty result gracefully.
 _SEL_ACCOUNT_ROWS = "li.flip-account-list__items"
 
 # Context menu icon on each account row
@@ -256,7 +298,7 @@ _RE_ZERO_ACCOUNTS = re.compile(
 # empty state conclusive.  This gives the Oracle JET SPA time to populate
 # account rows — we only conclude "empty" if no rows appear within this window
 # AND the zero-accounts text is already visible.
-_ZERO_ACCOUNTS_SETTLE_S: float = 5.0
+_ZERO_ACCOUNTS_SETTLE_S: float = 8.0
 
 # How often (in seconds) to poll for account rows during the fast-path window.
 _ZERO_ACCOUNTS_POLL_INTERVAL_S: float = 1.0
@@ -265,13 +307,35 @@ _ZERO_ACCOUNTS_POLL_INTERVAL_S: float = 1.0
 # this window we succeed immediately; if the zero-state is confirmed after
 # _ZERO_ACCOUNTS_SETTLE_S we return False early.  If neither condition is met
 # within this window, fall back to the original long wait_for_selector.
-_ZERO_ACCOUNTS_FAST_WINDOW_S: float = 25.0
+# Increased from 25s to 60s: live recon (2026-06-16) shows KO rendering of
+# li.flip-account-list__items takes 5–30 s from Render Oregon → NBE Egypt.
+_ZERO_ACCOUNTS_FAST_WINDOW_S: float = 60.0
+
+# Maximum number of additional reveal attempts in scrape_accounts() when the
+# first _reveal_accounts_widget() call returns False (0 accounts).
+# Live testing showed the NBE widget is intermittent: two consecutive runs
+# returned "0 Accounts" while a third (same credentials, minutes later)
+# returned the real account list.  2 retries → up to 3 total attempts.
+# Only applies to scrape_accounts(); scrape() keeps its current single-attempt
+# behaviour to limit blast radius.
+_ZERO_ACCOUNTS_MAX_RETRIES: int = 2
 
 # Certificates / Deposits widget selector
 _SEL_CERTIFICATES_WIDGET = "li.TRD a"
 
 # Credit Cards widget selector
 _SEL_CREDIT_CARDS_WIDGET = "li.CCA a"
+
+# Loans and Finances widget selector (NEW — added 2026-06-16)
+# Tile shows aggregate outstanding balance; clicking reveals individual loan rows
+# (or oj-listview-no-data-message if the user has no active loans).
+_SEL_LOANS_WIDGET = "li.LON a"
+
+# Prepaid Cards widget selector (NEW — added 2026-06-16)
+# Tile balance = sum of all prepaid card available balances.
+# Row fields: div.account-no (masked card + expiry), div.account-name (cardholder),
+# span.balance-amount (note: span, not div — unique to PRE rows).
+_SEL_PREPAID_CARDS_WIDGET = "li.PRE a"
 
 # CC statement page URL fragment (used in wait_for_url)
 _CC_STATEMENT_URL_FRAGMENT = "card-statement"
@@ -400,13 +464,20 @@ def _normalise_account_type(raw: str) -> str:
 
     Handles Arabic section headings (e.g. "الحسابات الجارية والتوفير") as
     well as English labels.
+
+    "prepaid_card" is a valid value: it is included in the DB
+    ``bank_accounts.account_type`` CHECK constraint and the ``ACCOUNT_TYPES``
+    tuple in ``models/db.py`` (migration ``add_prepaid_card_account_type``),
+    so ``_scrape_prepaid_cards`` rows persist normally.
     """
     raw = raw.lower().strip()
     if "saving" in raw or "توفير" in raw:
         return "savings"
     if "credit" in raw or "ائتمان" in raw:
         return "credit_card"
-    if "loan" in raw or "قرض" in raw:
+    if "prepaid" in raw or "بطاقة مدفوعة" in raw:
+        return "prepaid_card"
+    if "loan" in raw or "قرض" in raw or "تمويل" in raw or "مديون" in raw or "مدين" in raw:
         return "loan"
     if "payroll" in raw or "راتب" in raw or "مرتب" in raw:
         return "payroll"
@@ -843,12 +914,49 @@ class NBEScraper(BankScraper):
             except Exception as cert_exc:
                 logger.warning("NBE: certificate scraping failed (non-fatal): %s", cert_exc)
 
-            # Combine all account types: demand-deposit + credit cards + certificates
-            accounts = accounts + cc_accounts + cert_accounts
+            # ------------------------------------------------------------------
+            # Scrape loans (LON widget) — non-fatal; returns [] when no loans.
+            # ------------------------------------------------------------------
+            loan_accounts: list[BankAccount] = []
+            try:
+                loan_accounts = await self._scrape_loans(page)
+                if loan_accounts:
+                    logger.info("NBE: found %d loan account(s)", len(loan_accounts))
+                    raw_html["loans"] = _truncate_html(await page.content())
+            except Exception as loan_exc:
+                logger.warning("NBE: loan scraping failed (non-fatal): %s", loan_exc)
+
+            # ------------------------------------------------------------------
+            # Scrape prepaid cards (PRE widget) — non-fatal; returns [] when absent.
+            # account_type="prepaid_card" is persisted via the DB CHECK constraint
+            # added in migration add_prepaid_card_account_type.
+            # ------------------------------------------------------------------
+            prepaid_accounts: list[BankAccount] = []
+            try:
+                prepaid_accounts = await self._scrape_prepaid_cards(page)
+                if prepaid_accounts:
+                    logger.info("NBE: found %d prepaid card account(s)", len(prepaid_accounts))
+                    raw_html["prepaid_cards"] = _truncate_html(await page.content())
+            except Exception as pre_exc:
+                logger.warning("NBE: prepaid card scraping failed (non-fatal): %s", pre_exc)
+
+            # Combine ALL account types
+            accounts = accounts + cc_accounts + cert_accounts + loan_accounts + prepaid_accounts
 
             logger.info(
-                "NBE: scrape complete — %d account(s), %d transaction(s) total",
+                "NBE: scrape complete — %d account(s) total "
+                "(demand-deposit=%d cc=%d certs=%d loans=%d prepaid=%d), "
+                "%d transaction(s)",
                 len(accounts),
+                len(accounts)
+                - len(cc_accounts)
+                - len(cert_accounts)
+                - len(loan_accounts)
+                - len(prepaid_accounts),
+                len(cc_accounts),
+                len(cert_accounts),
+                len(loan_accounts),
+                len(prepaid_accounts),
                 len(all_transactions),
             )
 
@@ -949,11 +1057,39 @@ class NBEScraper(BankScraper):
         try:
             raw_html["dashboard"] = _truncate_html(await page.content())
 
+            # ------------------------------------------------------------------
+            # Zero-accounts retry loop.
+            #
+            # The NBE accounts widget is intermittent: a "0 Accounts" reading
+            # can be a transient bank-side glitch that clears after a reload.
+            # We retry up to _ZERO_ACCOUNTS_MAX_RETRIES times before giving up.
+            #
+            # Retry sequence per attempt:
+            #   1. _random_delay — give the bank backend a moment.
+            #   2. _reload_to_dashboard — fresh SPA state, re-confirms login.
+            #   3. _reveal_accounts_widget — attempt to reveal account rows.
+            #
+            # Navigation failures (ScraperTimeoutError from _reload_to_dashboard
+            # or _reveal_accounts_widget) propagate immediately — they are not
+            # transient empty states and should not be retried here.
+            # ------------------------------------------------------------------
             _rows_present = await self._reveal_accounts_widget(page)
+            _total_reveal_attempts = 1
+            while not _rows_present and _total_reveal_attempts <= _ZERO_ACCOUNTS_MAX_RETRIES:
+                logger.info(
+                    "NBE: accounts widget returned 0 accounts — retry %d/%d after reload",
+                    _total_reveal_attempts,
+                    _ZERO_ACCOUNTS_MAX_RETRIES,
+                )
+                await self._random_delay(1.0, 2.0)
+                await self._reload_to_dashboard(page)
+                _rows_present = await self._reveal_accounts_widget(page)
+                _total_reveal_attempts += 1
+
             if not _rows_present:
                 logger.info(
-                    "NBE: scrape_accounts — 0 demand-deposit accounts visible in portal; "
-                    "returning empty result"
+                    "NBE: 0 demand-deposit accounts after %d reveal attempt(s) — returning empty result",
+                    _total_reveal_attempts,
                 )
                 return ScraperResult(
                     accounts=[],
@@ -1284,6 +1420,196 @@ class NBEScraper(BankScraper):
         finally:
             await self._close_browser(browser)
 
+    async def scrape_loans(self) -> ScraperResult:
+        """Scrape loan accounts from the Loans & Finances (LON) widget only.
+
+        Skips all other product types.  Returns ``ScraperResult`` with
+        ``BankAccount`` objects where ``account_type='loan'``, and an empty
+        transaction list (loan transaction history is not available via the
+        NBE dashboard flip-card).
+
+        Returns [] gracefully when the user has no active loan products.
+
+        Raises:
+            ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError,
+            ScraperParseError: same semantics as ``scrape()``.
+        """
+        logger.info("NBE: scrape_loans starting")
+        _MAX_LOGIN_ATTEMPTS = 2
+        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            browser, context, page = await self._launch_browser()
+            raw_html: dict[str, str] = {}
+            _dashboard_ok = False
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                _dashboard_ok = True
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "NBE: scrape_loans dashboard timed out on attempt %d/%d — retrying",
+                        _attempt,
+                        _MAX_LOGIN_ATTEMPTS,
+                    )
+                    continue
+                raise
+            except Exception:
+                await self._close_browser(browser)
+                raise
+
+            if _dashboard_ok:
+                break
+
+        try:
+            raw_html["dashboard"] = _truncate_html(await page.content())
+
+            loan_accounts: list[BankAccount] = []
+            try:
+                loan_accounts = await self._scrape_loans(page)
+                if loan_accounts:
+                    logger.info("NBE: scrape_loans — found %d loan account(s)", len(loan_accounts))
+                    raw_html["loans"] = _truncate_html(await page.content())
+            except Exception as loan_exc:
+                logger.warning("NBE: scrape_loans — loan account scraping failed: %s", loan_exc)
+
+            logger.info(
+                "NBE: scrape_loans complete — %d account(s)",
+                len(loan_accounts),
+            )
+            return ScraperResult(
+                accounts=loan_accounts,
+                transactions=[],
+                raw_html=raw_html,
+            )
+
+        except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
+            raise
+
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "loans_timeout_error")
+            raise ScraperTimeoutError(
+                f"NBE scrape_loans timed out: {exc}", bank_code="NBE"
+            ) from exc
+
+        except Exception as exc:
+            await self._safe_screenshot(page, "loans_unexpected_error")
+            logger.error(
+                "NBE scrape_loans failed — url=%r error=%s: %s",
+                page.url,
+                type(exc).__name__,
+                exc,
+            )
+            raise ScraperParseError(
+                f"NBE scrape_loans unexpected error: {type(exc).__name__}: {exc}",
+                bank_code="NBE",
+            ) from exc
+
+        finally:
+            await self._close_browser(browser)
+
+    async def scrape_prepaid_cards(self) -> ScraperResult:
+        """Scrape prepaid card accounts from the Prepaid Cards (PRE) widget only.
+
+        Skips all other product types.  Returns ``ScraperResult`` with
+        ``BankAccount`` objects where ``account_type='prepaid_card'``, and an
+        empty transaction list (prepaid statement scraping is not yet implemented).
+
+        IMPORTANT — model change required:
+        ``account_type='prepaid_card'`` is NOT currently in the ACCOUNT_TYPES
+        tuple (models/db.py) or the DB CHECK constraint.  The pipeline layer will
+        reject these rows until the architect adds "prepaid_card" to both.  Raise
+        this with the Orchestrator before enabling the pipeline path for PRE.
+
+        Returns:
+            ``ScraperResult`` with prepaid card ``BankAccount`` objects.
+            Returns empty list if the user has no prepaid cards.
+
+        Raises:
+            ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError,
+            ScraperParseError: same semantics as ``scrape()``.
+        """
+        logger.info("NBE: scrape_prepaid_cards starting")
+        _MAX_LOGIN_ATTEMPTS = 2
+        for _attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            browser, context, page = await self._launch_browser()
+            raw_html: dict[str, str] = {}
+            _dashboard_ok = False
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                _dashboard_ok = True
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if _attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "NBE: scrape_prepaid_cards dashboard timed out on attempt %d/%d — retrying",
+                        _attempt,
+                        _MAX_LOGIN_ATTEMPTS,
+                    )
+                    continue
+                raise
+            except Exception:
+                await self._close_browser(browser)
+                raise
+
+            if _dashboard_ok:
+                break
+
+        try:
+            raw_html["dashboard"] = _truncate_html(await page.content())
+
+            prepaid_accounts: list[BankAccount] = []
+            try:
+                prepaid_accounts = await self._scrape_prepaid_cards(page)
+                if prepaid_accounts:
+                    logger.info(
+                        "NBE: scrape_prepaid_cards — found %d prepaid card account(s)",
+                        len(prepaid_accounts),
+                    )
+                    raw_html["prepaid_cards"] = _truncate_html(await page.content())
+            except Exception as pre_exc:
+                logger.warning(
+                    "NBE: scrape_prepaid_cards — prepaid card scraping failed: %s", pre_exc
+                )
+
+            logger.info(
+                "NBE: scrape_prepaid_cards complete — %d account(s)",
+                len(prepaid_accounts),
+            )
+            return ScraperResult(
+                accounts=prepaid_accounts,
+                transactions=[],
+                raw_html=raw_html,
+            )
+
+        except (ScraperLoginError, ScraperOTPRequired, ScraperTimeoutError, ScraperParseError):
+            raise
+
+        except PlaywrightTimeoutError as exc:
+            await self._safe_screenshot(page, "prepaid_timeout_error")
+            raise ScraperTimeoutError(
+                f"NBE scrape_prepaid_cards timed out: {exc}", bank_code="NBE"
+            ) from exc
+
+        except Exception as exc:
+            await self._safe_screenshot(page, "prepaid_unexpected_error")
+            logger.error(
+                "NBE scrape_prepaid_cards failed — url=%r error=%s: %s",
+                page.url,
+                type(exc).__name__,
+                exc,
+            )
+            raise ScraperParseError(
+                f"NBE scrape_prepaid_cards unexpected error: {type(exc).__name__}: {exc}",
+                bank_code="NBE",
+            ) from exc
+
+        finally:
+            await self._close_browser(browser)
+
     # ------------------------------------------------------------------
     # Navigation
     # ------------------------------------------------------------------
@@ -1319,6 +1645,35 @@ class NBEScraper(BankScraper):
             ) from exc
 
         logger.info("NBE: login page ready — username field visible")
+
+    async def _reload_to_dashboard(self, page: Page) -> None:
+        """Navigate to the dashboard home URL and wait for the page to settle.
+
+        Used by the zero-accounts retry loop in ``scrape_accounts()`` to give
+        the Oracle JET SPA a fresh start before re-revealing the accounts
+        widget.  Raises ``ScraperTimeoutError`` on dashboard confirmation
+        failure so that genuine navigation failures propagate as-is rather than
+        being silently swallowed by the retry loop.
+
+        Args:
+            page: The active Playwright page (same browser session — no relaunch).
+        """
+        logger.info("NBE: reloading dashboard for zero-accounts retry")
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            # domcontentloaded timeout is acceptable — the SPA may still be
+            # rendering but the DOM is usable.  _wait_for_dashboard below
+            # will confirm readiness before we proceed.
+            logger.warning(
+                "NBE: dashboard reload timed out (domcontentloaded) — proceeding to dashboard wait"
+            )
+        await self._random_delay(1.0, 2.0)
+        await self._wait_for_dashboard(page)
 
     async def _reveal_accounts_widget(self, page: Page) -> bool:
         """Click the Accounts Summary widget and wait for account rows to appear.
@@ -1768,11 +2123,12 @@ class NBEScraper(BankScraper):
             pass  # Don't block login flow on check failure
 
         # Wait for the loggedInUser nav badge which confirms an authenticated session.
-        # Also accept any dashboard widget (accounts/CC/certificates) as login proof —
-        # these appear before li.loggedInUser on slow connections from Render Oregon.
+        # Also accept any dashboard widget (accounts/CC/certificates/loans/prepaid) as
+        # login proof — these appear before li.loggedInUser on slow Render Oregon connections.
         _SEL_DASHBOARD_READY = (
             f"{_SEL_LOGGED_IN}, {_SEL_ACCOUNTS_WIDGET}, "
-            f"{_SEL_CREDIT_CARDS_WIDGET}, {_SEL_CERTIFICATES_WIDGET}"
+            f"{_SEL_CREDIT_CARDS_WIDGET}, {_SEL_CERTIFICATES_WIDGET}, "
+            f"{_SEL_LOANS_WIDGET}, {_SEL_PREPAID_CARDS_WIDGET}"
         )
         logger.info("NBE: waiting for dashboard (loggedInUser or any widget selector)")
         _logged_in_found = False
@@ -3142,6 +3498,300 @@ class NBEScraper(BankScraper):
                     maturity_date=cert_maturity_date,
                     opened_date=cert_opened_date,
                     product_name=cert_product_name,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        return accounts
+
+    # ------------------------------------------------------------------
+    # Data extraction — loans and finances (NEW — 2026-06-16)
+    # ------------------------------------------------------------------
+
+    async def _scrape_loans(self, page: Page) -> list[BankAccount]:
+        """Navigate to the Loans & Finances widget and extract account data.
+
+        NBE shows loans in a ``li.LON`` flip-card on the dashboard.
+        Clicking ``li.LON a`` reveals ``li.flip-account-list__items`` rows
+        (or ``oj-listview-no-data-message`` when the user has no active loans).
+
+        Row fields (confirmed via post-click recon 2026-06-16):
+        - ``div.account-no``     — full account/loan reference number
+        - ``div.account-name``   — product description (e.g. "جاري مدين بضمان")
+        - ``div.balance-amount`` — outstanding balance with currency prefix
+
+        NOTE: The ``loan`` account_type IS in the ACCOUNT_TYPES tuple in
+        models/db.py.  No model change required for loans.
+
+        Returns:
+            List of ``BankAccount`` objects with ``account_type='loan'``.
+            Returns empty list if the LON widget is absent or no active loans.
+        """
+        logger.info("NBE: scraping loans via %r widget", _SEL_LOANS_WIDGET)
+
+        current_url = page.url
+        logger.info("NBE: navigating to dashboard for loan scrape (current url: %s)", current_url)
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: dashboard navigation timed out before loan scrape — skipping")
+            return []
+
+        try:
+            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: session lost after navigation — cannot scrape loans")
+            return []
+
+        try:
+            await page.wait_for_selector(_SEL_LOANS_WIDGET, timeout=120_000)
+        except PlaywrightTimeoutError:
+            logger.info("NBE: no LON (loans) widget found — user has no loan products")
+            return []
+
+        # Click the widget to reveal the loan list
+        await page.click(_SEL_LOANS_WIDGET)
+        await self._random_delay(1.5, 2.5)
+
+        # Wait for account rows OR the no-data message.
+        # LON shows oj-listview-no-data-message when user has no active loans.
+        # We use a combined selector so we do not block for the full 180s when
+        # the no-data state is already visible.
+        _SEL_LON_READY = f"{_SEL_ACCOUNT_ROWS}, li.oj-listview-no-data-message"
+        try:
+            await page.wait_for_selector(_SEL_LON_READY, timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: loan rows/no-data did not appear after clicking LON widget")
+            return []
+
+        html = await page.content()
+        soup = BeautifulSoup(html, "lxml")
+
+        # Scope to the LON flip-card to avoid mixing with other product rows
+        lon_container = soup.select_one("div.flip-account.LON")
+        if not lon_container:
+            logger.info("NBE: div.flip-account.LON not found — no loan data to parse")
+            return []
+
+        rows = lon_container.select(_SEL_ACCOUNT_ROWS)
+        if not rows:
+            # Check for the explicit no-data message
+            no_data = lon_container.select_one("li.oj-listview-no-data-message")
+            if no_data:
+                logger.info(
+                    "NBE: LON widget shows no-data message (%r) — user has no active loans",
+                    no_data.get_text(strip=True)[:60],
+                )
+            else:
+                logger.info("NBE: no loan rows found in LON flip-card HTML")
+            return []
+
+        logger.info("NBE: found %d loan row(s)", len(rows))
+        accounts: list[BankAccount] = []
+        now = datetime.now(UTC)
+
+        for row_idx, row in enumerate(rows):
+            # Account / loan reference number
+            acc_no_el = row.select_one(".account-no")
+            raw_account_number = acc_no_el.get_text(strip=True) if acc_no_el else ""
+
+            # Product description (may be in Arabic)
+            acc_name_el = row.find("div", class_="account-name")
+            product_desc = acc_name_el.get_text(strip=True) if acc_name_el else ""
+
+            # Outstanding balance
+            balance_el = row.select_one(".balance-amount")
+            balance_text = ""
+            if balance_el:
+                balance_text = balance_el.get_text(strip=True)
+            else:
+                row_text = row.get_text(separator=" ")
+                m = re.search(r"-?\s*(?:EGP|USD|EUR|GBP|SAR|AED)\s*[\d,.\-]+", row_text, re.I)
+                if m:
+                    balance_text = m.group(0).replace(" ", "")
+
+            currency = _extract_currency_from_balance(balance_text)
+            balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
+            if balance_text.strip().startswith("-"):
+                balance_str = "-" + balance_str
+            balance = _parse_amount(balance_str) or Decimal("0.00")
+
+            masked = self._mask_account_number(raw_account_number)
+
+            logger.debug(
+                "NBE: loan row %d → masked=%s product=%r currency=%s balance=%s",
+                row_idx,
+                masked,
+                product_desc,
+                currency,
+                balance,
+            )
+
+            accounts.append(
+                BankAccount(
+                    id=_ZERO_UUID,
+                    user_id=_ZERO_UUID,
+                    bank_name=self.bank_name,
+                    account_number_masked=masked,
+                    account_type="loan",
+                    currency=currency,
+                    balance=balance,
+                    is_active=True,
+                    last_synced_at=now,
+                    product_name=product_desc or None,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        return accounts
+
+    # ------------------------------------------------------------------
+    # Data extraction — prepaid cards (NEW — 2026-06-16)
+    # ------------------------------------------------------------------
+
+    async def _scrape_prepaid_cards(self, page: Page) -> list[BankAccount]:
+        """Navigate to the Prepaid Cards widget and extract account data.
+
+        NBE shows prepaid cards in a ``li.PRE`` flip-card on the dashboard.
+        Clicking ``li.PRE a`` reveals ``li.flip-account-list__items`` rows.
+
+        Row fields (confirmed via post-click recon 2026-06-16):
+        - ``div.account-no``     — masked card number + expiry
+                                   (e.g. "411739xxxxxx1286 | Feb-2026")
+        - ``div.account-name``   — cardholder name (e.g. "FADY ADEL HABIB")
+        - ``span.balance-amount``— available balance (NOTE: span not div,
+                                   unique to PRE rows vs all other product types)
+
+        NOTE: "prepaid_card" is NOT currently in the ACCOUNT_TYPES tuple in
+        models/db.py or the bank_accounts CHECK constraint in the DB schema.
+        The pipeline layer will reject rows with account_type='prepaid_card'
+        until the architect adds it.  This method sets the type correctly so
+        it is available for the pipeline to validate and store once the schema
+        is updated.  Flag to the architect: add "prepaid_card" to ACCOUNT_TYPES
+        and the bank_accounts.account_type CHECK constraint in a migration.
+
+        Returns:
+            List of ``BankAccount`` objects with ``account_type='prepaid_card'``.
+            Returns empty list if the PRE widget is absent.
+        """
+        logger.info("NBE: scraping prepaid cards via %r widget", _SEL_PREPAID_CARDS_WIDGET)
+
+        current_url = page.url
+        logger.info(
+            "NBE: navigating to dashboard for prepaid card scrape (current url: %s)", current_url
+        )
+        try:
+            await page.goto(
+                _LOGIN_URL,
+                wait_until="domcontentloaded",
+                timeout=_PAGE_LOAD_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "NBE: dashboard navigation timed out before prepaid card scrape — skipping"
+            )
+            return []
+
+        try:
+            await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: session lost after navigation — cannot scrape prepaid cards")
+            return []
+
+        try:
+            await page.wait_for_selector(_SEL_PREPAID_CARDS_WIDGET, timeout=120_000)
+        except PlaywrightTimeoutError:
+            logger.info("NBE: no PRE (prepaid cards) widget found — user has no prepaid cards")
+            return []
+
+        # Click the widget to reveal the prepaid card list
+        await page.click(_SEL_PREPAID_CARDS_WIDGET)
+        await self._random_delay(1.5, 2.5)
+
+        try:
+            await page.wait_for_selector(_SEL_ACCOUNT_ROWS, timeout=_WAIT_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: prepaid card rows did not appear after clicking PRE widget")
+            return []
+
+        html = await page.content()
+        soup = BeautifulSoup(html, "lxml")
+
+        # Scope to the PRE flip-card to avoid mixing with other product rows
+        pre_container = soup.select_one("div.flip-account.PRE")
+        if not pre_container:
+            logger.info("NBE: div.flip-account.PRE not found — no prepaid card data to parse")
+            return []
+
+        rows = pre_container.select(_SEL_ACCOUNT_ROWS)
+        if not rows:
+            logger.info("NBE: no prepaid card rows found in PRE flip-card HTML")
+            return []
+
+        logger.info("NBE: found %d prepaid card row(s)", len(rows))
+        accounts: list[BankAccount] = []
+        now = datetime.now(UTC)
+
+        for row_idx, row in enumerate(rows):
+            # Masked card number + expiry (e.g. "411739xxxxxx1286 | Feb-2026")
+            acc_no_el = row.select_one(".account-no")
+            raw_card_info = acc_no_el.get_text(strip=True) if acc_no_el else ""
+            # Strip the expiry portion: "411739xxxxxx1286 | Feb-2026" → "411739xxxxxx1286"
+            raw_card_number = (
+                raw_card_info.split("|")[0].strip() if "|" in raw_card_info else raw_card_info
+            )
+
+            # Cardholder name (inside div.account-name)
+            acc_name_el = row.find("div", class_="account-name")
+            cardholder = acc_name_el.get_text(strip=True) if acc_name_el else ""
+
+            # Available balance — PRE uses span.balance-amount, not div.balance-amount
+            balance_el = (
+                row.select_one("span.balance-amount")
+                or row.select_one("div.balance-amount")
+                or row.select_one(".balance-amount")
+            )
+            balance_text = balance_el.get_text(strip=True) if balance_el else ""
+            if not balance_text:
+                row_text = row.get_text(separator=" ")
+                m = re.search(r"-?\s*(?:EGP|USD|EUR|GBP|SAR|AED)\s*[\d,.\-]+", row_text, re.I)
+                if m:
+                    balance_text = m.group(0).replace(" ", "")
+
+            currency = _extract_currency_from_balance(balance_text)
+            balance_str = re.sub(r"^-?\s*[A-Z]{3}\s*", "", balance_text.strip())
+            if balance_text.strip().startswith("-"):
+                balance_str = "-" + balance_str
+            balance = _parse_amount(balance_str) or Decimal("0.00")
+
+            masked = self._mask_account_number(raw_card_number)
+
+            logger.debug(
+                "NBE: prepaid card row %d → masked=%s cardholder=%r currency=%s balance=%s",
+                row_idx,
+                masked,
+                cardholder,
+                currency,
+                balance,
+            )
+
+            accounts.append(
+                BankAccount(
+                    id=_ZERO_UUID,
+                    user_id=_ZERO_UUID,
+                    bank_name=self.bank_name,
+                    account_number_masked=masked,
+                    account_type="prepaid_card",
+                    currency=currency,
+                    balance=balance,
+                    is_active=True,
+                    last_synced_at=now,
                     created_at=now,
                     updated_at=now,
                 )

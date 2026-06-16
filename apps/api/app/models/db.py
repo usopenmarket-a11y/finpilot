@@ -44,7 +44,16 @@ class UserProfile(BaseModel):
 # ---------------------------------------------------------------------------
 
 SUPPORTED_BANKS = ("NBE", "CIB", "BDC", "UB")
-ACCOUNT_TYPES = ("savings", "current", "credit_card", "loan", "payroll", "certificate", "deposit")
+ACCOUNT_TYPES = (
+    "savings",
+    "current",
+    "credit_card",
+    "loan",
+    "payroll",
+    "certificate",
+    "deposit",
+    "prepaid_card",
+)
 
 
 class BankAccount(BaseModel):
@@ -59,7 +68,7 @@ class BankAccount(BaseModel):
         description="Last 4 digits of the account number (never store full number)"
     )
     account_type: str = Field(
-        description="Account classification — one of: savings, current, credit_card, loan, payroll, certificate, deposit"
+        description="Account classification — one of: savings, current, credit_card, loan, payroll, certificate, deposit, prepaid_card"
     )
     currency: str = Field(default="EGP", description="ISO 4217 currency code")
     balance: Decimal = Field(description="Current account balance (NUMERIC 15,2)")
