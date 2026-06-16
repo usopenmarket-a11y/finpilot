@@ -79,8 +79,8 @@ export default async function AccountsPage() {
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       {/* Page heading */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Accounts</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">Accounts</h1>
+        <p className="text-sm text-ink-muted mt-1">
           {bankAccounts.length > 0
             ? `${bankAccounts.length} account${bankAccounts.length !== 1 ? 's' : ''} across all banks`
             : 'Connect a bank account in Settings to see your accounts here'}
@@ -102,14 +102,14 @@ export default async function AccountsPage() {
       {/* Account accordion */}
       {bankAccounts.length > 0 ? (
         <div>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">All Accounts</h2>
+          <h2 className="text-base font-semibold text-ink mb-4">All Accounts</h2>
           <AccountAccordion accounts={bankAccounts} transactions={transactions} credentialLabels={bankCodeToLabel} />
         </div>
       ) : (
         <Card>
           <CardBody className="py-16 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-4"
+              className="mx-auto h-12 w-12 text-ink-faint mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -117,10 +117,10 @@ export default async function AccountsPage() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
-            <p className="text-base font-medium text-gray-900 dark:text-white mb-1">
+            <p className="text-base font-medium text-ink mb-1">
               No accounts connected
             </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-ink-muted">
               Add bank credentials in Settings to start syncing your accounts.
             </p>
           </CardBody>

@@ -154,17 +154,17 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) {
       return (
-        <svg className="h-3.5 w-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className="h-3.5 w-3.5 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
         </svg>
       );
     }
     return sortDir === 'asc' ? (
-      <svg className="h-3.5 w-3.5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <svg className="h-3.5 w-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
       </svg>
     ) : (
-      <svg className="h-3.5 w-3.5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <svg className="h-3.5 w-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
       </svg>
     );
@@ -173,12 +173,12 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
   return (
     <div className="flex flex-col gap-4">
       {/* Filters + Recategorize */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+      <div className="bg-surface border border-line rounded-xl p-4">
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Filters</p>
+          <p className="text-xs text-ink-muted">Filters</p>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {recatResult && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">{recatResult}</p>
+              <p className="text-xs text-ink-muted">{recatResult}</p>
             )}
             <Button
               variant="secondary"
@@ -237,7 +237,7 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
       </div>
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-surface border border-line rounded-xl overflow-hidden">
         {paginated.length === 0 ? (
           <EmptyState
             title="No transactions found"
@@ -250,22 +250,22 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
           />
         ) : (
           <>
-          <div className="divide-y divide-gray-100 dark:divide-gray-800 md:hidden">
+          <div className="divide-y divide-line md:hidden">
             {paginated.map((tx) => (
               <div key={tx.id} className="px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="break-words text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <p className="break-words text-sm font-semibold text-ink">
                       {tx.description}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-xs text-ink-muted">
                         {formatDate(tx.transaction_date)}
                       </span>
                       {tx.category ? (
                         <Badge variant="default">{tx.category}</Badge>
                       ) : (
-                        <span className="text-xs text-gray-400 dark:text-gray-600">Uncategorized</span>
+                        <span className="text-xs text-ink-faint">Uncategorized</span>
                       )}
                       <Badge variant={tx.transaction_type === 'credit' ? 'success' : 'danger'}>
                         {tx.transaction_type === 'credit' ? 'Credit' : 'Debit'}
@@ -273,10 +273,8 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
                     </div>
                   </div>
                   <span
-                    className={`max-w-[44%] flex-shrink-0 text-right text-sm font-semibold tabular-nums ${
-                      tx.transaction_type === 'credit'
-                        ? 'text-green-600 dark:text-green-400'
-                        : 'text-red-500 dark:text-red-400'
+                    className={`max-w-[44%] flex-shrink-0 text-right text-sm font-semibold tabular-nums font-mono ${
+                      tx.transaction_type === 'credit' ? 'text-positive' : 'text-negative'
                     }`}
                   >
                     {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}
@@ -287,57 +285,57 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[680px] text-sm">
-              <thead className="border-b border-gray-200 dark:border-gray-800">
+              <thead className="border-b border-line">
                 <tr>
                   <th
                     className="px-6 py-3 text-left cursor-pointer group"
                     onClick={() => handleSort('transaction_date')}
                   >
-                    <span className="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <span className="flex items-center gap-1 text-xs font-medium text-ink-faint uppercase tracking-wider">
                       Date <SortIcon field="transaction_date" />
                     </span>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-ink-faint uppercase tracking-wider">
                     Description
                   </th>
                   <th
                     className="px-6 py-3 text-left cursor-pointer hidden sm:table-cell"
                     onClick={() => handleSort('category')}
                   >
-                    <span className="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <span className="flex items-center gap-1 text-xs font-medium text-ink-faint uppercase tracking-wider">
                       Category <SortIcon field="category" />
                     </span>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-ink-faint uppercase tracking-wider hidden md:table-cell">
                     Type
                   </th>
                   <th
                     className="px-6 py-3 text-right cursor-pointer"
                     onClick={() => handleSort('amount')}
                   >
-                    <span className="flex items-center justify-end gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <span className="flex items-center justify-end gap-1 text-xs font-medium text-ink-faint uppercase tracking-wider">
                       Amount <SortIcon field="amount" />
                     </span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              <tbody className="divide-y divide-line">
                 {paginated.map((tx) => (
                   <tr
                     key={tx.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                    className="hover:bg-surface-sunken transition-colors"
                   >
-                    <td className="px-6 py-3.5 whitespace-nowrap text-gray-500 dark:text-gray-400">
+                    <td className="px-6 py-3.5 whitespace-nowrap text-ink-muted">
                       {formatDate(tx.transaction_date)}
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900 dark:text-gray-100 font-medium">
+                    <td className="px-6 py-3.5 text-ink font-medium">
                       {tx.description}
                     </td>
                     <td className="px-6 py-3.5 hidden sm:table-cell">
                       {tx.category ? (
                         <Badge variant="default">{tx.category}</Badge>
                       ) : (
-                        <span className="text-gray-400 dark:text-gray-600 text-xs">—</span>
+                        <span className="text-ink-faint text-xs">—</span>
                       )}
                     </td>
                     <td className="px-6 py-3.5 hidden md:table-cell">
@@ -347,10 +345,8 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
                     </td>
                     <td className="px-6 py-3.5 text-right whitespace-nowrap">
                       <span
-                        className={`font-semibold tabular-nums ${
-                          tx.transaction_type === 'credit'
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-500 dark:text-red-400'
+                        className={`font-semibold tabular-nums font-mono ${
+                          tx.transaction_type === 'credit' ? 'text-positive' : 'text-negative'
                         }`}
                       >
                         {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}
@@ -366,8 +362,8 @@ export function TransactionTable({ transactions, accountOptions = [] }: Transact
 
         {/* Pagination */}
         {sorted.length > 0 && (
-          <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex flex-col gap-3 border-t border-line px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p className="text-sm text-ink-muted">
               {sorted.length} transaction{sorted.length !== 1 ? 's' : ''}
               {' '}&mdash; Page {page} of {totalPages}
             </p>

@@ -78,34 +78,34 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const TONE_CLASSES: Record<Tone, { icon: string; accent: string; text: string }> = {
   brand: {
-    icon: 'bg-brand-500/10 text-brand-500',
-    accent: 'bg-brand-500',
-    text: 'text-brand-500',
+    icon: 'bg-accent-soft text-accent-ink',
+    accent: 'bg-accent',
+    text: 'text-accent',
   },
   green: {
-    icon: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-    accent: 'bg-emerald-500',
-    text: 'text-emerald-600 dark:text-emerald-400',
+    icon: 'bg-positive-soft text-positive',
+    accent: 'bg-positive',
+    text: 'text-positive',
   },
   blue: {
-    icon: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    accent: 'bg-blue-500',
-    text: 'text-blue-600 dark:text-blue-400',
+    icon: 'bg-info-soft text-info',
+    accent: 'bg-info',
+    text: 'text-info',
   },
   amber: {
-    icon: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-    accent: 'bg-amber-500',
-    text: 'text-amber-600 dark:text-amber-400',
+    icon: 'bg-warning-soft text-warning',
+    accent: 'bg-warning',
+    text: 'text-warning',
   },
   red: {
-    icon: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    accent: 'bg-red-500',
-    text: 'text-red-600 dark:text-red-400',
+    icon: 'bg-negative-soft text-negative',
+    accent: 'bg-negative',
+    text: 'text-negative',
   },
   slate: {
-    icon: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-    accent: 'bg-slate-500',
-    text: 'text-slate-600 dark:text-slate-400',
+    icon: 'bg-surface-sunken text-ink-muted',
+    accent: 'bg-ink-faint',
+    text: 'text-ink-muted',
   },
 };
 
@@ -432,11 +432,11 @@ function MetricTile({
           <div className={`rounded-lg p-2 ${TONE_CLASSES[tone].icon}`}>{icon}</div>
           <span className={`mt-1 h-2 w-2 rounded-full ${TONE_CLASSES[tone].accent}`} aria-hidden="true" />
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-        <p className="mt-1 break-words text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+        <p className="text-sm text-ink-muted">{label}</p>
+        <p className="mt-1 break-words text-2xl font-semibold tracking-tight text-ink font-mono tabular-nums">
           {value}
         </p>
-        <p className="mt-2 min-h-8 text-xs leading-4 text-gray-500 dark:text-gray-400">
+        <p className="mt-2 min-h-8 text-xs leading-4 text-ink-muted">
           {helper}
         </p>
       </CardBody>
@@ -453,7 +453,7 @@ function CompositionBar({
 
   return (
     <div className="space-y-3">
-      <div className="flex h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+      <div className="flex h-3 overflow-hidden rounded-full bg-surface-sunken">
         {items.map((item) => {
           const pct = total > 0 ? (Math.max(0, item.value) / total) * 100 : 0;
           return (
@@ -471,11 +471,11 @@ function CompositionBar({
           const pct = total > 0 ? (Math.max(0, item.value) / total) * 100 : 0;
           return (
             <div key={item.label} className="flex items-center justify-between gap-3 text-sm">
-              <span className="flex min-w-0 items-center gap-2 text-gray-600 dark:text-gray-300">
+              <span className="flex min-w-0 items-center gap-2 text-ink-muted">
                 <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TONE_CLASSES[item.tone].accent}`} />
                 <span className="truncate">{item.label}</span>
               </span>
-              <span className="shrink-0 text-right text-xs font-medium tabular-nums text-gray-500 dark:text-gray-400">
+              <span className="shrink-0 text-right text-xs font-medium tabular-nums text-ink-muted">
                 {formatPercent(pct)}
               </span>
             </div>
@@ -504,8 +504,8 @@ function PortfolioComposition({
       <CardHeader>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Portfolio Equation</h2>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            <h2 className="text-base font-semibold text-ink">Portfolio Equation</h2>
+            <p className="mt-0.5 text-xs text-ink-muted">
               Gross assets minus liabilities equals your tracked net worth
             </p>
           </div>
@@ -519,8 +519,8 @@ function PortfolioComposition({
           <div>
             <div className="mb-3 flex items-end justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase text-gray-400 dark:text-gray-500">Assets</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-gray-900 dark:text-white">
+                <p className="text-xs font-medium uppercase tracking-wider text-ink-faint">Assets</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums font-mono text-ink">
                   {formatCurrency(grossAssets)}
                 </p>
               </div>
@@ -528,19 +528,19 @@ function PortfolioComposition({
             <CompositionBar items={assetItems} />
           </div>
 
-          <div className="hidden h-full w-px bg-gray-200 dark:bg-gray-800 lg:block" />
+          <div className="hidden h-full w-px bg-line lg:block" />
 
           <div>
             <div className="mb-3 flex items-end justify-between gap-3">
               <div>
-                <p className="text-xs font-medium uppercase text-gray-400 dark:text-gray-500">Liabilities</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-gray-900 dark:text-white">
+                <p className="text-xs font-medium uppercase tracking-wider text-ink-faint">Liabilities</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums font-mono text-ink">
                   {formatCurrency(totalLiabilities)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Net worth</p>
-                <p className={`text-lg font-bold tabular-nums ${netWorth >= 0 ? TONE_CLASSES.green.text : TONE_CLASSES.red.text}`}>
+                <p className="text-xs text-ink-muted">Net worth</p>
+                <p className={`text-lg font-semibold tabular-nums font-mono ${netWorth >= 0 ? TONE_CLASSES.green.text : TONE_CLASSES.red.text}`}>
                   {formatSignedCurrency(netWorth)}
                 </p>
               </div>
@@ -559,8 +559,8 @@ function AnalyticsMatrix({ rows }: { rows: MatrixRow[] }) {
       <CardHeader>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Cross-Tab Matrix</h2>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            <h2 className="text-base font-semibold text-ink">Cross-Tab Matrix</h2>
+            <p className="mt-0.5 text-xs text-ink-muted">
               Every dashboard tab rolled into one comparable set of numbers
             </p>
           </div>
@@ -568,15 +568,15 @@ function AnalyticsMatrix({ rows }: { rows: MatrixRow[] }) {
         </div>
       </CardHeader>
       <CardBody className="p-0">
-        <div className="divide-y divide-gray-100 dark:divide-gray-800 lg:hidden">
+        <div className="divide-y divide-line lg:hidden">
           {rows.map((row) => (
             <div key={row.section} className="px-4 py-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
-                  <Link href={row.href} className="text-sm font-semibold text-gray-900 hover:text-brand-500 dark:text-white">
+                  <Link href={row.href} className="text-sm font-semibold text-ink hover:text-accent transition-colors">
                     {row.section}
                   </Link>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{row.count}</p>
+                  <p className="mt-0.5 text-xs text-ink-muted">{row.count}</p>
                 </div>
                 <Badge variant={row.statusVariant}>{row.status}</Badge>
               </div>
@@ -585,12 +585,12 @@ function AnalyticsMatrix({ rows }: { rows: MatrixRow[] }) {
                 <MatrixMobileMetric label={row.secondaryLabel} value={row.secondaryValue} />
               </div>
               <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-                <span className="text-gray-500 dark:text-gray-400">Net worth effect</span>
-                <span className={`font-semibold tabular-nums ${row.netEffect != null && row.netEffect < 0 ? TONE_CLASSES.red.text : TONE_CLASSES.green.text}`}>
+                <span className="text-ink-muted">Net worth effect</span>
+                <span className={`font-semibold tabular-nums font-mono ${row.netEffect != null && row.netEffect < 0 ? TONE_CLASSES.red.text : TONE_CLASSES.green.text}`}>
                   {row.netEffect == null ? 'Signal only' : formatSignedCurrency(row.netEffect)}
                 </span>
               </div>
-              <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{row.note}</p>
+              <p className="mt-2 text-xs leading-5 text-ink-muted">{row.note}</p>
             </div>
           ))}
         </div>
@@ -598,44 +598,44 @@ function AnalyticsMatrix({ rows }: { rows: MatrixRow[] }) {
         <div className="hidden overflow-x-auto lg:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-800">
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+              <tr className="border-b border-line">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-ink-faint">
                   Tab
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-ink-faint">
                   Primary
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-ink-faint">
                   Secondary
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-ink-faint">
                   Net Effect
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-ink-faint">
                   Status
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            <tbody className="divide-y divide-line">
               {rows.map((row) => (
-                <tr key={row.section} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                <tr key={row.section} className="transition-colors hover:bg-surface-sunken">
                   <td className="px-6 py-4 align-top">
-                    <Link href={row.href} className="font-semibold text-gray-900 hover:text-brand-500 dark:text-white">
+                    <Link href={row.href} className="font-semibold text-ink hover:text-accent transition-colors">
                       {row.section}
                     </Link>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{row.count}</p>
-                    <p className="mt-2 max-w-xs text-xs leading-5 text-gray-500 dark:text-gray-400">{row.note}</p>
+                    <p className="mt-1 text-xs text-ink-muted">{row.count}</p>
+                    <p className="mt-2 max-w-xs text-xs leading-5 text-ink-muted">{row.note}</p>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{row.primaryLabel}</p>
-                    <p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-white">{row.primaryValue}</p>
+                    <p className="text-xs text-ink-muted">{row.primaryLabel}</p>
+                    <p className="mt-1 font-semibold tabular-nums font-mono text-ink">{row.primaryValue}</p>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{row.secondaryLabel}</p>
-                    <p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-white">{row.secondaryValue}</p>
+                    <p className="text-xs text-ink-muted">{row.secondaryLabel}</p>
+                    <p className="mt-1 font-semibold tabular-nums font-mono text-ink">{row.secondaryValue}</p>
                   </td>
                   <td className="px-6 py-4 text-right align-top">
-                    <span className={`font-semibold tabular-nums ${row.netEffect != null && row.netEffect < 0 ? TONE_CLASSES.red.text : TONE_CLASSES.green.text}`}>
+                    <span className={`font-semibold tabular-nums font-mono ${row.netEffect != null && row.netEffect < 0 ? TONE_CLASSES.red.text : TONE_CLASSES.green.text}`}>
                       {row.netEffect == null ? 'Signal only' : formatSignedCurrency(row.netEffect)}
                     </span>
                   </td>
@@ -654,9 +654,9 @@ function AnalyticsMatrix({ rows }: { rows: MatrixRow[] }) {
 
 function MatrixMobileMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold tabular-nums text-gray-900 dark:text-white">
+    <div className="rounded-lg bg-surface-sunken p-3">
+      <p className="text-xs text-ink-muted">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold tabular-nums font-mono text-ink">
         {value}
       </p>
     </div>
@@ -672,8 +672,8 @@ function CashFlowTrend({ trends }: { trends: MonthlyTrend[] }) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Six-Month Activity</h2>
-        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+        <h2 className="text-base font-semibold text-ink">Six-Month Activity</h2>
+        <p className="mt-0.5 text-xs text-ink-muted">
           Income, cash expenses, and credit-card spend shown side by side
         </p>
       </CardHeader>
@@ -681,13 +681,13 @@ function CashFlowTrend({ trends }: { trends: MonthlyTrend[] }) {
         <div className="space-y-4">
           {trends.map((month) => (
             <div key={month.label} className="grid grid-cols-[2.75rem_1fr] items-center gap-3">
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{month.label}</span>
+              <span className="text-xs font-medium text-ink-muted">{month.label}</span>
               <div>
                 <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-                  <span className="text-gray-500 dark:text-gray-400">
+                  <span className="text-ink-muted font-mono tabular-nums">
                     Net {formatSignedCurrency(month.net)}
                   </span>
-                  <span className="tabular-nums text-gray-400 dark:text-gray-500">
+                  <span className="tabular-nums text-ink-faint">
                     {month.txCount} tx
                   </span>
                 </div>
@@ -719,9 +719,9 @@ function TrendBar({
   const height = clampPercent((value / maxValue) * 100);
 
   return (
-    <div className="flex h-16 flex-col justify-end rounded-md bg-gray-50 px-1.5 pb-1.5 dark:bg-gray-800/50" title={`${label}: ${formatCurrency(value)}`}>
+    <div className="flex h-16 flex-col justify-end rounded-md bg-surface-sunken px-1.5 pb-1.5" title={`${label}: ${formatCurrency(value)}`}>
       <div className={`min-h-1 rounded-sm ${TONE_CLASSES[tone].accent}`} style={{ height: `${height}%` }} />
-      <span className="mt-1 truncate text-center text-[10px] leading-none text-gray-400 dark:text-gray-500">
+      <span className="mt-1 truncate text-center text-[10px] leading-none text-ink-faint">
         {label}
       </span>
     </div>
@@ -732,18 +732,18 @@ function InsightsPanel({ insights }: { insights: InsightItem[] }) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Live Signals</h2>
-        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+        <h2 className="text-base font-semibold text-ink">Live Signals</h2>
+        <p className="mt-0.5 text-xs text-ink-muted">
           Recommendation inputs generated from current dashboard numbers
         </p>
       </CardHeader>
       <CardBody>
         <div className="space-y-3">
           {insights.map((item) => (
-            <div key={item.title} className="flex items-start justify-between gap-4 rounded-lg border border-gray-100 px-3 py-3 dark:border-gray-800">
+            <div key={item.title} className="flex items-start justify-between gap-4 rounded-lg border border-line px-3 py-3">
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.title}</p>
-                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{item.detail}</p>
+                <p className="text-sm font-semibold text-ink">{item.title}</p>
+                <p className="mt-1 text-xs leading-5 text-ink-muted">{item.detail}</p>
               </div>
               <Badge variant={item.variant}>Signal</Badge>
             </div>
@@ -1119,19 +1119,19 @@ export default async function DashboardPage() {
   const hasData = accounts.length > 0 || allTransactions.length > 0 || assets.length > 0 || debts.length > 0 || installments.length > 0;
 
   return (
-    <div className="space-y-6 p-4 sm:space-y-8 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:space-y-8 sm:p-6 lg:p-8 ledger-stagger">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Analytics Overview</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Analytics Overview</h1>
+          <p className="mt-1 text-sm text-ink-muted">
             {hasData
               ? `Your cross-tab financial matrix for ${currentMonthLabel()}`
               : 'Connect data in Settings to unlock the full analytics matrix'}
           </p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-left shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:text-right">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Financial health</p>
-          <p className="mt-1 text-xl font-bold tabular-nums text-gray-900 dark:text-white">{healthScore}/100</p>
+        <div className="rounded-lg border border-line bg-surface px-4 py-3 text-left shadow-sm sm:text-right">
+          <p className="text-xs text-ink-muted">Financial health</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums font-mono text-ink">{healthScore}/100</p>
         </div>
       </div>
 

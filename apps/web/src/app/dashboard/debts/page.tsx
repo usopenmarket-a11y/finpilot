@@ -96,8 +96,8 @@ export default function DebtsPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Debt Tracker</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Debt Tracker</h1>
+          <p className="text-sm text-ink-muted mt-1">
             Track money you&apos;ve lent and borrowed
           </p>
         </div>
@@ -110,42 +110,42 @@ export default function DebtsPage() {
       </div>
 
       {fetchError && (
-        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3">
-          <p className="text-sm text-red-700 dark:text-red-400 font-medium">Failed to load debts</p>
-          <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">{fetchError}</p>
+        <div className="rounded-xl border border-negative/20 bg-negative-soft px-4 py-3">
+          <p className="text-sm text-negative font-medium">Failed to load debts</p>
+          <p className="text-xs text-negative/80 mt-0.5">{fetchError}</p>
         </div>
       )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
       ) : (
         <>
           {/* Summary stats */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total to Collect</p>
-              <p className="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">
+            <div className="bg-surface border border-line rounded-xl p-4">
+              <p className="text-xs text-ink-muted mb-1">Total to Collect</p>
+              <p className="text-xl font-semibold text-positive tabular-nums font-mono">
                 EGP {formatEGP(totalLent)}
               </p>
             </div>
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Owed</p>
-              <p className="text-xl font-bold text-red-500 dark:text-red-400 tabular-nums">
+            <div className="bg-surface border border-line rounded-xl p-4">
+              <p className="text-xs text-ink-muted mb-1">Total Owed</p>
+              <p className="text-xl font-semibold text-negative tabular-nums font-mono">
                 EGP {formatEGP(totalBorrowed)}
               </p>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-800">
+          <div className="flex gap-1 overflow-x-auto border-b border-line">
             <button
               onClick={() => setActiveTab('lending')}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === 'lending'
-                  ? 'border-brand-500 text-brand-500'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-ink-muted hover:text-ink'
               }`}
             >
               Lending
@@ -155,8 +155,8 @@ export default function DebtsPage() {
               onClick={() => setActiveTab('borrowing')}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === 'borrowing'
-                  ? 'border-brand-500 text-brand-500'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-ink-muted hover:text-ink'
               }`}
             >
               Borrowing

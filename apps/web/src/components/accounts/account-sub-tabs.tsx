@@ -38,14 +38,14 @@ function formatDate(dateStr: string): string {
 
 function CreditUtilizationBar({ used, limit }: { used: number; limit: number }) {
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const color = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500';
+  const color = pct >= 90 ? 'bg-negative' : pct >= 70 ? 'bg-warning' : 'bg-positive';
   return (
     <div>
-      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+      <div className="flex justify-between text-xs text-ink-muted mb-1">
         <span>Credit utilization</span>
-        <span className="font-medium">{pct.toFixed(0)}%</span>
+        <span className="font-medium tabular-nums">{pct.toFixed(0)}%</span>
       </div>
-      <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+      <div className="h-2 rounded-full bg-surface-sunken overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct.toFixed(1)}%` }} />
       </div>
     </div>
@@ -58,9 +58,9 @@ function CreditUtilizationBar({ used, limit }: { used: number; limit: number }) 
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1 py-2 border-b border-gray-100 dark:border-gray-800 last:border-0 sm:flex-row sm:items-center sm:justify-between">
-      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
-      <span className="break-words text-sm font-medium text-gray-900 dark:text-gray-100 sm:text-right">{value}</span>
+    <div className="flex flex-col gap-1 py-2 border-b border-line last:border-0 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm text-ink-muted">{label}</span>
+      <span className="break-words text-sm font-medium text-ink sm:text-right">{value}</span>
     </div>
   );
 }
@@ -83,11 +83,11 @@ function AccountDetailsPanel({ account }: { account: BankAccountRow }) {
   return (
     <div className="space-y-4">
       {/* Balance — prominent */}
-      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+      <div className="bg-surface-sunken rounded-lg p-4">
+        <p className="text-xs text-ink-muted mb-1">
           {isCreditCard ? 'Outstanding Balance' : 'Balance'}
         </p>
-        <p className={`break-words text-xl font-bold tabular-nums sm:text-2xl ${isCreditCard ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white'}`}>
+        <p className={`break-words text-xl font-semibold tabular-nums font-mono sm:text-2xl ${isCreditCard ? 'text-warning' : 'text-ink'}`}>
           {account.currency} {formatAmount(balance)}
         </p>
       </div>
@@ -127,7 +127,7 @@ function AccountDetailsPanel({ account }: { account: BankAccountRow }) {
           {interestRate != null && (
             <DetailRow
               label="Interest Rate"
-              value={<span className="text-emerald-600 dark:text-emerald-400">{(interestRate * 100).toFixed(2)}%</span>}
+              value={<span className="text-positive font-mono tabular-nums">{(interestRate * 100).toFixed(2)}%</span>}
             />
           )}
           {account.maturity_date != null && (
@@ -160,7 +160,7 @@ function AccountTransactionsPanel({ transactions }: { transactions: TransactionR
   if (transactions.length === 0) {
     return (
       <div className="py-12 text-center">
-        <p className="text-sm text-gray-400 dark:text-gray-500">No transactions yet</p>
+        <p className="text-sm text-ink-faint">No transactions yet</p>
       </div>
     );
   }
@@ -169,32 +169,30 @@ function AccountTransactionsPanel({ transactions }: { transactions: TransactionR
   const displayed = transactions.slice(0, 50);
 
   return (
-    <div className="divide-y divide-gray-100 dark:divide-gray-800">
+    <div className="divide-y divide-line">
       {displayed.map((tx) => {
         const isCredit = tx.transaction_type === 'credit';
         const amount = parseFloat(String(tx.amount));
         return (
           <div key={tx.id} className="flex items-start justify-between py-2.5 gap-3">
             <div className="flex flex-col min-w-0">
-              <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
+              <span className="text-sm text-ink truncate">
                 {tx.description}
               </span>
               <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                <span className="text-xs text-gray-400 dark:text-gray-500">
+                <span className="text-xs text-ink-faint">
                   {formatDate(tx.transaction_date)}
                 </span>
                 {tx.category && (
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                  <span className="text-xs text-ink-faint">
                     · {tx.category}
                   </span>
                 )}
               </div>
             </div>
             <span
-              className={`max-w-[45%] text-right text-sm font-semibold tabular-nums flex-shrink-0 ${
-                isCredit
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-red-600 dark:text-red-400'
+              className={`max-w-[45%] text-right text-sm font-semibold tabular-nums font-mono flex-shrink-0 ${
+                isCredit ? 'text-positive' : 'text-negative'
               }`}
             >
               {isCredit ? '+' : '-'}{tx.currency} {formatAmount(amount)}
@@ -203,7 +201,7 @@ function AccountTransactionsPanel({ transactions }: { transactions: TransactionR
         );
       })}
       {transactions.length > 50 && (
-        <p className="text-xs text-center text-gray-400 dark:text-gray-500 py-3">
+        <p className="text-xs text-center text-ink-faint py-3">
           Showing 50 of {transactions.length} transactions
         </p>
       )}
@@ -226,20 +224,20 @@ export function AccountSubTabs({ account, transactions }: AccountSubTabsProps) {
   return (
     <div className="px-4 pb-4">
       {/* Tab bar */}
-      <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-700 mb-4 -mx-4 px-4">
+      <div className="flex overflow-x-auto border-b border-line mb-4 -mx-4 px-4">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === tab.key
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-ink-muted hover:text-ink'
             }`}
           >
             {tab.label}
             {tab.key === 'transactions' && transactions.length > 0 && (
-              <span className="ml-1.5 text-xs tabular-nums text-gray-400 dark:text-gray-500">
+              <span className="ml-1.5 text-xs tabular-nums text-ink-faint">
                 ({Math.min(transactions.length, 50)})
               </span>
             )}

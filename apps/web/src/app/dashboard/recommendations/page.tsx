@@ -281,10 +281,10 @@ function SectionError({ title }: { title: string }) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h2>
+        <h2 className="text-base font-semibold text-ink">{title}</h2>
       </CardHeader>
       <CardBody>
-        <p className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+        <p className="py-4 text-center text-sm text-ink-muted">
           Unable to load — try refreshing the page.
         </p>
       </CardBody>
@@ -297,16 +297,16 @@ function EmptyState() {
     <Card>
       <CardBody>
         <div className="flex flex-col items-center gap-3 py-10 text-center">
-          <p className="text-base font-semibold text-gray-900 dark:text-white">
+          <p className="text-base font-semibold text-ink">
             No transactions yet
           </p>
-          <p className="max-w-sm text-sm text-gray-500 dark:text-gray-400">
+          <p className="max-w-sm text-sm text-ink-muted">
             Connect a bank account in Settings to get personalised recommendations based on your
             real spending.
           </p>
           <Link
             href="/dashboard/settings"
-            className="mt-2 inline-flex items-center rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            className="mt-2 inline-flex items-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors"
           >
             Go to Settings
           </Link>
@@ -353,8 +353,8 @@ export default async function RecommendationsPage() {
 
   const header = (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Recommendations</h1>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <h1 className="text-3xl font-semibold tracking-tight text-ink">Recommendations</h1>
+      <p className="mt-1 text-sm text-ink-muted">
         Personalised insights to improve your financial health
       </p>
     </div>
@@ -488,12 +488,12 @@ export default async function RecommendationsPage() {
           ) : monthlyBudget <= 0 ? (
             <Card>
               <CardHeader>
-                <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                <h2 className="text-base font-semibold text-ink">
                   Debt Payoff Plan
                 </h2>
               </CardHeader>
               <CardBody>
-                <p className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                <p className="py-4 text-center text-sm text-ink-muted">
                   No surplus available to model a payoff plan
                   {projectedSavings > 0 && (
                     <>

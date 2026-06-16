@@ -67,32 +67,34 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950 px-4 py-8">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-50">
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-4 py-8">
+      <div className="w-full max-w-sm ledger-stagger">
+        {/* Wordmark */}
+        <div className="mb-8 text-center">
+          <h1 className="text-4xl font-semibold tracking-tight text-ink">
             FinPilot
           </h1>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-sm text-ink-muted">
             Sign in to your account
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm sm:p-6">
+        {/* Card */}
+        <div className="rounded-xl border border-line bg-surface p-6 shadow-md">
           {errors.general && (
             <div
               role="alert"
-              className="mb-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400"
+              className="mb-5 rounded-lg bg-negative-soft border border-negative/20 px-4 py-3 text-sm text-negative"
             >
               {errors.general}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} noValidate className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-5">
             <div className="space-y-1.5">
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                className="block text-sm font-medium text-ink"
               >
                 Email
               </label>
@@ -105,12 +107,12 @@ export default function LoginPage() {
                 onChange={handleChange}
                 aria-describedby={errors.email ? 'email-error' : undefined}
                 aria-invalid={!!errors.email}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
+                className="w-full rounded-lg border border-line-strong bg-surface-sunken px-3 py-2.5 text-sm text-ink placeholder-ink-faint shadow-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
                 placeholder="you@example.com"
                 disabled={isLoading}
               />
               {errors.email && (
-                <p id="email-error" className="text-xs text-red-600 dark:text-red-400">
+                <p id="email-error" className="text-xs text-negative">
                   {errors.email}
                 </p>
               )}
@@ -120,13 +122,13 @@ export default function LoginPage() {
               <div className="flex items-center justify-between">
                 <label
                   htmlFor="password"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  className="block text-sm font-medium text-ink"
                 >
                   Password
                 </label>
                 <Link
                   href="/auth/reset-password"
-                  className="text-xs text-brand-500 hover:text-brand-600 dark:hover:text-brand-400"
+                  className="text-xs text-accent hover:text-accent-hover transition-colors"
                 >
                   Forgot password?
                 </Link>
@@ -140,12 +142,12 @@ export default function LoginPage() {
                 onChange={handleChange}
                 aria-describedby={errors.password ? 'password-error' : undefined}
                 aria-invalid={!!errors.password}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
+                className="w-full rounded-lg border border-line-strong bg-surface-sunken px-3 py-2.5 text-sm text-ink placeholder-ink-faint shadow-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
                 placeholder="••••••••"
                 disabled={isLoading}
               />
               {errors.password && (
-                <p id="password-error" className="text-xs text-red-600 dark:text-red-400">
+                <p id="password-error" className="text-xs text-negative">
                   {errors.password}
                 </p>
               )}
@@ -154,18 +156,18 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
             >
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+        <p className="mt-6 text-center text-sm text-ink-muted">
           Don&apos;t have an account?{' '}
           <Link
             href="/auth/signup"
-            className="font-medium text-brand-500 hover:text-brand-600 dark:hover:text-brand-400"
+            className="font-medium text-accent hover:text-accent-hover transition-colors"
           >
             Sign Up
           </Link>

@@ -10,7 +10,7 @@ interface AccountCardProps {
   icon: ReactNode;
 }
 
-function formatAmount(amount: number, currency: string): string {
+function formatAmount(amount: number): string {
   return new Intl.NumberFormat('en-EG', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -20,16 +20,14 @@ function formatAmount(amount: number, currency: string): string {
 function TrendArrow({ trend, changePercent }: { trend: 'up' | 'down' | 'neutral'; changePercent: number }) {
   if (trend === 'neutral') {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+      <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
         — {changePercent.toFixed(1)}%
       </span>
     );
   }
 
   const isUp = trend === 'up';
-  const colorClass = isUp
-    ? 'text-green-600 dark:text-green-400'
-    : 'text-red-500 dark:text-red-400';
+  const colorClass = isUp ? 'text-positive' : 'text-negative';
 
   return (
     <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${colorClass}`}>
@@ -59,12 +57,12 @@ export function AccountCard({
     <Card>
       <CardBody className="p-4 sm:p-5">
         <div className="flex items-start justify-between mb-3">
-          <div className="p-2 rounded-lg bg-brand-500/10 text-brand-500">{icon}</div>
+          <div className="p-2 rounded-lg bg-accent-soft text-accent-ink">{icon}</div>
           <TrendArrow trend={trend} changePercent={changePercent} />
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-        <p className="break-words text-xl font-bold text-gray-900 dark:text-white tracking-tight sm:text-2xl">
-          {currency} {formatAmount(amount, currency)}
+        <p className="text-sm text-ink-muted mb-1">{label}</p>
+        <p className="break-words text-xl font-semibold text-ink tracking-tight font-mono tabular-nums sm:text-2xl">
+          {currency} {formatAmount(amount)}
         </p>
       </CardBody>
     </Card>

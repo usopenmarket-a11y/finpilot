@@ -147,29 +147,26 @@ export function Sidebar({ userEmail }: SidebarProps) {
 
   const sidebarContent = (
     <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-800">
-        <span className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-          Fin<span className="text-brand-500">Pilot</span>
+      {/* Editorial wordmark */}
+      <div className="px-6 py-5 border-b border-line">
+        <span className="font-display text-xl font-semibold tracking-tight text-ink">
+          Fin<span className="text-accent">Pilot</span>
         </span>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5" aria-label="Main navigation">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto" aria-label="Main navigation">
         {NAV_ITEMS.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             onClick={() => setMobileOpen(false)}
-            className={`
-              flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
-              transition-colors duration-150
-              ${
-                isActive(item.href)
-                  ? 'bg-brand-500/10 text-brand-500'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100'
-              }
-            `}
+            className={[
+              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150',
+              isActive(item.href)
+                ? 'bg-accent-soft text-accent-ink border-l-2 border-accent ps-[10px]'
+                : 'text-ink-muted hover:bg-surface-sunken hover:text-ink',
+            ].join(' ')}
             aria-current={isActive(item.href) ? 'page' : undefined}
           >
             {item.icon}
@@ -179,19 +176,19 @@ export function Sidebar({ userEmail }: SidebarProps) {
       </nav>
 
       {/* User section */}
-      <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-800">
+      <div className="px-4 py-4 border-t border-line">
         <div className="flex items-center gap-3 mb-3">
-          <div className="h-8 w-8 rounded-full bg-brand-500/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-brand-500 text-sm font-semibold">
+          <div className="h-8 w-8 rounded-full bg-accent-soft flex items-center justify-center flex-shrink-0">
+            <span className="text-accent-ink text-sm font-semibold">
               {userEmail.charAt(0).toUpperCase()}
             </span>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{userEmail}</p>
+          <p className="text-xs text-ink-muted truncate">{userEmail}</p>
         </div>
         <button
           onClick={handleSignOut}
           disabled={signingOut}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-150 disabled:opacity-50"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors duration-150 disabled:opacity-50"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -205,13 +202,13 @@ export function Sidebar({ userEmail }: SidebarProps) {
   return (
     <>
       {/* Mobile top bar */}
-      <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 lg:hidden">
-        <span className="text-lg font-bold text-gray-900 dark:text-white">
-          Fin<span className="text-brand-500">Pilot</span>
+      <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-surface border-b border-line lg:hidden">
+        <span className="font-display text-lg font-semibold tracking-tight text-ink">
+          Fin<span className="text-accent">Pilot</span>
         </span>
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="p-2 rounded-lg text-ink-muted hover:bg-surface-sunken transition-colors"
           aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={mobileOpen}
         >
@@ -231,18 +228,18 @@ export function Sidebar({ userEmail }: SidebarProps) {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40 flex">
           <div
-            className="absolute inset-0 bg-black/50"
+            className="absolute inset-0 bg-overlay"
             onClick={() => setMobileOpen(false)}
             aria-hidden="true"
           />
-          <div className="relative w-80 max-w-[85vw] bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
+          <div className="relative w-80 max-w-[85vw] bg-surface border-e border-line flex flex-col">
             {sidebarContent}
           </div>
         </div>
       )}
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex-shrink-0 h-screen sticky top-0">
+      <aside className="hidden lg:flex flex-col w-64 bg-surface border-e border-line flex-shrink-0 h-screen sticky top-0">
         {sidebarContent}
       </aside>
     </>

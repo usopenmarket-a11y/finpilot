@@ -37,28 +37,28 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-base font-semibold text-ink">
             Recent Transactions
           </h2>
           <Link
             href="/dashboard/transactions"
-            className="text-sm text-brand-500 hover:text-green-600 font-medium transition-colors"
+            className="text-sm text-accent hover:text-accent-hover font-medium transition-colors"
           >
             View all
           </Link>
         </div>
       </CardHeader>
       <CardBody className="p-0">
-        <div className="divide-y divide-gray-100 dark:divide-gray-800 sm:hidden">
+        <div className="divide-y divide-line sm:hidden">
           {transactions.map((tx) => (
             <div key={tx.id} className="px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                  <p className="truncate text-sm font-medium text-ink">
                     {tx.description}
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-xs text-ink-muted">
                       {formatDate(tx.transaction_date)}
                     </span>
                     {tx.category && (
@@ -69,10 +69,8 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
                   </div>
                 </div>
                 <span
-                  className={`max-w-[45%] shrink-0 text-right text-sm font-semibold tabular-nums ${
-                    tx.transaction_type === 'credit'
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-500 dark:text-red-400'
+                  className={`max-w-[45%] shrink-0 text-right text-sm font-semibold tabular-nums font-mono ${
+                    tx.transaction_type === 'credit' ? 'text-positive' : 'text-negative'
                   }`}
                 >
                   {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}
@@ -84,32 +82,32 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
         <div className="hidden overflow-x-auto sm:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-800">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <tr className="border-b border-line">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-faint uppercase tracking-wider">
                   Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-faint uppercase tracking-wider">
                   Description
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">
+                <th className="px-6 py-3 text-left text-xs font-medium text-ink-faint uppercase tracking-wider hidden sm:table-cell">
                   Category
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-ink-faint uppercase tracking-wider">
                   Amount
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            <tbody className="divide-y divide-line">
               {transactions.map((tx) => (
                 <tr
                   key={tx.id}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                  className="hover:bg-surface-sunken transition-colors"
                 >
-                  <td className="px-6 py-3.5 whitespace-nowrap text-gray-500 dark:text-gray-400">
+                  <td className="px-6 py-3.5 whitespace-nowrap text-ink-muted">
                     {formatDate(tx.transaction_date)}
                   </td>
                   <td className="px-6 py-3.5">
-                    <span className="text-gray-900 dark:text-gray-100 font-medium">
+                    <span className="text-ink font-medium">
                       {tx.description}
                     </span>
                   </td>
@@ -122,10 +120,8 @@ export function RecentTransactions({ transactions }: RecentTransactionsProps) {
                   </td>
                   <td className="px-6 py-3.5 text-right whitespace-nowrap">
                     <span
-                      className={`font-semibold tabular-nums ${
-                        tx.transaction_type === 'credit'
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-red-500 dark:text-red-400'
+                      className={`font-semibold tabular-nums font-mono ${
+                        tx.transaction_type === 'credit' ? 'text-positive' : 'text-negative'
                       }`}
                     >
                       {tx.transaction_type === 'credit' ? '+' : '-'} EGP {formatEGP(tx.amount)}

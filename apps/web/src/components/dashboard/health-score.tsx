@@ -26,16 +26,30 @@ function getDescription(label: ScoreLabel): string {
   }
 }
 
-function getColor(label: ScoreLabel): string {
+// Use CSS variable tokens for score colors so they are theme-aware.
+function getColorVar(label: ScoreLabel): string {
   switch (label) {
     case 'Excellent':
-      return '#22c55e';
+      return 'var(--positive)';
     case 'Good':
-      return '#3b82f6';
+      return 'var(--info)';
     case 'Fair':
-      return '#f59e0b';
+      return 'var(--warning)';
     case 'Poor':
-      return '#ef4444';
+      return 'var(--negative)';
+  }
+}
+
+function getTextClass(label: ScoreLabel): string {
+  switch (label) {
+    case 'Excellent':
+      return 'text-positive';
+    case 'Good':
+      return 'text-info';
+    case 'Fair':
+      return 'text-warning';
+    case 'Poor':
+      return 'text-negative';
   }
 }
 
@@ -43,20 +57,20 @@ export function HealthScore({ score }: HealthScoreProps) {
   const clamped = Math.max(0, Math.min(100, score));
   const label = getLabel(clamped);
   const description = getDescription(label);
-  const color = getColor(label);
+  const colorVar = getColorVar(label);
+  const textClass = getTextClass(label);
 
   // SVG circle parameters
   const size = 120;
   const strokeWidth = 10;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  // Start from top (rotate -90deg), fill based on score
   const dashOffset = circumference - (clamped / 100) * circumference;
 
   return (
     <Card>
       <CardBody className="p-5">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
+        <h2 className="text-base font-semibold text-ink mb-4">
           Financial Health Score
         </h2>
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
@@ -77,7 +91,7 @@ export function HealthScore({ score }: HealthScoreProps) {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={strokeWidth}
-                className="text-gray-100 dark:text-gray-800"
+                className="text-surface-sunken"
               />
               {/* Progress arc */}
               <circle
@@ -85,7 +99,7 @@ export function HealthScore({ score }: HealthScoreProps) {
                 cy={size / 2}
                 r={radius}
                 fill="none"
-                stroke={color}
+                stroke={colorVar}
                 strokeWidth={strokeWidth}
                 strokeLinecap="round"
                 strokeDasharray={circumference}
@@ -96,22 +110,19 @@ export function HealthScore({ score }: HealthScoreProps) {
             </svg>
             {/* Centered score text */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-gray-900 dark:text-white leading-none">
+              <span className="text-2xl font-semibold text-ink font-mono leading-none">
                 {clamped}
               </span>
-              <span className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">/ 100</span>
+              <span className="text-xs text-ink-faint mt-0.5">/ 100</span>
             </div>
           </div>
 
           {/* Label + description */}
           <div className="flex-1 min-w-0">
-            <span
-              className="text-lg font-semibold"
-              style={{ color }}
-            >
+            <span className={`text-lg font-semibold ${textClass}`}>
               {label}
             </span>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="mt-1 text-sm text-ink-muted leading-relaxed">
               {description}
             </p>
           </div>

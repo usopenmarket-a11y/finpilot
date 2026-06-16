@@ -23,10 +23,10 @@ export function SpendingChart({ categories }: SpendingChartProps) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-base font-semibold text-ink">
           Spending Breakdown
         </h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+        <p className="text-xs text-ink-muted mt-0.5">
           Current month — EGP {formatEGP(total)} total
         </p>
       </CardHeader>
@@ -43,18 +43,18 @@ export function SpendingChart({ categories }: SpendingChartProps) {
                       style={{ backgroundColor: cat.color }}
                       aria-hidden="true"
                     />
-                    <span className="min-w-0 text-sm text-gray-700 dark:text-gray-300">{cat.name}</span>
+                    <span className="min-w-0 text-sm text-ink">{cat.name}</span>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                    <span className="text-xs text-ink-muted tabular-nums">
                       {pct.toFixed(1)}%
                     </span>
-                    <span className="text-sm font-medium text-gray-900 dark:text-white tabular-nums">
+                    <span className="text-sm font-medium text-ink tabular-nums font-mono">
                       EGP {formatEGP(cat.amount)}
                     </span>
                   </div>
                 </div>
-                <div className="h-2 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-2 w-full bg-surface-sunken rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{ width: `${pct}%`, backgroundColor: cat.color }}

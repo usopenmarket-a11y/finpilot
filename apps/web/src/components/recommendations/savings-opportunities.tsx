@@ -16,15 +16,15 @@ function formatEGP(amount: number): string {
 function typeIcon(opportunityType: string): string {
   switch (opportunityType.toLowerCase()) {
     case 'duplicate':
-      return '\uD83D\uDCB0';   // 💰
+      return '💰';   // 💰
     case 'recurring':
-      return '\uD83D\uDD04';   // 🔄
+      return '🔄';   // 🔄
     case 'fee':
-      return '\u26A0\uFE0F';   // ⚠️
+      return '⚠️';   // ⚠️
     case 'spike':
-      return '\uD83D\uDCC8';   // 📈
+      return '📈';   // 📈
     default:
-      return '\uD83D\uDCA1';   // 💡
+      return '💡';   // 💡
   }
 }
 
@@ -37,7 +37,7 @@ export function SavingsOpportunities({ opportunities }: SavingsOpportunitiesProp
     return (
       <Card>
         <CardBody>
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-6">
+          <p className="text-sm text-ink-muted text-center py-6">
             No savings opportunities detected. Your spending looks optimised!
           </p>
         </CardBody>
@@ -56,19 +56,19 @@ export function SavingsOpportunities({ opportunities }: SavingsOpportunitiesProp
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  <h3 className="text-sm font-semibold text-ink">
                     {opp.title}
                   </h3>
                   <Badge variant="info">{typeLabel(opp.opportunity_type)}</Badge>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                <p className="text-xs text-ink-muted mt-1 leading-relaxed">
                   {opp.description}
                 </p>
               </div>
             </div>
-            <div className="rounded-lg bg-brand-500/10 px-3 py-2 text-sm">
-              <span className="text-gray-600 dark:text-gray-300">Est. monthly saving: </span>
-              <span className="font-bold text-brand-500">
+            <div className="rounded-lg bg-accent-soft px-3 py-2 text-sm">
+              <span className="text-ink-muted">Est. monthly saving: </span>
+              <span className="font-semibold font-mono tabular-nums text-accent-ink">
                 EGP {formatEGP(opp.estimated_monthly_saving)}
               </span>
             </div>

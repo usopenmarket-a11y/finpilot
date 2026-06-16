@@ -71,7 +71,6 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
           : 0;
         const overdue = isOverdue(debt.due_date) && debt.status !== 'settled';
 
-        // Monthly estimate calculation
         const monthsRemaining = debt.due_date
           ? Math.max(1, Math.ceil((new Date(debt.due_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)))
           : null;
@@ -84,22 +83,22 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
         return (
           <div
             key={debt.id}
-            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 flex flex-col gap-4"
+            className="bg-surface border border-line rounded-xl p-5 flex flex-col gap-4"
           >
             {/* Header */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="font-semibold text-gray-900 dark:text-white truncate">
+                <p className="font-semibold text-ink truncate">
                   {debt.counterparty_name}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                <p className="text-xs text-ink-muted mt-0.5">
                   {debt.debt_type === 'lent' ? 'You lent' : 'You borrowed'}
                   {' · '}
-                  <span className={overdue ? 'text-red-500 dark:text-red-400 font-medium' : ''}>
+                  <span className={overdue ? 'text-negative font-medium' : ''}>
                     Due {formatDate(debt.due_date)}
                   </span>
                   {overdue && (
-                    <span className="ml-1 text-red-500 dark:text-red-400 font-medium">(Overdue)</span>
+                    <span className="ml-1 text-negative font-medium">(Overdue)</span>
                   )}
                 </p>
               </div>
@@ -107,7 +106,7 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
                 {/* Edit button */}
                 <button
                   onClick={() => onEditDebt(debt)}
-                  className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  className="p-1.5 rounded-md text-ink-faint hover:text-ink hover:bg-surface-sunken transition-colors"
                   aria-label={`Edit debt with ${debt.counterparty_name}`}
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -123,14 +122,14 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
                         onDeleteDebt(debt.id);
                         setConfirmDeleteId(null);
                       }}
-                      className="px-2 py-1 rounded-md text-xs font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
+                      className="px-2 py-1 rounded-md text-xs font-medium bg-negative hover:opacity-90 text-white transition-opacity"
                       aria-label="Confirm delete"
                     >
                       Delete
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(null)}
-                      className="px-2 py-1 rounded-md text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                      className="px-2 py-1 rounded-md text-xs font-medium text-ink-muted hover:bg-surface-sunken transition-colors"
                       aria-label="Cancel delete"
                     >
                       Cancel
@@ -139,7 +138,7 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
                 ) : (
                   <button
                     onClick={() => setConfirmDeleteId(debt.id)}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    className="p-1.5 rounded-md text-ink-faint hover:text-negative hover:bg-negative-soft transition-colors"
                     aria-label={`Delete debt with ${debt.counterparty_name}`}
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -160,14 +159,14 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
             {/* Amounts */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Original</p>
-                <p className="mt-0.5 break-words text-sm font-semibold tabular-nums text-gray-900 dark:text-white">
+                <p className="text-xs text-ink-muted">Original</p>
+                <p className="mt-0.5 break-words text-sm font-semibold tabular-nums font-mono text-ink">
                   {debt.currency} {formatEGP(debt.original_amount)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Outstanding</p>
-                <p className="mt-0.5 break-words text-sm font-semibold tabular-nums text-gray-900 dark:text-white">
+                <p className="text-xs text-ink-muted">Outstanding</p>
+                <p className="mt-0.5 break-words text-sm font-semibold tabular-nums font-mono text-ink">
                   {debt.currency} {formatEGP(debt.outstanding_balance)}
                 </p>
               </div>
@@ -176,14 +175,14 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
             {/* Progress bar */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-gray-500 dark:text-gray-400">Repaid</span>
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 tabular-nums">
+                <span className="text-xs text-ink-muted">Repaid</span>
+                <span className="text-xs font-medium text-ink tabular-nums">
                   {progressPct.toFixed(0)}%
                 </span>
               </div>
-              <div className="h-2 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-2 w-full bg-surface-sunken rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-brand-500 rounded-full transition-all duration-500"
+                  className="h-full bg-accent rounded-full transition-all duration-500"
                   style={{ width: `${progressPct}%` }}
                   role="progressbar"
                   aria-valuenow={progressPct}
@@ -195,13 +194,13 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
 
             {/* Monthly estimate */}
             {monthlyEstimate !== null && debt.due_date && (
-              <p className="text-xs text-blue-600 dark:text-blue-400 tabular-nums">
+              <p className="text-xs text-info tabular-nums font-mono">
                 Est. monthly payment:{' '}
                 <span className="font-medium">
                   {debt.currency} {formatEGP(monthlyEstimate)}
                 </span>
                 {' '}
-                <span className="text-blue-500 dark:text-blue-500">
+                <span className="text-info/70">
                   ({monthsRemaining} {monthsRemaining === 1 ? 'month' : 'months'} remaining)
                 </span>
               </p>
@@ -209,7 +208,7 @@ export function DebtList({ debts, onAddDebt, onRecordPayment, onEditDebt, onDele
 
             {/* Notes */}
             {debt.notes && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+              <p className="text-xs text-ink-muted italic">
                 &ldquo;{debt.notes}&rdquo;
               </p>
             )}

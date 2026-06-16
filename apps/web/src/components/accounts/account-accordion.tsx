@@ -63,7 +63,7 @@ function accountGradient(type: string): string {
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
-      className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+      className={`h-4 w-4 text-ink-faint transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -104,7 +104,7 @@ function HideButton({ accountId, onHide }: { accountId: string; onHide: (id: str
       onClick={handleHide}
       disabled={hiding}
       title="Hide account (reappears on next sync)"
-      className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 flex-shrink-0"
+      className="p-1.5 rounded text-ink-faint hover:text-negative hover:bg-negative-soft transition-colors disabled:opacity-40 flex-shrink-0"
     >
       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 4.411m0 0L21 21" />
@@ -136,8 +136,8 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide, creden
         onClick={onToggle}
         className={`w-full flex flex-col gap-4 px-4 py-4 rounded-xl border transition-colors text-left sm:flex-row sm:items-center sm:justify-between sm:px-5 ${
           isOpen
-            ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-500'
-            : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-700'
+            ? 'border-accent bg-accent-soft ring-1 ring-accent'
+            : 'border-line bg-surface hover:border-line-strong'
         }`}
       >
         <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:gap-4">
@@ -147,18 +147,18 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide, creden
             </svg>
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+            <p className="truncate text-sm font-semibold text-ink">
               {credentialLabel ? `${account.bank_name} - ${credentialLabel}` : account.bank_name}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+            <p className="text-xs text-ink-muted font-mono mt-0.5">
               {account.account_number_masked}
             </p>
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-4">
           <div className="text-left sm:text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Balance</p>
-            <p className="break-words text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+            <p className="text-xs text-ink-muted">Balance</p>
+            <p className="break-words text-sm font-semibold text-ink tabular-nums font-mono">
               {account.currency} {formatEGP(balance)}
             </p>
           </div>
@@ -171,7 +171,7 @@ function AccordionItem({ account, transactions, isOpen, onToggle, onHide, creden
       </button>
 
       {isOpen && (
-        <div className="mt-2 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
+        <div className="mt-2 border border-line rounded-xl overflow-hidden bg-surface">
           <AccountSubTabs account={account} transactions={transactions} />
         </div>
       )}
@@ -219,7 +219,7 @@ export function AccountAccordion({ accounts: initialAccounts, transactions, cred
 
   if (groups.length === 0) {
     return (
-      <p className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
+      <p className="text-sm text-ink-muted py-4 text-center">
         All accounts hidden. They will reappear after the next sync.
       </p>
     );
@@ -229,7 +229,7 @@ export function AccountAccordion({ accounts: initialAccounts, transactions, cred
     <div className="space-y-6">
       {groups.map((group) => (
         <div key={group.label}>
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+          <h3 className="text-sm font-semibold text-ink-muted mb-3 uppercase tracking-wider text-xs">
             {group.label}
           </h3>
           <div className="space-y-3">

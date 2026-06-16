@@ -37,18 +37,18 @@ export function MonthlyPlanCard({ plan }: MonthlyPlanCardProps) {
         <CardBody>
           <div className="mb-3 flex items-start justify-between">
             <div>
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-base font-semibold text-ink">
                 {monthName} {plan.year} Summary
               </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Projected savings: {' '}
-                <span className="text-brand-500 font-semibold">
+              <p className="text-xs text-ink-muted mt-0.5">
+                Projected savings:{' '}
+                <span className="text-accent font-semibold font-mono tabular-nums">
                   EGP {formatEGP(plan.projected_savings)}
                 </span>
               </p>
             </div>
           </div>
-          <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+          <p className="text-sm text-ink-muted leading-relaxed">
             {plan.summary}
           </p>
         </CardBody>

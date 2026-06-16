@@ -34,12 +34,6 @@ interface ActionFeedProps {
 // Merge + ranking
 // ---------------------------------------------------------------------------
 
-/**
- * Map a savings opportunity's estimated saving to a high/medium/low severity
- * so it can sit alongside action items (which already carry a priority) in a
- * single ranked feed. Thresholds are intentionally coarse — this only drives
- * the accent colour, not the sort order (impact desc handles that).
- */
 function savingsSeverity(estimatedMonthlySaving: number): 'high' | 'medium' | 'low' {
   if (estimatedMonthlySaving >= 300) return 'high';
   if (estimatedMonthlySaving >= 100) return 'medium';
@@ -61,11 +55,6 @@ function opportunityTypeLabel(opportunityType: string): string {
   }
 }
 
-/**
- * Merge MonthlyPlan.action_items and SavingsReport.opportunities into a
- * single feed ranked by EGP/mo impact (estimated_impact /
- * estimated_monthly_saving), highest first.
- */
 export function mergeFeedItems(
   actionItems: ActionItem[],
   opportunities: SavingsOpportunity[],
@@ -110,9 +99,9 @@ function severityVariant(severity: FeedItem['severity']): BadgeVariant {
 }
 
 const SEVERITY_ACCENT: Record<FeedItem['severity'], string> = {
-  high: 'bg-red-500',
-  medium: 'bg-amber-500',
-  low: 'bg-blue-500',
+  high: 'bg-negative',
+  medium: 'bg-warning',
+  low: 'bg-info',
 };
 
 function formatEGP(amount: number): string {
@@ -123,13 +112,13 @@ function formatEGP(amount: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Chevron icon (rotates when expanded)
+// Chevron icon
 // ---------------------------------------------------------------------------
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
-      className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+      className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -150,7 +139,7 @@ function FeedRow({ item }: { item: FeedItem }) {
   const panelId = `feed-item-${item.id}-details`;
 
   return (
-    <div className="flex gap-3 border-b border-gray-100 py-3 last:border-0 dark:border-gray-800">
+    <div className="flex gap-3 border-b border-line py-3 last:border-0">
       <span
         className={`mt-1 h-2 w-2 shrink-0 rounded-full ${SEVERITY_ACCENT[item.severity]}`}
         aria-hidden="true"
@@ -161,11 +150,11 @@ function FeedRow({ item }: { item: FeedItem }) {
           onClick={() => setOpen((prev) => !prev)}
           aria-expanded={open}
           aria-controls={panelId}
-          className="flex w-full items-start justify-between gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          className="flex w-full items-start justify-between gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium text-gray-900 dark:text-white">{item.title}</p>
+              <p className="text-sm font-medium text-ink">{item.title}</p>
               <Badge variant={severityVariant(item.severity)}>
                 {item.severity.charAt(0).toUpperCase() + item.severity.slice(1)}
               </Badge>
@@ -174,7 +163,7 @@ function FeedRow({ item }: { item: FeedItem }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {item.impact > 0 && (
-              <span className="whitespace-nowrap rounded-full bg-brand-500/10 px-2.5 py-0.5 text-xs font-semibold text-brand-500">
+              <span className="whitespace-nowrap rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-semibold text-accent-ink">
                 EGP {formatEGP(item.impact)}/mo
               </span>
             )}
@@ -184,19 +173,19 @@ function FeedRow({ item }: { item: FeedItem }) {
 
         {open && (
           <div id={panelId} className="mt-2 space-y-2 pe-1 ps-1">
-            <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+            <p className="text-xs leading-relaxed text-ink-muted">
               {item.description}
             </p>
             {item.transactions && item.transactions.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint">
                   Triggering transactions
                 </p>
                 <ul className="mt-1 space-y-0.5">
                   {item.transactions.map((tx, idx) => (
                     <li
                       key={`${item.id}-tx-${idx}`}
-                      className="truncate text-xs text-gray-500 dark:text-gray-400"
+                      className="truncate text-xs text-ink-muted"
                     >
                       &bull; {tx}
                     </li>
@@ -221,10 +210,10 @@ export function ActionFeed({ actionItems, opportunities }: ActionFeedProps) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-base font-semibold text-ink">
           Prioritised Action Feed
         </h2>
-        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-0.5 text-xs text-ink-muted">
           What to do first, ranked by estimated monthly impact
         </p>
       </CardHeader>
@@ -236,7 +225,7 @@ export function ActionFeed({ actionItems, opportunities }: ActionFeedProps) {
             ))}
           </div>
         ) : (
-          <p className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+          <p className="py-4 text-center text-sm text-ink-muted">
             No action items right now — your finances look on track.
           </p>
         )}
