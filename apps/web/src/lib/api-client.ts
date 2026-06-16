@@ -364,6 +364,44 @@ export async function syncBankCertificates(
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
+/**
+ * Sync NBE loan / finance accounts only.
+ * Falls back to full scrape for non-NBE banks.
+ * Timeout: 8 minutes.
+ */
+export async function syncBankLoans(
+  accessToken: string,
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
+  credentialId?: string,
+): Promise<SyncResult> {
+  const qs = credentialId ? `?credential_id=${credentialId}` : '';
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}/loans${qs}`,
+    { method: 'POST', accessToken }
+  );
+  const maxWaitMs = 8 * 60 * 1000;
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
+}
+
+/**
+ * Sync NBE prepaid card accounts only.
+ * Falls back to full scrape for non-NBE banks.
+ * Timeout: 8 minutes.
+ */
+export async function syncBankPrepaidCards(
+  accessToken: string,
+  bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
+  credentialId?: string,
+): Promise<SyncResult> {
+  const qs = credentialId ? `?credential_id=${credentialId}` : '';
+  const jobStart = await apiFetch<SyncJobStartResponse>(
+    `/api/v1/accounts/sync/${bank}/prepaid-cards${qs}`,
+    { method: 'POST', accessToken }
+  );
+  const maxWaitMs = 8 * 60 * 1000;
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
+}
+
 export type ClearDataScope = 'all' | 'accounts' | 'credit_cards' | 'certificates' | 'debts' | 'installments';
 
 export async function clearData(accessToken: string, scope: ClearDataScope = 'all'): Promise<void> {

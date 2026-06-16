@@ -92,14 +92,32 @@ function AssetsIcon() {
   );
 }
 
+function LoansIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function PrepaidCardIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h4m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { href: '/dashboard/accounts', label: 'Accounts', icon: <AccountsIcon /> },
   { href: '/dashboard/transactions', label: 'Transactions', icon: <TransactionsIcon /> },
   { href: '/dashboard/credit-cards', label: 'Credit Cards', icon: <CreditCardIcon /> },
+  { href: '/dashboard/prepaid-cards', label: 'Prepaid Cards', icon: <PrepaidCardIcon /> },
   { href: '/dashboard/certificates', label: 'Certificates & Deposits', icon: <CertificateIcon /> },
   { href: '/dashboard/assets', label: 'Assets', icon: <AssetsIcon /> },
   { href: '/dashboard/debts', label: 'Debts', icon: <DebtsIcon /> },
+  { href: '/dashboard/loans', label: 'Loans', icon: <LoansIcon /> },
   { href: '/dashboard/installments', label: 'Installments', icon: <InstallmentsIcon /> },
   { href: '/dashboard/recommendations', label: 'Recommendations', icon: <RecommendationsIcon /> },
   { href: '/dashboard/settings', label: 'Settings', icon: <SettingsIcon /> },

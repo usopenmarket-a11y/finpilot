@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   listCredentials,
@@ -11,6 +11,8 @@ import {
   syncBankAccounts,
   syncBankCreditCards,
   syncBankCertificates,
+  syncBankLoans,
+  syncBankPrepaidCards,
   encryptValue,
   type CredentialInfo,
   type SyncResult,
@@ -38,7 +40,14 @@ const BANK_LABELS: Record<Bank, string> = {
   UB: 'United Bank',
 };
 
+// Coverage-bar domains (what the Sync Coverage progress bar tracks). Kept to
+// the three demand-deposit / cards / certificates domains.
 type SyncDomain = 'accounts' | 'cards' | 'certificates';
+
+// Individually-syncable NBE products. A superset of SyncDomain that also
+// includes loans and prepaid cards (which have their own split-sync endpoints
+// but are intentionally not shown in the coverage bar).
+type SyncPhaseKey = 'accounts' | 'cards' | 'certificates' | 'loans' | 'prepaid_cards';
 
 interface BankAccountSyncRow {
   bank_name: string;
@@ -217,11 +226,118 @@ interface SyncState {
   phase: SyncPhaseInfo | null;
 }
 
-const NBE_SYNC_PHASES: { key: SyncDomain; label: string }[] = [
+const NBE_SYNC_PHASES: { key: SyncPhaseKey; label: string }[] = [
   { key: 'accounts', label: 'accounts' },
   { key: 'cards', label: 'cards' },
   { key: 'certificates', label: 'certificates' },
+  { key: 'loans', label: 'loans' },
+  { key: 'prepaid_cards', label: 'prepaid cards' },
 ];
+
+const SYNC_MENU_ITEMS: { domain: SyncPhaseKey; label: string }[] = [
+  { domain: 'accounts', label: 'Accounts' },
+  { domain: 'cards', label: 'Credit Cards' },
+  { domain: 'certificates', label: 'Certificates' },
+  { domain: 'loans', label: 'Loans' },
+  { domain: 'prepaid_cards', label: 'Prepaid Cards' },
+];
+
+/**
+ * NBE "Sync ▾" dropdown — lets the user sync one product at a time or all five.
+ * Closes on outside-click and Escape; keyboard- and screen-reader-friendly.
+ */
+function SyncDropdown({
+  disabled,
+  loading,
+  activeLabel,
+  onSelectDomain,
+  onSyncAll,
+}: {
+  disabled: boolean;
+  loading: boolean;
+  activeLabel: string | null;
+  onSelectDomain: (domain: SyncPhaseKey) => void;
+  onSyncAll: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        {loading ? (
+          <>
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+            {activeLabel ? `Syncing ${activeLabel}…` : 'Syncing…'}
+          </>
+        ) : (
+          <>
+            Sync
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </>
+        )}
+      </button>
+      {open && !disabled && (
+        <div
+          role="menu"
+          className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg"
+        >
+          {SYNC_MENU_ITEMS.map((item) => (
+            <button
+              key={item.domain}
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSelectDomain(item.domain);
+              }}
+              className="block w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
+            >
+              {item.label}
+            </button>
+          ))}
+          <div className="border-t border-gray-200 dark:border-gray-700" />
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onSyncAll();
+            }}
+            className="block w-full px-3 py-2 text-left text-sm font-medium text-brand-600 dark:text-brand-400 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
+          >
+            Sync All
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function BankAccountsSection() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -470,7 +586,7 @@ export function BankAccountsSection() {
     accessToken: string,
     cred: CredentialInfo,
     bank: 'NBE',
-    phase: { key: SyncDomain; label: string },
+    phase: { key: SyncPhaseKey; label: string },
     phaseInfo: SyncPhaseInfo | null,
   ): Promise<SyncResult | null> => {
     const key = cred.id;
@@ -484,8 +600,12 @@ export function BankAccountsSection() {
         return await syncBankAccounts(accessToken, bank, cred.id);
       } else if (phase.key === 'cards') {
         return await syncBankCreditCards(accessToken, bank, cred.id);
+      } else if (phase.key === 'certificates') {
+        return await syncBankCertificates(accessToken, bank, cred.id);
+      } else if (phase.key === 'loans') {
+        return await syncBankLoans(accessToken, bank, cred.id);
       }
-      return await syncBankCertificates(accessToken, bank, cred.id);
+      return await syncBankPrepaidCards(accessToken, bank, cred.id);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sync failed';
       const phaseLabel = phase.label.charAt(0).toUpperCase() + phase.label.slice(1);
@@ -506,7 +626,7 @@ export function BankAccountsSection() {
   // Sync a single NBE item independently (Accounts / Credit Cards /
   // Certificates). Each fires its own fresh Playwright session, so the user can
   // run just the one they need without waiting through the full chain.
-  const handleSyncItem = async (cred: CredentialInfo, domain: SyncDomain) => {
+  const handleSyncItem = async (cred: CredentialInfo, domain: SyncPhaseKey) => {
     if (!userId || cred.bank !== 'NBE') return;
     const key = cred.id;
     const phase = NBE_SYNC_PHASES.find((p) => p.key === domain);
@@ -781,43 +901,25 @@ export function BankAccountsSection() {
 
                       {/* Actions */}
                       <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
-                        {cred.bank === 'NBE' && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={isSyncing || isRemoving}
-                              onClick={() => void handleSyncItem(cred, 'accounts')}
-                            >
-                              Accounts
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={isSyncing || isRemoving}
-                              onClick={() => void handleSyncItem(cred, 'cards')}
-                            >
-                              Cards
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={isSyncing || isRemoving}
-                              onClick={() => void handleSyncItem(cred, 'certificates')}
-                            >
-                              Certificates
-                            </Button>
-                          </>
+                        {cred.bank === 'NBE' ? (
+                          <SyncDropdown
+                            disabled={isSyncing || isRemoving}
+                            loading={isSyncing}
+                            activeLabel={syncState?.phase?.label ?? null}
+                            onSelectDomain={(domain) => void handleSyncItem(cred, domain)}
+                            onSyncAll={() => void handleSync(cred)}
+                          />
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={isSyncing}
+                            disabled={isSyncing || isRemoving}
+                            onClick={() => void handleSync(cred)}
+                          >
+                            Sync
+                          </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          loading={isSyncing}
-                          disabled={isSyncing || isRemoving}
-                          onClick={() => void handleSync(cred)}
-                        >
-                          {cred.bank === 'NBE' ? 'Sync All' : 'Sync'}
-                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
