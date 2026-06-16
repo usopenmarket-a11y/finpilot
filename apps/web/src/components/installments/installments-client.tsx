@@ -132,9 +132,9 @@ function InstallmentForm({
     onSave(form);
   }
 
-  const labelCls = 'block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1';
+  const labelCls = 'block text-xs font-medium text-ink-muted mb-1';
   const inputCls =
-    'w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500';
+    'w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -264,7 +264,7 @@ function InstallmentForm({
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-medium py-2 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          className="flex-1 border border-gray-300 dark:border-gray-600 text-ink-muted font-medium py-2 rounded-lg text-sm hover:bg-surface-sunken transition-colors"
         >
           Cancel
         </button>
@@ -300,11 +300,11 @@ function InstallmentCard({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+    <div className="bg-surface border border-gray-200 border-line-strong rounded-lg p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+            <span className="text-sm font-semibold text-ink truncate">
               {item.name}
             </span>
             <Badge variant={categoryBadgeVariant(item.category)}>
@@ -315,7 +315,7 @@ function InstallmentCard({
             )}
           </div>
           {item.notes && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{item.notes}</p>
+            <p className="text-xs text-ink-faint mt-0.5 truncate">{item.notes}</p>
           )}
         </div>
         <div className="flex gap-1 flex-shrink-0">
@@ -343,21 +343,21 @@ function InstallmentCard({
 
       {/* Key numbers */}
       <div className="grid grid-cols-1 gap-2 text-center sm:grid-cols-3">
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Monthly</p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
+        <div className="bg-surface-sunken rounded-lg p-2">
+          <p className="text-xs text-ink-muted">Monthly</p>
+          <p className="text-sm font-semibold text-ink tabular-nums">
             EGP {formatAmount(item.monthly_amount)}
           </p>
         </div>
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
-          <p className={`text-sm font-semibold tabular-nums ${isPaidOff ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-900 dark:text-white'}`}>
+        <div className="bg-surface-sunken rounded-lg p-2">
+          <p className="text-xs text-ink-muted">Remaining</p>
+          <p className={`text-sm font-semibold tabular-nums ${isPaidOff ? 'text-emerald-600 dark:text-emerald-400' : 'text-ink'}`}>
             {isPaidOff ? '—' : `${remaining} mo`}
           </p>
         </div>
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Next due</p>
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+        <div className="bg-surface-sunken rounded-lg p-2">
+          <p className="text-xs text-ink-muted">Next due</p>
+          <p className="text-sm font-semibold text-ink">
             {nextDate ? formatDate(nextDate) : '—'}
           </p>
         </div>
@@ -365,11 +365,11 @@ function InstallmentCard({
 
       {/* Progress bar */}
       <div>
-        <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500 mb-1">
+        <div className="flex justify-between text-xs text-ink-faint mb-1">
           <span>{elapsed} of {item.total_months} months paid</span>
           <span>{pct.toFixed(0)}%</span>
         </div>
-        <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+        <div className="h-1.5 rounded-full bg-surface-sunken overflow-hidden">
           <div
             className={`h-full rounded-full ${isPaidOff ? 'bg-emerald-500' : 'bg-blue-500'}`}
             style={{ width: `${pct}%` }}
@@ -500,7 +500,7 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
       {/* Summary + add button */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-ink-muted">
             {items.length > 0
               ? `${items.length} plan${items.length !== 1 ? 's' : ''} · EGP ${formatAmount(totalMonthly)}/mo total`
               : 'No installment plans yet'}
@@ -522,7 +522,7 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
         <Card>
           <CardBody className="py-16 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-4"
+              className="mx-auto h-12 w-12 text-ink-faint mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -530,10 +530,10 @@ export function InstallmentsClient({ initialItems }: InstallmentsClientProps) {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <p className="text-base font-medium text-gray-900 dark:text-white mb-1">
+            <p className="text-base font-medium text-ink mb-1">
               No installment plans
             </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-ink-muted">
               Track BNPL purchases, home loans, and other monthly obligations.
             </p>
           </CardBody>

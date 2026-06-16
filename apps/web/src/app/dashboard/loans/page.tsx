@@ -32,12 +32,12 @@ function LoanRow({ account, credentialLabel }: { account: BankAccountRow; creden
   const owed = balance < 0 ? Math.abs(balance) : balance;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+    <div className="rounded-xl border border-line bg-surface overflow-hidden">
       <div className="flex flex-col justify-between gap-4 px-4 py-4 sm:flex-row sm:items-center sm:px-5">
         <div className="flex min-w-0 items-center gap-4">
-          <div className="h-10 w-10 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center flex-shrink-0">
+          <div className="h-10 w-10 rounded-full bg-negative-soft flex items-center justify-center flex-shrink-0">
             <svg
-              className="h-5 w-5 text-rose-600 dark:text-rose-400"
+              className="h-5 w-5 text-negative"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -47,14 +47,14 @@ function LoanRow({ account, credentialLabel }: { account: BankAccountRow; creden
             </svg>
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+            <p className="truncate text-sm font-semibold text-ink">
               {account.bank_name}
             </p>
-            <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-0.5 truncate text-xs text-ink-muted">
               <span className="font-mono">{account.account_number_masked}</span>
             </p>
             {credentialLabel && (
-              <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-xs text-ink-muted">
                 <span className="truncate">{credentialLabel}</span>
               </span>
             )}
@@ -63,8 +63,8 @@ function LoanRow({ account, credentialLabel }: { account: BankAccountRow; creden
         <div className="flex w-full flex-wrap items-center justify-between gap-4 sm:w-auto sm:justify-end sm:gap-6">
           <Badge variant="danger">Loan</Badge>
           <div className="text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Outstanding</p>
-            <p className="break-words text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+            <p className="text-[11px] uppercase tracking-wide text-ink-faint">Outstanding</p>
+            <p className="break-words font-mono text-sm font-semibold tabular-nums text-ink">
               {formatCurrency(owed, account.currency)}
             </p>
           </div>
@@ -109,15 +109,15 @@ export default async function LoansPage() {
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Loans &amp; Finances</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Loans &amp; Finances</h1>
+          <p className="text-sm text-ink-muted mt-1">
             Your outstanding loan and finance balances
           </p>
         </div>
         {accounts.length > 0 && (
           <div className="sm:text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Total Outstanding</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">
+            <p className="text-[11px] uppercase tracking-wide text-ink-faint">Total Outstanding</p>
+            <p className="font-mono text-2xl font-semibold text-ink tabular-nums">
               EGP {formatEGP(totalOwed)}
             </p>
           </div>
@@ -128,7 +128,7 @@ export default async function LoansPage() {
         <Card>
           <CardBody className="py-16 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-4"
+              className="mx-auto h-12 w-12 text-ink-faint mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -136,8 +136,8 @@ export default async function LoansPage() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-base font-medium text-gray-900 dark:text-white mb-1">No loans found</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-lg font-semibold text-ink mb-1">No loans found</p>
+            <p className="text-sm text-ink-muted">
               Synced loans and finances will appear here. Run a sync in Settings.
             </p>
           </CardBody>
@@ -146,8 +146,8 @@ export default async function LoansPage() {
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white">All Loans</h2>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
+              <h2 className="text-base font-semibold text-ink">All Loans</h2>
+              <span className="text-sm text-ink-muted">
                 {accounts.length} loan{accounts.length !== 1 ? 's' : ''}
               </span>
             </div>

@@ -194,15 +194,15 @@ export default async function CreditCardsPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Credit Cards</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Credit Cards</h1>
+          <p className="text-sm text-ink-muted mt-1">
             Manage and monitor your credit card activity
           </p>
         </div>
         <Card>
           <CardBody className="py-16 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-4"
+              className="mx-auto h-12 w-12 text-ink-faint mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -210,10 +210,10 @@ export default async function CreditCardsPage() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
             </svg>
-            <p className="text-base font-medium text-gray-900 dark:text-white mb-1">
+            <p className="text-base font-medium text-ink mb-1">
               No credit cards connected
             </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-ink-muted">
               Add a credit card account in Settings to track your spending here.
             </p>
           </CardBody>
@@ -232,14 +232,14 @@ export default async function CreditCardsPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Credit Cards</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Credit Cards</h1>
+          <p className="text-sm text-ink-muted mt-1">
             Manage and monitor your credit card activity
           </p>
         </div>
         <div className="sm:text-right">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Total Outstanding</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">
+          <p className="text-xs text-ink-muted">Total Outstanding</p>
+          <p className="font-mono text-2xl font-semibold text-ink tabular-nums">
             EGP {formatEGP(totalBalance)}
           </p>
         </div>

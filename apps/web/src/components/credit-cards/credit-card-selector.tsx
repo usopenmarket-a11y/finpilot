@@ -66,7 +66,7 @@ function CreditCardRow({
       className={`w-full flex flex-col gap-4 px-4 py-4 rounded-xl border transition-colors text-left sm:flex-row sm:items-center sm:justify-between sm:px-5 ${
         selected
           ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-500'
-          : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-700'
+          : 'border-line bg-surface hover:border-gray-300 dark:hover:border-gray-700'
       }`}
     >
       <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:gap-4">
@@ -77,12 +77,12 @@ function CreditCardRow({
           </svg>
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{card.bank_name}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+          <p className="truncate text-sm font-semibold text-ink">{card.bank_name}</p>
+          <p className="text-xs text-ink-muted font-mono mt-0.5">
             {card.account_number_masked}
           </p>
           {card.credentialLabel && (
-            <span className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full mt-1">
+            <span className="inline-flex items-center gap-1 text-xs bg-surface-sunken text-ink-muted px-2 py-0.5 rounded-full mt-1">
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
@@ -93,15 +93,15 @@ function CreditCardRow({
       </div>
       <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end sm:gap-6">
         <div className="text-left sm:text-right">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Current Balance</p>
-          <p className="break-words text-sm font-bold text-gray-900 dark:text-white tabular-nums">
+          <p className="text-xs text-ink-muted">Current Balance</p>
+          <p className="break-words text-sm font-bold text-ink tabular-nums">
             {card.currency} {formatEGP(card.balance)}
           </p>
         </div>
         <Badge variant="warning">Credit Card</Badge>
         {/* Selection chevron */}
         <svg
-          className={`h-4 w-4 flex-shrink-0 transition-transform ${selected ? 'rotate-90 text-brand-500' : 'text-gray-400'}`}
+          className={`h-4 w-4 flex-shrink-0 transition-transform ${selected ? 'rotate-90 text-accent' : 'text-gray-400'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"

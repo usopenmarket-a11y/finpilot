@@ -62,10 +62,10 @@ export function DebtPayoffPlan({ report }: DebtPayoffPlanProps) {
       <CardHeader>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-base font-semibold text-ink">
               Debt Payoff Plan
             </h2>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-0.5 text-xs text-ink-muted">
               Snowball strategy — smallest balance first
             </p>
           </div>
@@ -74,45 +74,45 @@ export function DebtPayoffPlan({ report }: DebtPayoffPlanProps) {
       </CardHeader>
       <CardBody>
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Total borrowed</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">
+          <div className="rounded-lg bg-surface-sunken p-3">
+            <p className="text-xs text-ink-muted">Total borrowed</p>
+            <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-ink">
               EGP {formatEGP(totalBorrowed)}
             </p>
           </div>
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Months to debt-free</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">
+          <div className="rounded-lg bg-surface-sunken p-3">
+            <p className="text-xs text-ink-muted">Months to debt-free</p>
+            <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-ink">
               {snowball.total_months}
             </p>
           </div>
-          <div className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Modelled monthly budget</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">
+          <div className="rounded-lg bg-surface-sunken p-3">
+            <p className="text-xs text-ink-muted">Modelled monthly budget</p>
+            <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-ink">
               EGP {formatEGP(monthlyBudget)}
             </p>
           </div>
         </div>
 
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-faint">
           Payoff order
         </p>
         <ol className="space-y-2">
           {order.map((entry, idx) => (
             <li
               key={entry.debtId}
-              className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 dark:border-gray-800"
+              className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 border-line"
             >
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-500/10 text-xs font-semibold text-brand-500">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
                   {idx + 1}
                 </span>
-                <span className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                <span className="truncate text-sm font-medium text-ink">
                   {entry.name}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-3 text-right">
-                <span className="text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                <span className="text-xs tabular-nums text-ink-muted">
                   EGP {formatEGP(entry.outstandingBalance)}
                 </span>
                 <Badge variant={entry.payoffMonth != null ? 'success' : 'default'}>
@@ -123,7 +123,7 @@ export function DebtPayoffPlan({ report }: DebtPayoffPlanProps) {
           ))}
         </ol>
 
-        <p className="mt-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+        <p className="mt-4 text-xs leading-relaxed text-ink-muted">
           Since these are informal debts with no interest rate, the snowball order (paying off
           the smallest balance first) is the clearest path to becoming debt-free — there is no
           interest-cost tradeoff to weigh against it.

@@ -19,7 +19,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
     return (
       <Card>
         <CardBody>
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-6">
+          <p className="text-sm text-ink-muted text-center py-6">
             No forecast data available.
           </p>
         </CardBody>
@@ -40,10 +40,10 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-base font-semibold text-ink">
           3-Month Forecast
         </h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+        <p className="text-xs text-ink-muted mt-0.5">
           Projected income, expenses, and net cash flow
         </p>
       </CardHeader>
@@ -52,15 +52,15 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
         <div className="mb-6 flex flex-wrap items-center gap-4 sm:gap-5">
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-sm bg-green-500 inline-block" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">Income</span>
+            <span className="text-xs text-ink-muted">Income</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-sm bg-red-400 inline-block" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">Expenses</span>
+            <span className="text-xs text-ink-muted">Expenses</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-sm bg-blue-500 inline-block" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">Net</span>
+            <span className="text-xs text-ink-muted">Net</span>
           </div>
         </div>
 
@@ -108,7 +108,7 @@ export function ForecastChart({ forecasts }: ForecastChartProps) {
                 </div>
 
                 {/* Month label */}
-                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                <span className="text-xs text-ink-muted font-medium">
                   {monthLabel} {point.year}
                 </span>
 

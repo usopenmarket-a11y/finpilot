@@ -160,8 +160,8 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
         helperText="Optional"
       />
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="debt-notes">
-          Notes <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
+        <label className="text-sm font-medium text-ink-muted" htmlFor="debt-notes">
+          Notes <span className="text-ink-faint font-normal">(optional)</span>
         </label>
         <textarea
           id="debt-notes"
@@ -169,7 +169,7 @@ export function AddDebtForm({ onSuccess, onCancel }: AddDebtFormProps) {
           placeholder="Add any relevant details…"
           value={values.notes}
           onChange={set('notes')}
-          className="block w-full rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none"
+          className="block w-full rounded-lg border border-line-strong px-3 py-2 text-sm bg-surface text-ink placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none"
         />
       </div>
 

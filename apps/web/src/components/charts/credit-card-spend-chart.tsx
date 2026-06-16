@@ -14,7 +14,7 @@ function formatEGP(amount: number): string {
 export function CreditCardSpendChart({ data }: CreditCardSpendChartProps) {
   if (data.length === 0 || data.every((d) => d.total === 0)) {
     return (
-      <div className="flex items-center justify-center h-48 text-sm text-gray-400 dark:text-gray-500">
+      <div className="flex items-center justify-center h-48 text-sm text-ink-faint">
         No spending data available
       </div>
     );
@@ -30,11 +30,11 @@ export function CreditCardSpendChart({ data }: CreditCardSpendChartProps) {
         return (
           <div key={entry.month}>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-gray-600 dark:text-gray-400 w-20 flex-shrink-0">
+              <span className="text-xs text-ink-muted w-20 flex-shrink-0">
                 {entry.month}
               </span>
               <div className="flex-1 mx-3">
-                <div className="h-5 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                <div className="h-5 bg-surface-sunken rounded overflow-hidden">
                   <div
                     className={`h-full rounded transition-all duration-500 ${
                       isHighest
@@ -50,7 +50,7 @@ export function CreditCardSpendChart({ data }: CreditCardSpendChartProps) {
                   />
                 </div>
               </div>
-              <span className="text-xs font-semibold tabular-nums text-gray-900 dark:text-white w-24 text-right flex-shrink-0">
+              <span className="text-xs font-semibold tabular-nums text-ink w-24 text-right flex-shrink-0">
                 EGP {formatEGP(entry.total)}
               </span>
             </div>

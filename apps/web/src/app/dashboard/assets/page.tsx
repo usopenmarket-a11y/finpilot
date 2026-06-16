@@ -126,8 +126,8 @@ export default function AssetsPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Assets</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Assets</h1>
+          <p className="text-sm text-ink-muted mt-1">
             Track your physical and financial assets
           </p>
         </div>
@@ -146,10 +146,10 @@ export default function AssetsPage() {
 
       {/* Live price status */}
       {priceError && (
-        <p className="text-xs text-yellow-600 dark:text-yellow-400">{priceError}</p>
+        <p className="text-xs text-warning">{priceError}</p>
       )}
       {priceUpdatedAt && !priceError && (
-        <p className="text-xs text-gray-400 dark:text-gray-500">
+        <p className="text-xs text-ink-faint">
           Prices updated {priceUpdatedAt.toLocaleTimeString('en-EG')}
           {livePrices['gold'] ? ` · Gold EGP ${livePrices['gold'].toFixed(2)}/g` : ''}
           {livePrices['silver'] ? ` · Silver EGP ${livePrices['silver'].toFixed(2)}/g` : ''}

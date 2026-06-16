@@ -142,9 +142,9 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
   return (
     <Modal open={open} onClose={handleClose} title={title}>
       {debt && (
-        <p className="mb-4 break-words text-sm text-gray-500 dark:text-gray-400">
+        <p className="mb-4 break-words text-sm text-ink-muted">
           Outstanding balance:{' '}
-          <span className="font-semibold text-gray-900 dark:text-white">
+          <span className="font-semibold text-ink">
             {debt.currency} {debt.outstanding_balance.toFixed(2)}
           </span>
         </p>
@@ -172,7 +172,7 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
         />
         <div className="flex flex-col gap-1.5">
           <label
-            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+            className="text-sm font-medium text-ink-muted"
             htmlFor="payment-notes"
           >
             Notes <span className="text-gray-400 font-normal">(optional)</span>
@@ -183,7 +183,7 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
             placeholder="Add any details about this payment…"
             value={values.notes}
             onChange={set('notes')}
-            className="block w-full rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none"
+            className="block w-full rounded-lg border border-line-strong px-3 py-2 text-sm bg-surface text-ink placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none"
           />
         </div>
 

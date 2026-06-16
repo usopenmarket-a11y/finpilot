@@ -105,7 +105,7 @@ function formatDate(dateStr: string): string {
 function TransactionList({ transactions }: { transactions: CreditCardTransaction[] }) {
   if (transactions.length === 0) {
     return (
-      <div className="py-10 text-center text-sm text-gray-400 dark:text-gray-500">
+      <div className="py-10 text-center text-sm text-ink-faint">
         No transactions found
       </div>
     );
@@ -116,11 +116,11 @@ function TransactionList({ transactions }: { transactions: CreditCardTransaction
       {transactions.map((tx) => (
         <div key={tx.id} className="flex items-start justify-between gap-3 py-3 px-1">
           <div className="flex flex-col gap-0.5 min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+            <span className="text-sm font-medium text-ink truncate">
               {tx.description}
             </span>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-gray-400 dark:text-gray-500">
+              <span className="text-xs text-ink-faint">
                 {formatDate(tx.transaction_date)}
               </span>
               {tx.category && (
@@ -157,8 +157,8 @@ function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: C
 
   return (
     <div className="mt-6 space-y-3">
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+      <div className="rounded-xl border border-line bg-surface p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-3">
           Fawry Breakdown
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -172,7 +172,7 @@ function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: C
       </div>
 
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-3">
           Fawry Transactions ({fawryTx.length})
         </p>
         <div className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -181,10 +181,10 @@ function FawryBreakdown({ transactions, bankName, fawryRate }: { transactions: C
             .map((tx) => (
               <div key={tx.id} className="flex items-start justify-between gap-3 py-3 px-1">
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  <span className="text-sm font-medium text-ink truncate">
                     {tx.description}
                   </span>
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                  <span className="text-xs text-ink-faint">
                     {formatDate(tx.transaction_date)}
                   </span>
                 </div>
@@ -351,7 +351,7 @@ function RepaymentTrackerPanel({
         <KpiCard
           label="Closing Balance (5th)"
           value={closingBalance > 0 ? `EGP ${formatEGP(closingBalance)}` : '—'}
-          valueColor="text-gray-900 dark:text-white"
+          valueColor="text-ink"
         />
         <KpiCard
           label="Minimum Payment"
@@ -399,11 +399,11 @@ function RepaymentTrackerPanel({
 
       {/* Payment due date */}
       {dueDateDisplay && (
-        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+        <div className="flex items-center gap-2 text-sm text-ink-muted">
           <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
-          <span>Payment due: <span className="font-semibold text-gray-900 dark:text-white">{dueDateDisplay}</span></span>
+          <span>Payment due: <span className="font-semibold text-ink">{dueDateDisplay}</span></span>
         </div>
       )}
 
@@ -411,12 +411,12 @@ function RepaymentTrackerPanel({
       {closingBalance > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Repayment Progress</span>
-            <span className="text-right font-semibold text-gray-900 dark:text-white">
+            <span className="font-medium text-ink-muted">Repayment Progress</span>
+            <span className="text-right font-semibold text-ink">
               {progress.toFixed(1)}% repaid
             </span>
           </div>
-          <div className="h-3 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+          <div className="h-3 w-full rounded-full bg-surface-sunken overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${progressBarColor}`}
               style={{ width: `${progress}%` }}
@@ -427,8 +427,8 @@ function RepaymentTrackerPanel({
 
       {closingBalance === 0 && (
         <div className="py-10 text-center">
-          <p className="text-base font-medium text-gray-600 dark:text-gray-400">No balance due</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+          <p className="text-base font-medium text-ink-muted">No balance due</p>
+          <p className="text-sm text-ink-faint mt-1">
             Sync your account to load closing balance and payment details.
           </p>
         </div>
@@ -448,10 +448,10 @@ interface KpiCardProps {
   badge?: React.ReactNode;
 }
 
-function KpiCard({ label, value, valueColor = 'text-gray-900 dark:text-white', badge }: KpiCardProps) {
+function KpiCard({ label, value, valueColor = 'text-ink', badge }: KpiCardProps) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <p className="text-xs text-ink-muted mb-1">{label}</p>
       <div className="flex items-center gap-2 flex-wrap">
         <p className={`break-words text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
         {badge}
@@ -466,11 +466,11 @@ interface CostStatProps {
   valueColor?: string;
 }
 
-function CostStat({ label, value, valueColor = 'text-gray-900 dark:text-white' }: CostStatProps) {
+function CostStat({ label, value, valueColor = 'text-ink' }: CostStatProps) {
   return (
     <div className="text-center">
       <p className={`break-words text-sm font-semibold tabular-nums ${valueColor}`}>{value}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</p>
+      <p className="text-xs text-ink-muted mt-0.5">{label}</p>
     </div>
   );
 }
@@ -494,10 +494,10 @@ interface CardDetailsPanelProps {
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   const display = value != null && value !== '' ? value : null;
   return (
-    <div className="flex flex-col gap-1 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0 sm:flex-row sm:items-center sm:justify-between">
-      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
+    <div className="flex flex-col gap-1 py-2.5 border-b border-line last:border-0 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm text-ink-muted">{label}</span>
       {display != null ? (
-        <span className="break-words text-sm font-semibold text-gray-900 dark:text-white sm:text-right">{display}</span>
+        <span className="break-words text-sm font-semibold text-ink sm:text-right">{display}</span>
       ) : (
         <span className="text-sm font-semibold text-gray-400 dark:text-gray-600">—</span>
       )}
@@ -507,7 +507,7 @@ function DetailRow({ label, value }: { label: string; value: string | null | und
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mt-5 mb-1 px-1">
+    <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint mt-5 mb-1 px-1">
       {children}
     </p>
   );
@@ -543,13 +543,13 @@ function CardDetailsPanel({
 
       {/* Card Info */}
       <SectionLabel>Card Info</SectionLabel>
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 divide-y-0">
+      <div className="rounded-xl border border-line bg-surface px-4 divide-y-0">
         <DetailRow label="Bank" value={bankName} />
         <DetailRow label="Card Number" value={accountNumber} />
         <DetailRow label="Product Name" value="MasterCard Titanium Credit" />
         <DetailRow label="Card Currency" value="EGP" />
-        <div className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-100 dark:border-gray-800">
-          <span className="text-sm text-gray-500 dark:text-gray-400">Card Status</span>
+        <div className="flex items-center justify-between gap-3 py-2.5 border-b border-line">
+          <span className="text-sm text-ink-muted">Card Status</span>
           <div>
             {isActive ? (
               <Badge variant="success">Active</Badge>
@@ -564,7 +564,7 @@ function CardDetailsPanel({
 
       {/* Balances */}
       <SectionLabel>Balances</SectionLabel>
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4">
+      <div className="rounded-xl border border-line bg-surface px-4">
         <DetailRow label="Total Credit Limit" value={creditLimit != null ? `EGP ${formatEGP(creditLimit)}` : null} />
         <DetailRow label="Available Credit" value={availableCredit != null ? `EGP ${formatEGP(availableCredit)}` : null} />
         <DetailRow label="Current Balance" value={`EGP ${formatEGP(balance)}`} />
@@ -574,7 +574,7 @@ function CardDetailsPanel({
 
       {/* Payment Details */}
       <SectionLabel>Payment Details</SectionLabel>
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4">
+      <div className="rounded-xl border border-line bg-surface px-4">
         <DetailRow label="Min Amount Due" value={minimumPayment != null ? `EGP ${formatEGP(minimumPayment)}` : null} />
         <DetailRow label="Payment Due Date" value={dueDateDisplay} />
       </div>
@@ -621,7 +621,7 @@ export function CreditCardTabs({
   return (
     <Card>
       {/* Tab bar */}
-      <div className="border-b border-gray-200 dark:border-gray-800">
+      <div className="border-b border-line">
         <div className="flex overflow-x-auto">
           {tabs.map((tab) => (
             <button
@@ -629,8 +629,8 @@ export function CreditCardTabs({
               onClick={() => setActiveTab(tab.key)}
               className={`px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === tab.key
-                  ? 'border-brand-500 text-brand-500'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'border-brand-500 text-accent'
+                  : 'border-transparent text-ink-muted hover:text-gray-700 dark:hover:text-gray-200'
               }`}
               aria-selected={activeTab === tab.key}
               role="tab"
@@ -675,10 +675,10 @@ export function CreditCardTabs({
         {activeTab === 'unbilled' && (
           <div>
             <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-ink-muted">
                 {unbilledTx.length} transaction{unbilledTx.length !== 1 ? 's' : ''}
               </p>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              <p className="text-sm font-semibold text-ink">
                 Total spend: EGP {formatEGP(totalUnbilled)}
               </p>
             </div>
@@ -691,10 +691,10 @@ export function CreditCardTabs({
         {activeTab === 'unsettled' && (
           <div>
             <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-ink-muted">
                 {unsettledTx.length} transaction{unsettledTx.length !== 1 ? 's' : ''}
               </p>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              <p className="text-sm font-semibold text-ink">
                 Total: EGP {formatEGP(totalUnsettled)}
               </p>
             </div>
@@ -706,10 +706,10 @@ export function CreditCardTabs({
         {activeTab === 'transactions' && (
           <div>
             <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-ink-muted">
                 {allCardTx.length} transaction{allCardTx.length !== 1 ? 's' : ''}
               </p>
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              <p className="text-sm font-semibold text-ink">
                 Total spend: EGP {formatEGP(totalAllCard)}
               </p>
             </div>
@@ -722,7 +722,7 @@ export function CreditCardTabs({
         {activeTab === 'last6' && (
           <div>
             <CardHeader className="px-0 pt-0 pb-4 border-b-0">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              <h3 className="text-sm font-semibold text-ink-muted">
                 Monthly Spend — Last 6 Months
               </h3>
             </CardHeader>
@@ -730,8 +730,8 @@ export function CreditCardTabs({
             <div className="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
               {last6MonthsData.map((m) => (
                 <div key={m.month} className="flex justify-between py-2 text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">{m.month}</span>
-                  <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                  <span className="text-ink-muted">{m.month}</span>
+                  <span className="font-semibold tabular-nums text-ink">
                     EGP {formatEGP(m.total)}
                   </span>
                 </div>

@@ -79,14 +79,14 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
   const remainingDays = maturityDate ? daysUntil(maturityDate) : null;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+    <div className="rounded-xl border border-line bg-surface overflow-hidden">
       {/* Main row */}
       <div className="flex flex-col justify-between gap-4 px-4 py-4 sm:flex-row sm:items-center sm:px-5">
         <div className="flex min-w-0 items-center gap-4">
           {/* Icon */}
-          <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+          <div className="h-10 w-10 rounded-full bg-warning-soft flex items-center justify-center flex-shrink-0">
             <svg
-              className="h-5 w-5 text-amber-600 dark:text-amber-400"
+              className="h-5 w-5 text-warning"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -97,14 +97,14 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
           </div>
 
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+            <p className="truncate text-sm font-semibold text-ink">
               {productName ?? account.bank_name}
             </p>
-            <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-0.5 truncate text-xs text-ink-muted">
               {account.bank_name} · <span className="font-mono">{account.account_number_masked}</span>
             </p>
             {credentialLabel && (
-              <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-xs text-ink-muted">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
@@ -120,15 +120,15 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
           </Badge>
           {interestRate != null && (
             <div className="text-right">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Interest Rate</p>
-              <p className="text-sm font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+              <p className="text-xs text-ink-muted">Interest Rate</p>
+              <p className="font-mono text-sm font-semibold text-warning tabular-nums">
                 {(interestRate * 100).toFixed(2)}%
               </p>
             </div>
           )}
           <div className="text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Principal</p>
-            <p className="break-words text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+            <p className="text-xs text-ink-muted">Principal</p>
+            <p className="break-words text-sm font-bold tabular-nums text-ink">
               {formatCurrency(balance, account.currency)}
             </p>
           </div>
@@ -137,35 +137,35 @@ function CertificateRow({ account, credentialLabel }: { account: BankAccountRow;
 
       {/* Detail row */}
       {(openedDate || maturityDate) && (
-        <div className="flex flex-wrap gap-x-6 gap-y-2 px-5 py-3 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex flex-wrap gap-x-6 gap-y-2 px-5 py-3 bg-surface-sunken border-t border-gray-100 border-line text-xs text-ink-muted">
           {openedDate && (
             <span>
-              Opened: <span className="font-medium text-gray-700 dark:text-gray-200">{formatDate(openedDate)}</span>
+              Opened: <span className="font-medium text-ink">{formatDate(openedDate)}</span>
             </span>
           )}
           {openedDate && maturityDate && (
             <span>
-              Duration: <span className="font-medium text-gray-700 dark:text-gray-200">{durationLabel(openedDate, maturityDate)}</span>
+              Duration: <span className="font-medium text-ink">{durationLabel(openedDate, maturityDate)}</span>
             </span>
           )}
           {maturityDate && (
             <span>
-              Matures: <span className="font-medium text-gray-700 dark:text-gray-200">{formatDate(maturityDate)}</span>
+              Matures: <span className="font-medium text-ink">{formatDate(maturityDate)}</span>
             </span>
           )}
           {remainingDays != null && remainingDays > 0 && (
             <span>
-              Remaining: <span className={`font-medium ${remainingDays <= 30 ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'}`}>
+              Remaining: <span className={`font-medium ${remainingDays <= 30 ? 'text-negative' : 'text-ink'}`}>
                 {remainingDays} day{remainingDays !== 1 ? 's' : ''}
               </span>
             </span>
           )}
           {remainingDays != null && remainingDays <= 0 && (
-            <span className="font-medium text-green-600 dark:text-green-400">Matured</span>
+            <span className="font-medium text-positive">Matured</span>
           )}
           {interestRate != null && maturityDate && openedDate && (
             <span>
-              Est. profit: <span className="font-medium text-amber-600 dark:text-amber-400 tabular-nums">
+              Est. profit: <span className="font-medium text-warning tabular-nums">
                 {formatCurrency(
                   balance * interestRate * (Math.round((new Date(maturityDate).getTime() - new Date(openedDate).getTime()) / (1000 * 60 * 60 * 24)) / 365),
                   account.currency
@@ -231,17 +231,17 @@ export default async function CertificatesPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">
             Certificates &amp; Deposits
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             Your fixed-income savings instruments
           </p>
         </div>
         {accounts.length > 0 && (
           <div className="sm:text-right">
-            <p className="text-xs text-gray-500 dark:text-gray-400">Total Value</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">
+            <p className="text-xs text-ink-muted">Total Value</p>
+            <p className="font-mono text-2xl font-semibold text-ink tabular-nums">
               EGP {formatEGP(totalValue)}
             </p>
           </div>
@@ -253,7 +253,7 @@ export default async function CertificatesPage() {
         <Card>
           <CardBody className="py-16 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-4"
+              className="mx-auto h-12 w-12 text-ink-faint mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -261,10 +261,10 @@ export default async function CertificatesPage() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
             </svg>
-            <p className="text-base font-medium text-gray-900 dark:text-white mb-1">
+            <p className="text-base font-medium text-ink mb-1">
               No certificates or deposits found
             </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-ink-muted">
               Add a certificate or deposit account in Settings to track them here.
             </p>
           </CardBody>
@@ -277,12 +277,12 @@ export default async function CertificatesPage() {
               {Object.entries(byCurrency).map(([currency, total]) => (
                 <div
                   key={currency}
-                  className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3"
+                  className="bg-warning-soft border border-warning/20 rounded-xl px-4 py-3"
                 >
-                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium mb-1">
+                  <p className="text-xs text-warning font-medium mb-1">
                     {currency}
                   </p>
-                  <p className="break-words text-lg font-bold tabular-nums text-amber-900 dark:text-amber-300">
+                  <p className="break-words font-mono text-lg font-semibold tabular-nums text-warning">
                     {formatEGP(total)}
                   </p>
                 </div>
@@ -294,10 +294,10 @@ export default async function CertificatesPage() {
           <Card>
             <CardHeader>
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+                <h2 className="text-base font-semibold text-ink">
                   All Instruments
                 </h2>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
+                <span className="text-sm text-ink-muted">
                   {accounts.length} account{accounts.length !== 1 ? 's' : ''}
                 </span>
               </div>

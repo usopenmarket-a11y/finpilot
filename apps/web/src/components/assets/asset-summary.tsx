@@ -27,8 +27,8 @@ export function AssetSummary({ assets, livePrices }: AssetSummaryProps) {
     <div className="space-y-4">
       {/* Top KPIs */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Total Portfolio" value={`EGP ${formatEGP(totalValue)}`} valueColor="text-gray-900 dark:text-white" />
-        <KpiCard label="Total Cost" value={`EGP ${formatEGP(totalCost)}`} valueColor="text-gray-500 dark:text-gray-400" />
+        <KpiCard label="Total Portfolio" value={`EGP ${formatEGP(totalValue)}`} valueColor="text-ink" />
+        <KpiCard label="Total Cost" value={`EGP ${formatEGP(totalCost)}`} valueColor="text-ink-muted" />
         <KpiCard
           label="Total Gain / Loss"
           value={`${totalGain >= 0 ? '+' : ''}EGP ${formatEGP(totalGain)}`}
@@ -42,8 +42,8 @@ export function AssetSummary({ assets, livePrices }: AssetSummaryProps) {
       </div>
 
       {/* Breakdown by type */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">Portfolio Breakdown</p>
+      <div className="rounded-xl border border-line bg-surface px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Portfolio Breakdown</p>
         <div className="space-y-2">
           {Object.entries(byType)
             .sort((a, b) => b[1].value - a[1].value)
@@ -52,15 +52,15 @@ export function AssetSummary({ assets, livePrices }: AssetSummaryProps) {
               return (
                 <div key={type}>
                   <div className="mb-1 flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-gray-700 dark:text-gray-300">
+                    <span className="text-ink-muted">
                       {ASSET_TYPE_ICONS[type as keyof typeof ASSET_TYPE_ICONS]} {ASSET_TYPE_LABELS[type as keyof typeof ASSET_TYPE_LABELS]} ({count})
                     </span>
-                    <span className="font-semibold tabular-nums text-gray-900 dark:text-white sm:text-right">
+                    <span className="font-semibold tabular-nums text-ink sm:text-right">
                       EGP {formatEGP(value)} <span className="text-gray-400 font-normal">({pct.toFixed(1)}%)</span>
                     </span>
                   </div>
-                  <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                    <div className="h-full rounded-full bg-brand-500" style={{ width: `${pct}%` }} />
+                  <div className="h-1.5 w-full rounded-full bg-surface-sunken overflow-hidden">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               );
@@ -73,8 +73,8 @@ export function AssetSummary({ assets, livePrices }: AssetSummaryProps) {
 
 function KpiCard({ label, value, valueColor }: { label: string; value: string; valueColor: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <p className="text-xs text-ink-muted mb-1">{label}</p>
       <p className={`break-words text-base font-bold tabular-nums ${valueColor}`}>{value}</p>
     </div>
   );

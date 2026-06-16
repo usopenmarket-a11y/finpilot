@@ -92,8 +92,8 @@ export default function SettingsPage() {
   return (
     <div className="max-w-4xl p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">Settings</h1>
+        <p className="text-sm text-ink-muted mt-1">
           Manage your account and preferences
         </p>
       </div>
@@ -101,7 +101,7 @@ export default function SettingsPage() {
       {/* Profile section */}
       <Card>
         <CardHeader>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Profile</h2>
+          <h2 className="text-base font-semibold text-ink">Profile</h2>
         </CardHeader>
         <CardBody>
           <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
@@ -142,7 +142,7 @@ export default function SettingsPage() {
       {/* Credit Card Preferences */}
       <Card>
         <CardHeader>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Credit Card Preferences</h2>
+          <h2 className="text-base font-semibold text-ink">Credit Card Preferences</h2>
         </CardHeader>
         <CardBody>
           <form onSubmit={handleSavePreferences} className="flex flex-col gap-4">
@@ -181,7 +181,7 @@ export default function SettingsPage() {
           <h2 className="text-base font-semibold text-red-600 dark:text-red-400">Danger Zone</h2>
         </CardHeader>
         <CardBody className="space-y-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-ink-muted">
             Clear specific data categories. Credentials are never removed. Re-sync after clearing to repopulate.
           </p>
           {(
@@ -193,10 +193,10 @@ export default function SettingsPage() {
               { scope: 'installments', label: 'Installments', desc: 'BNPL plans and instalment obligations' },
             ] as { scope: ClearDataScope; label: string; desc: string }[]
           ).map(({ scope, label, desc }) => (
-            <div key={scope} className="flex flex-col sm:flex-row sm:items-center gap-2 py-2 border-t border-gray-100 dark:border-gray-800 first:border-t-0 first:pt-0">
+            <div key={scope} className="flex flex-col sm:flex-row sm:items-center gap-2 py-2 border-t border-line first:border-t-0 first:pt-0">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{label}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{desc}</p>
+                <p className="text-sm font-medium text-ink">{label}</p>
+                <p className="text-xs text-ink-muted">{desc}</p>
               </div>
               {confirmScope !== scope ? (
                 <Button
@@ -209,7 +209,7 @@ export default function SettingsPage() {
                 </Button>
               ) : (
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">Sure?</span>
+                  <span className="text-xs text-ink-muted whitespace-nowrap">Sure?</span>
                   <Button
                     variant="danger"
                     size="sm"

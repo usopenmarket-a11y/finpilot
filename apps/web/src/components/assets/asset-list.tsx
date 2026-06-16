@@ -21,7 +21,7 @@ interface AssetListProps {
 export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: AssetListProps) {
   if (loading) {
     return (
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 text-center text-sm text-gray-400">
+      <div className="rounded-xl border border-line bg-surface p-8 text-center text-sm text-gray-400">
         Loading assets…
       </div>
     );
@@ -29,10 +29,10 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
 
   if (assets.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-16 text-center">
+      <div className="rounded-xl border border-line bg-surface py-16 text-center">
         <p className="text-5xl mb-4">📦</p>
-        <p className="text-base font-medium text-gray-900 dark:text-white mb-1">No assets yet</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Add your first asset to start tracking your portfolio.</p>
+        <p className="text-base font-medium text-ink mb-1">No assets yet</p>
+        <p className="text-sm text-ink-muted">Add your first asset to start tracking your portfolio.</p>
       </div>
     );
   }
@@ -47,10 +47,10 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
     <div className="space-y-6">
       {Object.entries(grouped).map(([type, group]) => (
         <div key={type}>
-          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+          <h2 className="text-sm font-semibold text-ink-muted uppercase tracking-wide mb-3">
             {ASSET_TYPE_ICONS[type as keyof typeof ASSET_TYPE_ICONS]} {ASSET_TYPE_LABELS[type as keyof typeof ASSET_TYPE_LABELS]}
           </h2>
-          <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="rounded-xl border border-line bg-surface divide-y divide-gray-100 dark:divide-gray-800">
             {group.map((asset) => {
               const currentValue = resolveCurrentValue(asset, livePrices);
               const gl = gainLoss(asset, livePrices);
@@ -62,11 +62,11 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{asset.name}</span>
+                        <span className="text-sm font-semibold text-ink">{asset.name}</span>
                         {asset.is_gift && <Badge variant="warning">🎁 Gift</Badge>}
                         {isAutoPrice && <Badge variant="default">Live price</Badge>}
                       </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-ink-faint">
                         <span>{asset.quantity} {asset.unit}</span>
                         {asset.asset_type === 'foreign_currency' && asset.currency_code && (() => {
                           const rate = livePrices[asset.currency_code!];
@@ -76,12 +76,12 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                         {!asset.is_gift && <span>Cost EGP {formatEGP(asset.purchase_price_egp)}</span>}
                       </div>
                       {asset.notes && (
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">{asset.notes}</p>
+                        <p className="text-xs text-ink-faint mt-1 truncate">{asset.notes}</p>
                       )}
                     </div>
 
                     <div className="flex-shrink-0 sm:text-right">
-                      <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+                      <p className="text-sm font-bold tabular-nums text-ink">
                         EGP {formatEGP(currentValue)}
                       </p>
                       {glPct !== null ? (
@@ -99,7 +99,7 @@ export function AssetList({ assets, loading, livePrices, onEdit, onDelete }: Ass
                   <div className="flex gap-3 mt-3">
                     <button
                       onClick={() => onEdit(asset)}
-                      className="text-xs text-brand-500 hover:text-brand-600 font-medium"
+                      className="text-xs text-accent hover:text-brand-600 font-medium"
                     >
                       Edit
                     </button>

@@ -64,9 +64,9 @@ interface DomainSummary {
 type SyncSummary = Record<SyncDomain, DomainSummary>;
 
 const SYNC_DOMAINS: { key: SyncDomain; label: string; completeClass: string }[] = [
-  { key: 'accounts', label: 'Accounts', completeClass: 'bg-sky-500 dark:bg-sky-400' },
-  { key: 'cards', label: 'Cards', completeClass: 'bg-emerald-500 dark:bg-emerald-400' },
-  { key: 'certificates', label: 'Certificates', completeClass: 'bg-amber-500 dark:bg-amber-400' },
+  { key: 'accounts', label: 'Accounts', completeClass: 'bg-info' },
+  { key: 'cards', label: 'Cards', completeClass: 'bg-accent' },
+  { key: 'certificates', label: 'Certificates', completeClass: 'bg-warning' },
 ];
 
 const EMPTY_SYNC_SUMMARY: SyncSummary = {
@@ -157,7 +157,7 @@ function SyncCoverageBar({
 }) {
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-1 h-2.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+      <div className="grid grid-cols-3 gap-1 h-2.5 overflow-hidden rounded-full bg-surface-sunken">
         {SYNC_DOMAINS.map((domain) => {
           const domainSummary = summary[domain.key];
           const isSynced = domainSummary.count > 0;
@@ -167,7 +167,7 @@ function SyncCoverageBar({
             <div
               key={domain.key}
               className={`h-full transition-colors ${
-                isSynced ? domain.completeClass : 'bg-gray-200 dark:bg-gray-700'
+                isSynced ? domain.completeClass : 'bg-surface-sunken'
               } ${isSyncing ? 'sync-bar-animated' : ''}`}
               title={`${domain.label}: ${getDomainCountLabel(domainSummary.count)} - ${syncTimeLabel}`}
             />
@@ -184,18 +184,18 @@ function SyncCoverageBar({
               <div className="flex items-center gap-1.5">
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    isSynced ? domain.completeClass : 'bg-gray-300 dark:bg-gray-600'
+                    isSynced ? domain.completeClass : 'bg-line-strong'
                   }`}
                 />
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                <span className="text-xs font-medium text-ink-muted">
                   {domain.label}
                 </span>
               </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              <p className="text-[11px] text-ink-muted mt-0.5">
                 {getDomainCountLabel(domainSummary.count)}
               </p>
               <p
-                className="text-[11px] text-gray-500 dark:text-gray-400 truncate"
+                className="text-[11px] text-ink-muted truncate"
                 title={syncTimeLabel}
               >
                 {syncTimeLabel}
@@ -335,7 +335,7 @@ function SyncDropdown({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-sunken disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
       >
         {loading ? (
           <>
@@ -362,7 +362,7 @@ function SyncDropdown({
             width: MENU_WIDTH,
             maxHeight: `calc(100vh - ${pos.top + VIEWPORT_MARGIN}px)`,
           }}
-          className="z-50 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg"
+          className="z-50 overflow-y-auto rounded-lg border border-gray-200 border-line-strong bg-surface shadow-lg"
         >
           {SYNC_MENU_ITEMS.map((item) => (
             <button
@@ -373,12 +373,12 @@ function SyncDropdown({
                 setOpen(false);
                 onSelectDomain(item.domain);
               }}
-              className="block w-full px-3 py-2.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
+              className="block w-full px-3 py-2.5 text-left text-sm text-ink hover:bg-surface-sunken focus:outline-none focus-visible:bg-surface-sunken"
             >
               {item.label}
             </button>
           ))}
-          <div className="border-t border-gray-200 dark:border-gray-700" />
+          <div className="border-t border-gray-200 border-line-strong" />
           <button
             role="menuitem"
             type="button"
@@ -386,7 +386,7 @@ function SyncDropdown({
               setOpen(false);
               onSyncAll();
             }}
-            className="block w-full px-3 py-2.5 text-left text-sm font-medium text-brand-600 dark:text-brand-400 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-100 dark:focus-visible:bg-gray-800"
+            className="block w-full px-3 py-2.5 text-left text-sm font-medium text-brand-600 dark:text-brand-400 hover:bg-surface-sunken focus:outline-none focus-visible:bg-surface-sunken"
           >
             Sync All
           </button>
@@ -822,7 +822,7 @@ export function BankAccountsSection() {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-base font-semibold text-ink">
           Connected Bank Accounts
         </h2>
       </CardHeader>
@@ -830,7 +830,7 @@ export function BankAccountsSection() {
         {/* Existing credentials list */}
         <div>
           {loadingList && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading accounts... (may take up to 30s if server is waking up)</p>
+            <p className="text-sm text-ink-muted">Loading accounts... (may take up to 30s if server is waking up)</p>
           )}
           {listError && (
             <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
@@ -838,12 +838,12 @@ export function BankAccountsSection() {
             </p>
           )}
           {credentials.length > 0 && (
-            <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 p-3">
+            <div className="mb-4 rounded-lg border border-line bg-surface-sunken/40 p-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
-                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                <p className="text-xs font-semibold text-ink">
                   Sync Coverage
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-ink-muted">
                   {syncedAccounts.length} synced item{syncedAccounts.length === 1 ? '' : 's'} found
                 </p>
               </div>
@@ -857,7 +857,7 @@ export function BankAccountsSection() {
           )}
           {!loadingList && credentials.length === 0 && !listError && (
             <div className="flex flex-col items-center py-6 gap-2 text-center">
-              <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400">
+              <div className="p-3 rounded-full bg-surface-sunken text-gray-400">
                 <svg
                   className="h-7 w-7"
                   fill="none"
@@ -873,7 +873,7 @@ export function BankAccountsSection() {
                   />
                 </svg>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs">
+              <p className="text-sm text-ink-muted max-w-xs">
                 No bank accounts connected yet. Use the form below to add one.
               </p>
             </div>
@@ -909,10 +909,10 @@ export function BankAccountsSection() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                       {/* Bank info */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                        <p className="text-sm font-medium text-ink truncate">
                           {cred.label ?? (BANK_LABELS[cred.bank as Bank] ?? cred.bank)}
                         </p>
-                        <p className="mt-0.5 break-words text-xs text-gray-500 dark:text-gray-400">
+                        <p className="mt-0.5 break-words text-xs text-ink-muted">
                           {BANK_LABELS[cred.bank as Bank] ?? cred.bank} &middot; Last synced: {formatDate(cred.last_synced_at)}
                         </p>
                         {/* Sync feedback */}
@@ -950,7 +950,7 @@ export function BankAccountsSection() {
                         className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                           cred.is_active
                             ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                            : 'bg-surface-sunken text-ink-muted'
                         }`}
                       >
                         {cred.is_active ? 'Active' : 'Inactive'}
@@ -1008,8 +1008,8 @@ export function BankAccountsSection() {
                     </div>
                     {/* Inline edit form */}
                     {editingId === cred.id && (
-                      <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 space-y-3">
-                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                      <div className="mt-3 p-3 rounded-lg bg-surface-sunken border border-gray-200 border-line-strong space-y-3">
+                        <p className="text-xs font-medium text-ink-muted">
                           Update credentials - leave blank to keep existing value
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1053,7 +1053,7 @@ export function BankAccountsSection() {
                       </div>
                     )}
                     {activeSyncKeys.length > 0 && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                      <p className="text-xs text-ink-faint mt-1">
                         {syncState?.phase
                           ? `Syncing ${syncState.phase.label} (${syncState.phase.index}/${syncState.phase.total})... ${maxElapsed}s`
                           : `Syncing... ${maxElapsed}s - this can take 2-4 minutes`}
@@ -1067,11 +1067,11 @@ export function BankAccountsSection() {
         </div>
 
         {/* Divider */}
-        <div className="border-t border-gray-200 dark:border-gray-800" />
+        <div className="border-t border-line" />
 
         {/* Add new bank form */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">
+          <h3 className="text-sm font-semibold text-ink mb-4">
             Add Bank Account
           </h3>
           <form onSubmit={(e) => void handleSave(e)} className="flex flex-col gap-4">
@@ -1119,7 +1119,7 @@ export function BankAccountsSection() {
               </p>
             )}
 
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-ink-muted">
               Credentials are encrypted server-side using AES-256-GCM before storage. They are never
               stored in plaintext and only used to fetch your transaction data.
             </p>

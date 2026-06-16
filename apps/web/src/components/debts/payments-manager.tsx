@@ -250,8 +250,8 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
   return (
     <div className="flex flex-col gap-4">
       {/* Debt summary line */}
-      <p className="break-words text-sm text-gray-500 dark:text-gray-400">
-        <span className="font-medium text-gray-900 dark:text-white">{debt.counterparty_name}</span>
+      <p className="break-words text-sm text-ink-muted">
+        <span className="font-medium text-ink">{debt.counterparty_name}</span>
         {' — '}
         {debt.currency} {formatAmount(debt.original_amount)} original &bull; {debt.currency}{' '}
         {formatAmount(debt.outstanding_balance)} outstanding
@@ -264,7 +264,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
       )}
 
       {payments.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-6">
+        <p className="text-sm text-ink-muted text-center py-6">
           No payments recorded
         </p>
       ) : (
@@ -278,20 +278,20 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
             return (
               <li
                 key={payment.id}
-                className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 overflow-hidden"
+                className="rounded-xl border border-line bg-surface-sunken/50 overflow-hidden"
               >
                 {/* Normal row */}
                 {!isEditing && (
                   <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">
+                      <span className="text-sm font-semibold text-ink tabular-nums">
                         {debt.currency} {formatAmount(payment.amount)}
                       </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-xs text-ink-muted">
                         {formatDate(payment.payment_date)}
                       </span>
                       {payment.notes && (
-                        <span className="text-xs text-gray-400 dark:text-gray-500 italic truncate">
+                        <span className="text-xs text-ink-faint italic truncate">
                           &ldquo;{payment.notes}&rdquo;
                         </span>
                       )}
@@ -311,7 +311,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
                           <button
                             onClick={() => setConfirmDeleteId(null)}
                             disabled={isDeleting}
-                            className="px-2 py-1 rounded-md text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                            className="px-2 py-1 rounded-md text-xs font-medium text-ink-muted hover:bg-surface-sunken transition-colors disabled:opacity-50"
                             aria-label="Cancel delete"
                           >
                             Cancel
@@ -322,7 +322,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
                           {/* Edit icon */}
                           <button
                             onClick={() => startEdit(payment)}
-                            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-surface-sunken transition-colors"
                             aria-label="Edit payment"
                           >
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -332,7 +332,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
                           {/* Delete icon */}
                           <button
                             onClick={() => setConfirmDeleteId(payment.id)}
-                            className="p-1.5 rounded-md text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                            className="p-1.5 rounded-md text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-surface-sunken transition-colors"
                             aria-label="Delete payment"
                           >
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

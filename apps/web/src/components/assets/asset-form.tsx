@@ -86,7 +86,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
       {/* Asset type */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Asset Type</label>
+        <label className="block text-xs font-medium text-ink-muted mb-1.5">Asset Type</label>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ASSET_TYPES.map((t) => (
             <button
@@ -95,8 +95,8 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
               onClick={() => handleTypeChange(t)}
               className={`flex flex-col items-center gap-0.5 rounded-lg border px-1.5 py-1.5 text-xs font-medium transition-colors ${
                 assetType === t
-                  ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
+                  ? 'border-brand-500 bg-accent/10 text-accent'
+                  : 'border-gray-200 border-line-strong text-ink-muted hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               <span className="text-base">{ASSET_TYPE_ICONS[t]}</span>
@@ -109,7 +109,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       {/* Currency selector — only for foreign_currency */}
       {isFx && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Currency</label>
+          <label className="block text-xs font-medium text-ink-muted mb-1.5">Currency</label>
           <div className="flex flex-wrap gap-1.5">
             {COMMON_CURRENCIES.map((c) => (
               <button
@@ -118,8 +118,8 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
                 onClick={() => { setCurrencyCode(c); setUnit(c); }}
                 className={`px-2.5 py-1 rounded-md border text-xs font-semibold transition-colors ${
                   currencyCode === c
-                    ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600'
+                    ? 'border-brand-500 bg-accent/10 text-accent'
+                    : 'border-gray-200 border-line-strong text-ink-muted hover:border-gray-300 dark:hover:border-gray-600'
                 }`}
               >
                 {c}
@@ -139,30 +139,30 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
             onChange={(e) => setIsGift(e.target.checked)}
             className="sr-only"
           />
-          <div className={`w-10 h-5 rounded-full transition-colors ${isGift ? 'bg-brand-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
+          <div className={`w-10 h-5 rounded-full transition-colors ${isGift ? 'bg-accent' : 'bg-surface-sunken'}`} />
           <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isGift ? 'translate-x-5' : ''}`} />
         </div>
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <span className="text-sm font-medium text-ink-muted">
           🎁 This was a gift <span className="text-xs font-normal text-gray-400">(cost = EGP 0)</span>
         </span>
       </label>
 
       {/* Name */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name / Description</label>
+        <label className="block text-xs font-medium text-ink-muted mb-1">Name / Description</label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={assetType === 'gold' ? 'e.g. 21K Gold Bar' : assetType === 'car' ? 'e.g. Toyota Corolla 2022' : 'Asset name'}
-          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
       {/* Quantity + Unit */}
       <div className={`grid gap-3 ${isFx ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          <label className="block text-xs font-medium text-ink-muted mb-1">
             {isFx ? `Amount (${currencyCode})` : 'Quantity'}
           </label>
           <input
@@ -171,18 +171,18 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
             onChange={(e) => setQuantity(e.target.value)}
             min="0"
             step="any"
-            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
         {!isFx && (
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Unit</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">Unit</label>
             <input
               type="text"
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
               placeholder="grams, sqm, units…"
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
         )}
@@ -192,7 +192,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       <div className={`grid gap-3 ${isGift ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
         {!isGift && (
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Purchase Price (EGP total)</label>
+            <label className="block text-xs font-medium text-ink-muted mb-1">Purchase Price (EGP total)</label>
             <input
               type="number"
               value={purchasePrice}
@@ -200,19 +200,19 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
               min="0"
               step="any"
               placeholder="0.00"
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
         )}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          <label className="block text-xs font-medium text-ink-muted mb-1">
             {isGift ? 'Date Received' : 'Purchase Date'}
           </label>
           <input
             type="date"
             value={purchaseDate}
             onChange={(e) => setPurchaseDate(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
       </div>
@@ -220,7 +220,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
       {/* Current value — only for non-auto types */}
       {!isAuto && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          <label className="block text-xs font-medium text-ink-muted mb-1">
             Current Market Value (EGP) <span className="text-gray-400 font-normal">— optional, leave blank to use purchase price</span>
           </label>
           <input
@@ -230,7 +230,7 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
             min="0"
             step="any"
             placeholder="0.00"
-            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
       )}
@@ -245,13 +245,13 @@ export function AssetForm({ asset, onSaved, onCancel }: AssetFormProps) {
 
       {/* Notes */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Notes <span className="font-normal text-gray-400">— optional</span></label>
+        <label className="block text-xs font-medium text-ink-muted mb-1">Notes <span className="font-normal text-gray-400">— optional</span></label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
           placeholder="Any details…"
-          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+          className="w-full rounded-lg border border-gray-200 border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
         />
       </div>
 
