@@ -95,8 +95,17 @@ _USER_AGENTS: list[str] = [
 # Deliberately NOT blocked: "document", "script", "xhr", "fetch" — the SPA's
 # JS bundle and its API calls (which we intercept via page.on("response"))
 # must load normally.
+#
+# Also NOT blocked: "stylesheet" and "font".  Oracle JET components such as
+# ``oj-listview`` gate their render/visibility lifecycle on their CSS being
+# present — when stylesheets were blocked, the account/credit-card rows never
+# hydrated on Render's CPU-starved free tier (verified 2026-06-16: the rows
+# never appeared even after a 240s wait in production, yet rendered in ~1s
+# locally where CSS loads instantly).  Images/media remain blocked: they are
+# the real memory hogs on these portals and have no effect on the DOM/JSON we
+# scrape.
 # ---------------------------------------------------------------------------
-_BLOCKED_RESOURCE_TYPES: frozenset[str] = frozenset({"image", "media", "font", "stylesheet"})
+_BLOCKED_RESOURCE_TYPES: frozenset[str] = frozenset({"image", "media"})
 
 
 async def _block_heavy_resources(route: Route) -> None:
