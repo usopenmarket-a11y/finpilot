@@ -119,9 +119,15 @@ _PAGE_LOAD_TIMEOUT_MS = 150_000
 
 # Default Playwright wait timeout in milliseconds.
 # Set high to handle Oregon→Egypt latency (~120-150ms RTT) for AJAX calls.
-# Increased to 180s (was 120s) — OAAM auth flow from Render Oregon→Egypt can
-# exceed 120s under load.
-_WAIT_TIMEOUT_MS = 180_000
+# Increased to 240s (was 180s) — production Render logs (2026-06-16) show:
+#   login page load: ~42s, dashboard ready: ~34s (total login: ~76s).
+# With 180s remaining after login that left only ~104s for widget reveals
+# before the former ceiling.  The dashboard CC widget reveal alone took 63s
+# (timed out on Render before the old ceiling when the click itself lacked
+# an explicit timeout — fixed below).  Per-product jobs have an 8-minute
+# client-poll cap; a 240s timeout still fits comfortably within that budget
+# (76s login + 240s widget = ~316s total, well under 480s).
+_WAIT_TIMEOUT_MS = 240_000
 
 # Shorter timeout for optional / conditional element checks.
 _SHORT_TIMEOUT_MS = 20_000
@@ -298,7 +304,13 @@ _RE_ZERO_ACCOUNTS = re.compile(
 # empty state conclusive.  This gives the Oracle JET SPA time to populate
 # account rows — we only conclude "empty" if no rows appear within this window
 # AND the zero-accounts text is already visible.
-_ZERO_ACCOUNTS_SETTLE_S: float = 8.0
+# Increased from 8s to 20s (2026-06-16): on Render Oregon→Egypt the KO
+# rendering of account rows takes 5–30s (observed: CC widget took 63s before
+# a click-timeout bug caused early exit).  8s was too short — a legitimately
+# populated account list could still be loading at 8s and would be wrongly
+# declared empty.  20s ensures the widget has had a real chance to hydrate
+# before we even check for the zero-state text.
+_ZERO_ACCOUNTS_SETTLE_S: float = 20.0
 
 # How often (in seconds) to poll for account rows during the fast-path window.
 _ZERO_ACCOUNTS_POLL_INTERVAL_S: float = 1.0
@@ -2474,7 +2486,12 @@ class NBEScraper(BankScraper):
         page.on("response", _capture_cc_details)
         _cc_rows_loaded = False
         try:
-            await page.click(_SEL_CREDIT_CARDS_WIDGET)
+            # Explicit timeout required: without it Playwright defaults to 30s.
+            # Production logs (2026-06-16) showed 63s elapsed before the "rows
+            # did not appear" warning — the 30s default click timeout was firing
+            # inside the try block, landing in `except PlaywrightTimeoutError:
+            # pass` which set _cc_rows_loaded=False, not the wait_for_selector.
+            await page.click(_SEL_CREDIT_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
             await self._random_delay(1.5, 2.5)
             # Keep listening until the account rows appear — the creditcarddetails API
             # response may arrive after the click delay.
@@ -2723,8 +2740,9 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no CCA widget — skipping CC transaction scrape")
             return []
 
-        # Click CCA widget to reveal card rows
-        await page.click(_SEL_CREDIT_CARDS_WIDGET)
+        # Click CCA widget to reveal card rows — explicit timeout required;
+        # Playwright defaults to 30s which is insufficient on Render Oregon→Egypt.
+        await page.click(_SEL_CREDIT_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
         await self._random_delay(1.5, 2.5)
 
         try:
@@ -3379,8 +3397,9 @@ class NBEScraper(BankScraper):
             )
             return []
 
-        # Click the widget to flip the card and reveal the list
-        await page.click(_SEL_CERTIFICATES_WIDGET)
+        # Click the widget to flip the card and reveal the list.
+        # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
+        await page.click(_SEL_CERTIFICATES_WIDGET, timeout=_WAIT_TIMEOUT_MS)
         await self._random_delay(1.5, 2.5)
 
         # Wait for the account rows to appear
@@ -3554,8 +3573,9 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no LON (loans) widget found — user has no loan products")
             return []
 
-        # Click the widget to reveal the loan list
-        await page.click(_SEL_LOANS_WIDGET)
+        # Click the widget to reveal the loan list.
+        # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
+        await page.click(_SEL_LOANS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
         await self._random_delay(1.5, 2.5)
 
         # Wait for account rows OR the no-data message.
@@ -3710,8 +3730,9 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no PRE (prepaid cards) widget found — user has no prepaid cards")
             return []
 
-        # Click the widget to reveal the prepaid card list
-        await page.click(_SEL_PREPAID_CARDS_WIDGET)
+        # Click the widget to reveal the prepaid card list.
+        # Explicit timeout: default 30s is insufficient on Render Oregon→Egypt.
+        await page.click(_SEL_PREPAID_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
         await self._random_delay(1.5, 2.5)
 
         try:
