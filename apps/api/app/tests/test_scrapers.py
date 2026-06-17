@@ -1430,137 +1430,24 @@ class TestNbeScraperScrape:
 
 
 class TestCibScraperScrape:
-    """CIBScraper.scrape() — end-to-end flow with all I/O mocked."""
+    """CIBScraper.scrape() — CIB now fast-fails (portal blocks automation)."""
 
     @pytest.fixture
     def cib_scraper(self) -> CIBScraper:
         return CIBScraper(username="cib_user", password="test_password_123")
 
-    async def test_happy_path_returns_scraper_result(self, cib_scraper: CIBScraper) -> None:
-        """scrape() returns ScraperResult with bank_name == 'CIB' and transactions."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
+    async def test_scrape_raises_portal_unreachable(self, cib_scraper: CIBScraper) -> None:
+        """scrape() raises BankPortalUnreachableError without launching a browser.
 
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _CIB_DASHBOARD_HTML,  # raw_html["dashboard"]
-                _CIB_DASHBOARD_HTML,  # _extract_account -> page.content()
-                _CIB_TRANSACTIONS_HTML,  # raw_html["transactions"]
-                _CIB_TRANSACTIONS_HTML,  # _extract_transactions -> page.content()
-            ]
-        )
-
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        # CIB error selectors — must return None so _wait_for_dashboard proceeds
-        _CIB_ERROR_CSS = (
-            ".error-message, .alert-danger, [class*='loginError'], [class*='error-msg']"
-        )
-        _CIB_ERROR_XPATH = (
-            "xpath=//*[contains(@class,'error-message') or contains(@class,'alert-danger') "
-            "or contains(@class,'loginError')]"
-        )
-        _cib_error_selectors = {_CIB_ERROR_CSS, _CIB_ERROR_XPATH}
-
-        async def _query_selector_cib(selector: str) -> Any:
-            return None if selector in _cib_error_selectors else mock_element
-
-        mock_page.query_selector = _query_selector_cib  # type: ignore[assignment]
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            result = await cib_scraper.scrape()
-
-        assert isinstance(result, ScraperResult)
-        assert result.account.bank_name == "CIB"
-        assert len(result.transactions) == 2
-        assert result.transactions[0].transaction_type == "debit"
-        assert result.transactions[1].transaction_type == "credit"
-
-    async def test_login_error_raises_scraper_login_error(self, cib_scraper: CIBScraper) -> None:
-        """scrape() raises ScraperLoginError when error-message element is found."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(return_value=_CIB_LOGIN_ERROR_HTML)
-
-        mock_error_el = AsyncMock()
-        mock_error_el.inner_text = AsyncMock(return_value="Invalid credentials. Please try again.")
-        mock_page.query_selector = AsyncMock(return_value=mock_error_el)
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperLoginError) as exc_info:
-                await cib_scraper.scrape()
-
-        assert exc_info.value.bank_code == "CIB"
-
-    async def test_playwright_timeout_raises_scraper_timeout_error(
-        self, cib_scraper: CIBScraper
-    ) -> None:
-        """scrape() wraps PlaywrightTimeoutError in ScraperTimeoutError."""
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("Timeout exceeded")
-        )
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperTimeoutError) as exc_info:
-                await cib_scraper.scrape()
-
-        assert exc_info.value.bank_code == "CIB"
-
-    async def test_browser_closed_on_exception(self, cib_scraper: CIBScraper) -> None:
-        """_close_browser is called in the finally block even on failure."""
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-        mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("timeout"))
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperTimeoutError):
-                await cib_scraper.scrape()
-
-        mock_browser.close.assert_awaited_once()
-
-    async def test_cib_transactions_use_cib_date_format(self, cib_scraper: CIBScraper) -> None:
-        """Transactions parsed from CIB HTML use DD-MMM-YYYY dates correctly."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _CIB_DASHBOARD_HTML,
-                _CIB_DASHBOARD_HTML,
-                _CIB_TRANSACTIONS_HTML,
-                _CIB_TRANSACTIONS_HTML,
-            ]
-        )
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        _CIB_ERROR_CSS = (
-            ".error-message, .alert-danger, [class*='loginError'], [class*='error-msg']"
-        )
-        _CIB_ERROR_XPATH = (
-            "xpath=//*[contains(@class,'error-message') or contains(@class,'alert-danger') "
-            "or contains(@class,'loginError')]"
-        )
-        _cib_error_selectors = {_CIB_ERROR_CSS, _CIB_ERROR_XPATH}
-
-        async def _query_selector_cib(selector: str) -> Any:
-            return None if selector in _cib_error_selectors else mock_element
-
-        mock_page.query_selector = _query_selector_cib  # type: ignore[assignment]
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            result = await cib_scraper.scrape()
-
-        assert result.transactions[0].transaction_date == date(2025, 1, 15)
-        assert result.transactions[1].transaction_date == date(2025, 1, 5)
+        CIB's portal (digitalinternetbanking.cibeg.com) blocks automated access
+        via edge TLS fingerprinting + cddc device fingerprinting; the scraper
+        fast-fails with a clear, user-facing message instead of capturing a
+        blank page. See CIBScraper.scrape() docstring.
+        """
+        with pytest.raises(BankPortalUnreachableError) as excinfo:
+            await cib_scraper.scrape()
+        assert excinfo.value.bank_code == "CIB"
+        assert "import" in str(excinfo.value).lower()
 
 
 # ===========================================================================

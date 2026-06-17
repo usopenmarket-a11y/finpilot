@@ -368,10 +368,10 @@ async def _background_sync_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
-        except BankPortalUnreachableError:
+        except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
-            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            _JOBS[job_id]["error"] = str(_bpu_exc) or "Bank portal unreachable"
             return
         except Exception as exc:
             logger.error("Sync failed: unexpected error", extra={"bank": bank}, exc_info=exc)
@@ -558,10 +558,10 @@ async def _background_sync_accounts_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
-        except BankPortalUnreachableError:
+        except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Accounts sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
-            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            _JOBS[job_id]["error"] = str(_bpu_exc) or "Bank portal unreachable"
             return
         except Exception as exc:
             logger.error(
@@ -731,10 +731,10 @@ async def _background_sync_cc_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
-        except BankPortalUnreachableError:
+        except BankPortalUnreachableError as _bpu_exc:
             logger.warning("CC sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
-            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            _JOBS[job_id]["error"] = str(_bpu_exc) or "Bank portal unreachable"
             return
         except Exception as exc:
             logger.error("CC sync failed: unexpected error", extra={"bank": bank}, exc_info=exc)
@@ -914,10 +914,10 @@ async def _background_sync_loans_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
-        except BankPortalUnreachableError:
+        except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Loans sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
-            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            _JOBS[job_id]["error"] = str(_bpu_exc) or "Bank portal unreachable"
             return
         except Exception as exc:
             logger.error("Loans sync failed: unexpected error", extra={"bank": bank}, exc_info=exc)
@@ -1101,10 +1101,10 @@ async def _background_sync_prepaid_cards_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
-        except BankPortalUnreachableError:
+        except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Prepaid cards sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
-            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            _JOBS[job_id]["error"] = str(_bpu_exc) or "Bank portal unreachable"
             return
         except Exception as exc:
             logger.error(
@@ -1290,10 +1290,10 @@ async def _background_sync_certificates_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
-        except BankPortalUnreachableError:
+        except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Certificates sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
-            _JOBS[job_id]["error"] = "Bank portal unreachable"
+            _JOBS[job_id]["error"] = str(_bpu_exc) or "Bank portal unreachable"
             return
         except Exception as exc:
             logger.error(

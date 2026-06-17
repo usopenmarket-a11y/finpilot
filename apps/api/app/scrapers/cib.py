@@ -50,6 +50,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.models.db import BankAccount, Transaction
 from app.scrapers.base import (
+    BankPortalUnreachableError,
     BankScraper,
     ScraperLoginError,
     ScraperParseError,
@@ -358,16 +359,39 @@ class CIBScraper(BankScraper):
     bank_name: str = "CIB"
 
     async def scrape(self) -> ScraperResult:
-        """Execute the full CIB scrape cycle.
+        """CIB automated scraping is not supported.
 
-        Returns:
-            ``ScraperResult`` with account details and up to
-            ``_MAX_TRANSACTIONS`` transaction rows.
+        CIB's current portal (https://digitalinternetbanking.cibeg.com) is a
+        React SPA protected by enterprise bot-management: an edge layer that
+        rejects non-browser TLS fingerprints, and a client-side device
+        fingerprinting script (``cddc.umd.js`` + Dynatrace OWASP) that refuses
+        to bootstrap the app for automated/datacenter browsers.  Verified
+        2026-06-17: standard Playwright, ``--headless=new`` with full stealth,
+        headful, and patchright (undetected fork) all received a blank
+        ``#root``; the old portal (online.cibeg.com) is decommissioned.  Beating
+        this would require residential-proxy + real-browser infrastructure that
+        FinPilot's datacenter-hosted backend cannot provide, and risks the
+        user's account being flagged.
+
+        We fast-fail with a clear message instead of launching a browser that
+        will only ever capture a blank page.  CIB data must be brought in via a
+        user-provided statement import or manual entry (see project notes).
 
         Raises:
-            ScraperLoginError: If the portal rejects credentials.
-            ScraperTimeoutError: If any Playwright wait exceeds its deadline.
-            ScraperParseError: If the HTML structure is not as expected.
+            BankPortalUnreachableError: always — CIB blocks automated access.
+        """
+        raise BankPortalUnreachableError(
+            "CIB online banking blocks automated access — connect CIB by "
+            "importing a downloaded statement instead of live sync.",
+            bank_code="CIB",
+        )
+
+    async def _scrape_disabled_impl(self) -> ScraperResult:
+        """Former live-scrape implementation, retained for reference only.
+
+        Not reachable from ``scrape()`` (which now fast-fails).  Kept so the
+        login/account/transaction selectors are preserved if CIB's anti-bot
+        posture ever changes or an alternative ingestion path is built.
         """
         browser, context, page = await self._launch_browser()
         raw_html: dict[str, str] = {}
