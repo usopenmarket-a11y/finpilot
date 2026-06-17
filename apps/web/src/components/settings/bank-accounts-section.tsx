@@ -88,6 +88,22 @@ function formatDate(iso: string | null): string {
   }).format(new Date(iso));
 }
 
+// Compact relative time for the narrow per-domain coverage cells (the full
+// timestamp stays available in the cell's title tooltip and the credential
+// header). e.g. "just now", "2h ago", "3d ago", "Jun 15".
+function formatRelative(iso: string | null): string {
+  if (!iso) return '—';
+  const then = new Date(iso).getTime();
+  const diffMin = Math.round((Date.now() - then) / 60000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Intl.DateTimeFormat('en-EG', { month: 'short', day: 'numeric' }).format(new Date(iso));
+}
+
 function isValidBank(value: string): value is Bank {
   return ['NBE', 'CIB', 'BDC', 'BDC_RETAIL', 'UB'].includes(value);
 }
@@ -201,10 +217,12 @@ function SyncCoverageBar({
                 {getDomainCountLabel(domainSummary.count)}
               </p>
               <p
-                className="text-[11px] text-ink-muted truncate"
+                className="text-[11px] text-ink-faint truncate"
                 title={syncTimeLabel}
               >
-                {syncTimeLabel}
+                {domainSummary.lastSyncedAt
+                  ? formatRelative(domainSummary.lastSyncedAt)
+                  : 'Never'}
               </p>
             </div>
           );
