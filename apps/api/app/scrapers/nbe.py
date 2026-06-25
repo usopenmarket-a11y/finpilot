@@ -1819,6 +1819,14 @@ class NBEScraper(BankScraper):
         # page.locator().nth() is lazily evaluated — it re-queries the DOM at
         # click time, which is correct for Oracle JET SPAs that re-render after
         # every interaction.  We never store the ElementHandle.
+        #
+        # On the Render free tier each successive account iteration re-reveals
+        # the accounts widget, and the SPA hydrates progressively slower — by the
+        # last account the 3-dots icon may not be clickable within the 20s
+        # _SHORT_TIMEOUT_MS, which previously skipped that account entirely (e.g.
+        # account 4/4 ****0013 dropped with "Timeout 20000ms exceeded"). Retry
+        # once: re-reveal the widget and click with the longer _WAIT_TIMEOUT_MS
+        # before giving up on the account.
         try:
             await (
                 page.locator(_SEL_ACCOUNT_ROWS)
@@ -1826,12 +1834,29 @@ class NBEScraper(BankScraper):
                 .locator(_SEL_MENU_ICON)
                 .click(timeout=_SHORT_TIMEOUT_MS)
             )
-        except PlaywrightTimeoutError as exc:
-            await self._safe_screenshot(page, f"menu_icon_missing_idx{account_index}")
-            raise ScraperParseError(
-                f"NBE: could not locate/click account context menu icon at index {account_index}",
-                bank_code="NBE",
-            ) from exc
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "NBE: menu-icon click timed out (%dms) for account index %d — "
+                "re-revealing widget and retrying with extended timeout",
+                _SHORT_TIMEOUT_MS,
+                account_index,
+            )
+            try:
+                await self._reveal_accounts_widget(page)
+                await self._random_delay(0.8, 1.5)
+                await (
+                    page.locator(_SEL_ACCOUNT_ROWS)
+                    .nth(account_index)
+                    .locator(_SEL_MENU_ICON)
+                    .click(timeout=_WAIT_TIMEOUT_MS)
+                )
+            except PlaywrightTimeoutError as exc:
+                await self._safe_screenshot(page, f"menu_icon_missing_idx{account_index}")
+                raise ScraperParseError(
+                    "NBE: could not locate/click account context menu icon at index "
+                    f"{account_index} after retry",
+                    bank_code="NBE",
+                ) from exc
 
         logger.info("NBE: clicked account context menu icon (index=%d)", account_index)
         await self._random_delay(0.8, 1.5)
