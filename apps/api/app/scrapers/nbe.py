@@ -132,6 +132,14 @@ _WAIT_TIMEOUT_MS = 240_000
 # Shorter timeout for optional / conditional element checks.
 _SHORT_TIMEOUT_MS = 20_000
 
+# Timeout for the per-account interaction clicks (3-dots menu icon, "Account
+# Activity" menu item) inside the accounts loop. On the Render free tier the
+# Oracle JET SPA hydrates progressively slower each iteration, so the original
+# 20s _SHORT_TIMEOUT_MS was too tight for the later accounts and dropped them.
+# 60s absorbs that cumulative slowdown while staying well under the per-account
+# budget (4 accounts must finish within the 8-minute job poll cap).
+_ACCOUNT_CLICK_TIMEOUT_MS = 60_000
+
 # Maximum number of transactions to return per scrape run.
 _MAX_TRANSACTIONS = 50
 
@@ -1832,13 +1840,13 @@ class NBEScraper(BankScraper):
                 page.locator(_SEL_ACCOUNT_ROWS)
                 .nth(account_index)
                 .locator(_SEL_MENU_ICON)
-                .click(timeout=_SHORT_TIMEOUT_MS)
+                .click(timeout=_ACCOUNT_CLICK_TIMEOUT_MS)
             )
         except PlaywrightTimeoutError:
             logger.warning(
                 "NBE: menu-icon click timed out (%dms) for account index %d — "
                 "re-revealing widget and retrying with extended timeout",
-                _SHORT_TIMEOUT_MS,
+                _ACCOUNT_CLICK_TIMEOUT_MS,
                 account_index,
             )
             try:
@@ -1881,7 +1889,7 @@ class NBEScraper(BankScraper):
         logger.info("NBE: waiting for visible 'Account Activity' menu item")
         try:
             await page.wait_for_selector(
-                _SEL_ACCOUNT_ACTIVITY, state="visible", timeout=_SHORT_TIMEOUT_MS
+                _SEL_ACCOUNT_ACTIVITY, state="visible", timeout=_ACCOUNT_CLICK_TIMEOUT_MS
             )
         except PlaywrightTimeoutError as exc:
             await self._safe_screenshot(page, "account_activity_missing")
@@ -1889,17 +1897,21 @@ class NBEScraper(BankScraper):
                 "NBE: 'Account Activity' menu item not found (visible)", bank_code="NBE"
             ) from exc
 
-        # Iterate all matching spans and click the first visible one.
+        # Iterate all matching spans and click the first visible one. Use the
+        # extended per-account click timeout: on the free tier the later accounts
+        # hydrate slowly and a 20s click previously timed out here, dropping the
+        # account (observed: account 3/4 ****0015 skipped with "Locator.click:
+        # Timeout 20000ms exceeded").
         logger.info("NBE: clicking visible 'Account Activity' — navigating to transactions page")
         clicked = False
         for loc in await page.locator(_SEL_ACCOUNT_ACTIVITY).all():
             if await loc.is_visible():
-                await loc.click(timeout=_SHORT_TIMEOUT_MS)
+                await loc.click(timeout=_ACCOUNT_CLICK_TIMEOUT_MS)
                 clicked = True
                 break
         if not clicked:
             # Fallback: click by index 0 (should not happen after wait_for_selector above)
-            await page.locator(_SEL_ACCOUNT_ACTIVITY).first.click(timeout=_SHORT_TIMEOUT_MS)
+            await page.locator(_SEL_ACCOUNT_ACTIVITY).first.click(timeout=_ACCOUNT_CLICK_TIMEOUT_MS)
 
         # Confirm the SPA actually navigated to the transaction page URL.
         # Oracle JET SPAs change the ?page= query param on navigation; waiting
