@@ -2780,15 +2780,28 @@ class NBEScraper(BankScraper):
 
         all_txns: list[Transaction] = []
 
-        # Navigate to dashboard first
-        try:
-            await page.goto(
-                _LOGIN_URL, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT_MS
-            )
-        except PlaywrightTimeoutError:
-            logger.warning("NBE: timed out navigating to dashboard for CC statement scrape")
-            return []
-        await self._random_delay(1.5, 2.5)
+        # Navigate to the dashboard only if we are not already there.
+        # This method is called immediately after _scrape_credit_cards, which leaves
+        # the page on the dashboard with the CCA widget already hydrated. An
+        # unconditional goto() forces a full Oracle JET SPA reload that the Render
+        # free tier cannot re-hydrate within the widget-wait window after a heavy
+        # account scrape — the widget-wait then times out and we skip CC
+        # transactions entirely (0 scraped). Preserving the existing hydrated
+        # dashboard avoids that costly, failure-prone reload. Mirrors the
+        # on_dashboard guard in _scrape_credit_cards.
+        current_url = page.url
+        on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip(
+            "/"
+        )
+        if not on_dashboard:
+            try:
+                await page.goto(
+                    _LOGIN_URL, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT_MS
+                )
+            except PlaywrightTimeoutError:
+                logger.warning("NBE: timed out navigating to dashboard for CC statement scrape")
+                return []
+            await self._random_delay(1.5, 2.5)
 
         # Confirm session is still active before waiting for widgets.
         try:
@@ -2812,16 +2825,21 @@ class NBEScraper(BankScraper):
             logger.info("NBE: no CCA widget — skipping CC transaction scrape")
             return []
 
-        # Click CCA widget to reveal card rows — explicit timeout required;
-        # Playwright defaults to 30s which is insufficient on Render Oregon→Egypt.
-        await page.click(_SEL_CREDIT_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
-        await self._random_delay(1.5, 2.5)
+        # Reveal the CC card rows. When we preserved the dashboard from
+        # _scrape_credit_cards (no reload), the flip-card is already expanded and
+        # the rows are present — clicking the widget again would *toggle* it
+        # closed. So only click when the rows are not already visible. Explicit
+        # timeout required; Playwright defaults to 30s which is insufficient on
+        # Render Oregon→Egypt.
+        _cc_rows_sel = (
+            "div.flip-account.CCA li.flip-account-list__items, li.flip-account-list__items"
+        )
+        if await page.locator(_cc_rows_sel).count() == 0:
+            await page.click(_SEL_CREDIT_CARDS_WIDGET, timeout=_WAIT_TIMEOUT_MS)
+            await self._random_delay(1.5, 2.5)
 
         try:
-            await page.wait_for_selector(
-                "div.flip-account.CCA li.flip-account-list__items, li.flip-account-list__items",
-                timeout=_WAIT_TIMEOUT_MS,
-            )
+            await page.wait_for_selector(_cc_rows_sel, timeout=_WAIT_TIMEOUT_MS)
         except PlaywrightTimeoutError:
             logger.warning("NBE: CC card rows did not appear — skipping CC transaction scrape")
             return []
