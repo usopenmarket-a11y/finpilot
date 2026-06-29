@@ -297,7 +297,7 @@ def test_bank_account_inactive_flag() -> None:
     account = BankAccount(
         id=uuid4(),
         user_id=uuid4(),
-        bank_name="BDC",
+        bank_name="BDC_RETAIL",
         account_number_masked="****0001",
         account_type="loan",
         balance=Decimal("0.00"),

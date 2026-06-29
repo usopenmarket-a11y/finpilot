@@ -1,19 +1,17 @@
-"""Unit tests for BDCScraper and UBScraper.
+"""Unit tests for UBScraper.
 
 Coverage targets
 ----------------
-- BankScraper._mask_account_number (inherited by both; exercised via BDCScraper)
-- BDC module-level helpers: _parse_bdc_date, _parse_amount, _make_external_id,
-  _normalise_account_type, _normalise_currency, _resolve_txn_columns,
-  _parse_transaction_row
-- BDCScraper.scrape() — happy path, ScraperLoginError on error element,
-  ScraperTimeoutError on Playwright timeout
+- BankScraper._mask_account_number (inherited; exercised via UBScraper)
 - UB module-level helpers: _parse_ub_date, _parse_amount, _make_external_id,
   _resolve_txn_columns (incl. single-Amount column detection)
 - UBScraper.scrape() — happy path, ScraperLoginError on error element,
   ScraperTimeoutError on Playwright timeout
-- Exception hierarchy: BDCScraper and UBScraper are subclasses of BankScraper;
+- Exception hierarchy: UBScraper is a subclass of BankScraper;
   all exception classes carry bank_code
+
+NOTE: the legacy plain BDC scraper (``app.scrapers.bdc``) was removed — only
+the BDC_RETAIL portal is supported. Its tests were dropped with it.
 
 Mocking strategy
 ----------------
@@ -49,22 +47,6 @@ from app.scrapers.base import (
     ScraperResult,
     ScraperTimeoutError,
 )
-from app.scrapers.bdc import (
-    BDCScraper,
-    _parse_bdc_date,
-)
-from app.scrapers.bdc import (
-    _make_external_id as bdc_make_external_id,
-)
-from app.scrapers.bdc import (
-    _parse_amount as bdc_parse_amount,
-)
-from app.scrapers.bdc import (
-    _parse_transaction_row as bdc_parse_transaction_row,
-)
-from app.scrapers.bdc import (
-    _resolve_txn_columns as bdc_resolve_txn_columns,
-)
 from app.scrapers.ub import (
     UBScraper,
     _parse_ub_date,
@@ -95,7 +77,7 @@ _NOW = datetime(2025, 3, 15, 12, 0, 0)
 # ---------------------------------------------------------------------------
 
 
-def _make_bank_account(bank_name: str = "BDC") -> BankAccount:
+def _make_bank_account(bank_name: str = "UB") -> BankAccount:
     """Return a minimal BankAccount suitable for passing to row parsers."""
     return BankAccount(
         id=_ZERO_UUID,
@@ -154,46 +136,7 @@ def _build_mock_playwright() -> tuple[MagicMock, MagicMock, AsyncMock, AsyncMock
 # Minimal inline HTML fixtures
 # ---------------------------------------------------------------------------
 
-# BDC dashboard HTML — includes an account-summary table with an ID matching
-# the AccSummary pattern used in _extract_account.
-_BDC_DASHBOARD_HTML = """
-<html><body>
-<table id="ContentPlaceHolder1_GridView_AccSummary">
-  <tr><th>Account Number</th><th>Account Type</th><th>Currency</th><th>Balance</th></tr>
-  <tr><td>9876543210</td><td>Current</td><td>EGP</td><td>20,500.00</td></tr>
-</table>
-</body></html>
-"""
-
-# BDC transaction history HTML — two rows: one debit, one credit.
-_BDC_TRANSACTIONS_HTML = """
-<html><body>
-<table id="ContentPlaceHolder1_GridView_TransactionList">
-  <tr>
-    <th>Date</th><th>Value Date</th><th>Description</th>
-    <th>Debit</th><th>Credit</th><th>Balance</th>
-  </tr>
-  <tr>
-    <td>20/01/2025</td><td>20/01/2025</td><td>ATM Withdrawal BDC</td>
-    <td>1,000.00</td><td></td><td>19,500.00</td>
-  </tr>
-  <tr>
-    <td>15/01/2025</td><td>15/01/2025</td><td>Salary Deposit BDC</td>
-    <td></td><td>8,000.00</td><td>20,500.00</td>
-  </tr>
-</table>
-</body></html>
-"""
-
-# BDC login error HTML — the .failureNotification element triggers the login
-# error detection branch in _wait_for_dashboard.
-_BDC_LOGIN_ERROR_HTML = """
-<html><body>
-<span class="failureNotification">Invalid username or password.</span>
-</body></html>
-"""
-
-# UB dashboard HTML — uses a WebForms-style AccSummary table (same as BDC).
+# UB dashboard HTML — uses a WebForms-style AccSummary table.
 _UB_DASHBOARD_HTML = """
 <html><body>
 <table id="ContentPlaceHolder1_GridView_AccSummary">
@@ -248,21 +191,6 @@ _UB_LOGIN_ERROR_HTML = """
 """
 
 # ---------------------------------------------------------------------------
-# BDC error selectors (must return None in happy-path tests)
-# ---------------------------------------------------------------------------
-# These are the exact strings that _wait_for_dashboard passes to query_selector.
-_BDC_ERROR_CSS = (
-    ".failureNotification, .error-message, .alert-danger, "
-    "[class*='loginError'], [class*='FailureText']"
-)
-_BDC_ERROR_XPATH = (
-    "xpath=//*[contains(@class,'failureNotification') or contains(@class,'FailureText') "
-    "or contains(@class,'error-message') or contains(@class,'alert-danger') "
-    "or contains(@class,'loginError')]"
-)
-_BDC_ERROR_SELECTORS: frozenset[str] = frozenset({_BDC_ERROR_CSS, _BDC_ERROR_XPATH})
-
-# ---------------------------------------------------------------------------
 # UB error selectors (must return None in happy-path tests)
 # ---------------------------------------------------------------------------
 _UB_ERROR_CSS = (
@@ -278,424 +206,70 @@ _UB_ERROR_SELECTORS: frozenset[str] = frozenset({_UB_ERROR_CSS, _UB_ERROR_XPATH}
 
 
 # ===========================================================================
-# Section 1 — BankScraper._mask_account_number via BDCScraper
+# Section 1 — BankScraper._mask_account_number via UBScraper
 # ===========================================================================
 
 
-class TestMaskAccountNumberViaBdc:
-    """_mask_account_number is inherited from BankScraper; exercised here via BDCScraper.
+class TestMaskAccountNumberViaUb:
+    """_mask_account_number is inherited from BankScraper; exercised here via UBScraper.
 
     The existing test_scrapers.py already tests this thoroughly on the base
     class directly.  These tests verify the static method behaves identically
-    when accessed through BDCScraper (confirming correct inheritance) and add
-    a BDC-specific shaped account number.
+    when accessed through UBScraper (confirming correct inheritance).
     """
 
     def test_ten_digit_account_shows_last_four(self) -> None:
-        assert BDCScraper._mask_account_number("9876543210") == "****3210"
+        assert UBScraper._mask_account_number("9876543210") == "****3210"
 
     def test_sixteen_digit_account_shows_last_four(self) -> None:
-        assert BDCScraper._mask_account_number("1234567890123456") == "****3456"
+        assert UBScraper._mask_account_number("1234567890123456") == "****3456"
 
     def test_account_with_hyphens_strips_non_digits(self) -> None:
-        # BDC portals sometimes emit account numbers formatted as groups
-        assert BDCScraper._mask_account_number("1234-5678-9012") == "****9012"
+        assert UBScraper._mask_account_number("1234-5678-9012") == "****9012"
 
     def test_short_account_number_uses_all_digits_as_tail(self) -> None:
-        assert BDCScraper._mask_account_number("42") == "****42"
+        assert UBScraper._mask_account_number("42") == "****42"
 
     def test_result_always_starts_with_four_stars(self) -> None:
-        result = BDCScraper._mask_account_number("0000000001")
+        result = UBScraper._mask_account_number("0000000001")
         assert result.startswith("****")
 
-    def test_ub_inherits_same_implementation(self) -> None:
-        # UBScraper must also inherit the static method unchanged
-        assert UBScraper._mask_account_number("9876543210") == "****3210"
-        assert UBScraper._mask_account_number("9876543210") == BDCScraper._mask_account_number(
-            "9876543210"
-        )
-
 
 # ===========================================================================
-# Section 2 — Exception hierarchy: BDC/UB subclass relationships
+# Section 2 — Exception hierarchy: UB subclass relationships
 # ===========================================================================
 
 
-class TestBdcUbExceptionHierarchy:
-    """BDCScraper and UBScraper are BankScraper subclasses; exceptions carry bank_code."""
-
-    def test_bdc_scraper_is_bank_scraper_subclass(self) -> None:
-        assert issubclass(BDCScraper, BankScraper)
+class TestUbExceptionHierarchy:
+    """UBScraper is a BankScraper subclass; exceptions carry bank_code."""
 
     def test_ub_scraper_is_bank_scraper_subclass(self) -> None:
         assert issubclass(UBScraper, BankScraper)
-
-    def test_bdc_scraper_bank_name(self) -> None:
-        scraper = BDCScraper(username="u", password="p")
-        assert scraper.bank_name == "BDC"
 
     def test_ub_scraper_bank_name(self) -> None:
         scraper = UBScraper(username="u", password="p")
         assert scraper.bank_name == "UB"
 
-    def test_scraper_login_error_carries_bdc_bank_code(self) -> None:
-        exc = ScraperLoginError("bad creds", bank_code="BDC")
-        assert exc.bank_code == "BDC"
-        assert isinstance(exc, ScraperException)
-
-    def test_scraper_timeout_error_carries_bdc_bank_code(self) -> None:
-        exc = ScraperTimeoutError("timeout", bank_code="BDC")
-        assert exc.bank_code == "BDC"
-        assert isinstance(exc, ScraperException)
-
-    def test_scraper_parse_error_carries_bdc_bank_code(self) -> None:
-        exc = ScraperParseError("bad html", bank_code="BDC")
-        assert exc.bank_code == "BDC"
-        assert isinstance(exc, ScraperException)
-
     def test_scraper_login_error_carries_ub_bank_code(self) -> None:
         exc = ScraperLoginError("bad creds", bank_code="UB")
         assert exc.bank_code == "UB"
+        assert isinstance(exc, ScraperException)
 
     def test_scraper_timeout_error_carries_ub_bank_code(self) -> None:
         exc = ScraperTimeoutError("timeout", bank_code="UB")
         assert exc.bank_code == "UB"
+        assert isinstance(exc, ScraperException)
 
-    def test_bdc_scraper_repr_hides_credentials(self) -> None:
-        scraper = BDCScraper(username="secret_user", password="secret_pass")
-        assert "secret_user" not in repr(scraper)
-        assert "secret_pass" not in repr(scraper)
-        assert "***" in repr(scraper)
+    def test_scraper_parse_error_carries_ub_bank_code(self) -> None:
+        exc = ScraperParseError("bad html", bank_code="UB")
+        assert exc.bank_code == "UB"
+        assert isinstance(exc, ScraperException)
 
     def test_ub_scraper_repr_hides_credentials(self) -> None:
         scraper = UBScraper(username="secret_user", password="secret_pass")
         assert "secret_user" not in repr(scraper)
         assert "secret_pass" not in repr(scraper)
         assert "***" in repr(scraper)
-
-
-# ===========================================================================
-# Section 3 — BDC module-level helper tests
-# ===========================================================================
-
-
-class TestParseBdcDate:
-    """_parse_bdc_date — handles DD/MM/YYYY, DD-MM-YYYY, and edge cases."""
-
-    def test_dd_slash_mm_slash_yyyy_primary_format(self) -> None:
-        assert _parse_bdc_date("20/01/2025") == date(2025, 1, 20)
-
-    def test_dd_dash_mm_dash_yyyy_secondary_format(self) -> None:
-        assert _parse_bdc_date("20-01-2025") == date(2025, 1, 20)
-
-    def test_single_digit_day_and_month(self) -> None:
-        assert _parse_bdc_date("5/3/2025") == date(2025, 3, 5)
-
-    def test_leading_zero_day_and_month(self) -> None:
-        assert _parse_bdc_date("03/07/2024") == date(2024, 7, 3)
-
-    def test_end_of_year_date(self) -> None:
-        assert _parse_bdc_date("31/12/2024") == date(2024, 12, 31)
-
-    def test_february_non_leap_year(self) -> None:
-        assert _parse_bdc_date("28/02/2025") == date(2025, 2, 28)
-
-    def test_february_leap_year(self) -> None:
-        assert _parse_bdc_date("29/02/2024") == date(2024, 2, 29)
-
-    def test_strips_surrounding_whitespace(self) -> None:
-        assert _parse_bdc_date("  20/01/2025  ") == date(2025, 1, 20)
-
-    def test_unrecognised_format_returns_none(self) -> None:
-        assert _parse_bdc_date("not-a-date") is None
-
-    def test_empty_string_returns_none(self) -> None:
-        assert _parse_bdc_date("") is None
-
-    def test_dd_mmm_yyyy_format_not_supported_returns_none(self) -> None:
-        # BDC does not emit the Mon-abbreviation format (that is UB's format)
-        assert _parse_bdc_date("20-Jan-2025") is None
-
-    def test_mixed_separator_handled_by_permissive_split(self) -> None:
-        # The fallback re.split path handles mixed separators
-        result = _parse_bdc_date("5/3/2025")
-        assert result == date(2025, 3, 5)
-
-    def test_invalid_calendar_date_returns_none(self) -> None:
-        # 30th of February is not a valid date
-        assert _parse_bdc_date("30/02/2025") is None
-
-
-class TestBdcParseAmount:
-    """bdc._parse_amount — comma separators, currency symbols, Arabic text, negatives."""
-
-    def test_plain_integer_string(self) -> None:
-        assert bdc_parse_amount("1000") == Decimal("1000")
-
-    def test_decimal_string(self) -> None:
-        assert bdc_parse_amount("1234.56") == Decimal("1234.56")
-
-    def test_comma_thousands_separator(self) -> None:
-        assert bdc_parse_amount("1,234.56") == Decimal("1234.56")
-
-    def test_large_amount_with_multiple_commas(self) -> None:
-        assert bdc_parse_amount("1,234,567.89") == Decimal("1234567.89")
-
-    def test_egp_prefix_stripped(self) -> None:
-        assert bdc_parse_amount("EGP 1,234.56") == Decimal("1234.56")
-
-    def test_egp_suffix_stripped(self) -> None:
-        assert bdc_parse_amount("1,234.56 EGP") == Decimal("1234.56")
-
-    def test_arabic_currency_symbol_stripped(self) -> None:
-        # Arabic letters are stripped by the [A-Za-z\u0600-\u06FF] regex
-        assert bdc_parse_amount("1234.56 جنيه") == Decimal("1234.56")
-
-    def test_negative_amount_preserved(self) -> None:
-        # A bare minus sign should survive (it is not in the Arabic/Latin range)
-        assert bdc_parse_amount("-500.00") == Decimal("-500.00")
-
-    def test_empty_string_returns_none(self) -> None:
-        assert bdc_parse_amount("") is None
-
-    def test_dash_returns_none(self) -> None:
-        assert bdc_parse_amount("-") is None
-
-    def test_em_dash_returns_none(self) -> None:
-        assert bdc_parse_amount("—") is None
-
-    def test_na_returns_none(self) -> None:
-        assert bdc_parse_amount("N/A") is None
-
-    def test_whitespace_only_returns_none(self) -> None:
-        assert bdc_parse_amount("   ") is None
-
-    def test_non_numeric_string_returns_none(self) -> None:
-        assert bdc_parse_amount("abc") is None
-
-    def test_strips_surrounding_whitespace(self) -> None:
-        assert bdc_parse_amount("  500.00  ") == Decimal("500.00")
-
-    def test_zero_amount(self) -> None:
-        assert bdc_parse_amount("0.00") == Decimal("0.00")
-
-
-class TestBdcMakeExternalId:
-    """bdc._make_external_id — stable SHA-256-based deduplication key."""
-
-    def test_returns_24_hex_characters(self) -> None:
-        result = bdc_make_external_id(date(2025, 1, 20), "ATM Withdrawal BDC", Decimal("1000.00"))
-        assert len(result) == 24
-        assert all(c in "0123456789abcdef" for c in result)
-
-    def test_deterministic_for_same_inputs(self) -> None:
-        d = date(2025, 1, 20)
-        desc = "Salary Deposit BDC"
-        amount = Decimal("8000.00")
-        assert bdc_make_external_id(d, desc, amount) == bdc_make_external_id(d, desc, amount)
-
-    def test_different_date_produces_different_id(self) -> None:
-        desc = "Payment"
-        amount = Decimal("100.00")
-        id_a = bdc_make_external_id(date(2025, 1, 1), desc, amount)
-        id_b = bdc_make_external_id(date(2025, 1, 2), desc, amount)
-        assert id_a != id_b
-
-    def test_different_description_produces_different_id(self) -> None:
-        d = date(2025, 1, 20)
-        amount = Decimal("500.00")
-        id_a = bdc_make_external_id(d, "Transfer A", amount)
-        id_b = bdc_make_external_id(d, "Transfer B", amount)
-        assert id_a != id_b
-
-    def test_different_amount_produces_different_id(self) -> None:
-        d = date(2025, 1, 20)
-        desc = "Purchase"
-        id_a = bdc_make_external_id(d, desc, Decimal("100.00"))
-        id_b = bdc_make_external_id(d, desc, Decimal("200.00"))
-        assert id_a != id_b
-
-    def test_sha256_canonical_format(self) -> None:
-        """Verify the hash is computed from the documented canonical string."""
-        d = date(2025, 1, 20)
-        desc = "ATM"
-        amount = Decimal("1000.00")
-        canonical = f"{d.isoformat()}|{desc[:40].strip()}|{amount}"
-        expected = hashlib.sha256(canonical.encode()).hexdigest()[:24]
-        assert bdc_make_external_id(d, desc, amount) == expected
-
-    def test_long_description_truncated_to_40_chars(self) -> None:
-        d = date(2025, 6, 1)
-        amount = Decimal("1.00")
-        long_desc = "B" * 80
-        result = bdc_make_external_id(d, long_desc, amount)
-        canonical = f"{d.isoformat()}|{'B' * 40}|{amount}"
-        expected = hashlib.sha256(canonical.encode()).hexdigest()[:24]
-        assert result == expected
-
-
-class TestBdcResolveTxnColumns:
-    """bdc._resolve_txn_columns — header-to-index mapping."""
-
-    def test_standard_bdc_headers(self) -> None:
-        headers = ["date", "value date", "description", "debit", "credit", "balance"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["date"] == 0
-        assert col["value_date"] == 1
-        assert col["description"] == 2
-        assert col["debit"] == 3
-        assert col["credit"] == 4
-        assert col["balance"] == 5
-
-    def test_transaction_date_header_matches_date_column(self) -> None:
-        headers = ["transaction date", "value date", "description", "debit", "credit", "balance"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["date"] == 0
-
-    def test_posting_header_matches_date_column(self) -> None:
-        headers = ["posting", "value date", "description", "debit", "credit", "balance"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["date"] == 0
-
-    def test_arabic_date_header_matches(self) -> None:
-        headers = ["تاريخ", "قيمة", "بيان", "مدين", "دائن", "رصيد"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["date"] == 0
-        assert col["description"] == 2
-        assert col["debit"] == 3
-        assert col["credit"] == 4
-        assert col["balance"] == 5
-
-    def test_positional_defaults_used_when_headers_unrecognised(self) -> None:
-        headers = ["col_a", "col_b", "col_c", "col_d", "col_e", "col_f"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["date"] == 0
-        assert col["description"] == 2
-
-    def test_partial_headers_resolved_where_possible(self) -> None:
-        headers = ["transaction date", "description", "debit", "credit"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["date"] == 0
-        assert col["description"] == 1
-        assert col["debit"] == 2
-        assert col["credit"] == 3
-
-    def test_withdraw_header_maps_to_debit(self) -> None:
-        headers = ["date", "value date", "description", "withdraw", "deposit", "balance"]
-        col = bdc_resolve_txn_columns(headers)
-        assert col["debit"] == 3
-        assert col["credit"] == 4
-
-
-class TestBdcParseTransactionRow:
-    """bdc._parse_transaction_row — debit/credit direction and amount parsing."""
-
-    def _default_col(self) -> dict[str, int]:
-        return {
-            "date": 0,
-            "value_date": 1,
-            "description": 2,
-            "debit": 3,
-            "credit": 4,
-            "balance": 5,
-        }
-
-    def test_debit_row_parsed_correctly(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "20/01/2025", "ATM Withdrawal BDC", "1,000.00", "", "19,500.00"]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.transaction_type == "debit"
-        assert txn.amount == Decimal("1000.00")
-        assert txn.description == "ATM Withdrawal BDC"
-        assert txn.transaction_date == date(2025, 1, 20)
-
-    def test_credit_row_parsed_correctly(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["15/01/2025", "15/01/2025", "Salary Deposit BDC", "", "8,000.00", "20,500.00"]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.transaction_type == "credit"
-        assert txn.amount == Decimal("8000.00")
-
-    def test_balance_after_parsed_correctly(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "20/01/2025", "Purchase", "500.00", "", "19,000.00"]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.balance_after == Decimal("19000.00")
-
-    def test_row_with_no_amount_returns_none(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "20/01/2025", "Empty Row", "", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is None
-
-    def test_header_repeat_row_returns_none(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["date", "value date", "description", "debit", "credit", "balance"]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is None
-
-    def test_unparseable_date_returns_none(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["not-a-date", "20/01/2025", "Purchase", "100.00", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is None
-
-    def test_arabic_date_sentinel_returns_none(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["تاريخ", "20/01/2025", "Purchase", "100.00", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is None
-
-    def test_external_id_is_deterministic(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "20/01/2025", "ATM Withdrawal BDC", "1,000.00", "", "19,500.00"]
-        txn1 = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        txn2 = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn1 is not None
-        assert txn2 is not None
-        assert txn1.external_id == txn2.external_id
-
-    def test_external_id_differs_for_different_rows(self) -> None:
-        account = _make_bank_account("BDC")
-        cells_a = ["20/01/2025", "", "Withdrawal A", "500.00", "", ""]
-        cells_b = ["21/01/2025", "", "Withdrawal B", "600.00", "", ""]
-        txn_a = bdc_parse_transaction_row(cells_a, self._default_col(), account, _NOW)
-        txn_b = bdc_parse_transaction_row(cells_b, self._default_col(), account, _NOW)
-        assert txn_a is not None
-        assert txn_b is not None
-        assert txn_a.external_id != txn_b.external_id
-
-    def test_sentinel_uuids_are_zero(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "", "Transfer", "100.00", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.id == _ZERO_UUID
-        assert txn.user_id == _ZERO_UUID
-        assert txn.account_id == _ZERO_UUID
-
-    def test_raw_data_contains_source_bdc(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "", "Transfer", "100.00", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.raw_data.get("source") == "bdc"
-
-    def test_currency_inherited_from_account(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["20/01/2025", "", "Transfer", "100.00", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is not None
-        assert txn.currency == "EGP"
-
-    def test_dash_date_returns_none(self) -> None:
-        account = _make_bank_account("BDC")
-        cells = ["-", "20/01/2025", "Transfer", "100.00", "", ""]
-        txn = bdc_parse_transaction_row(cells, self._default_col(), account, _NOW)
-        assert txn is None
 
 
 # ===========================================================================
@@ -1020,182 +594,6 @@ class TestUbParseTransactionRow:
         txn = ub_parse_transaction_row(cells, self._default_col(), account, _NOW)
         assert txn is not None
         assert txn.transaction_date == date(2025, 1, 10)
-
-
-# ===========================================================================
-# Section 5 — BDCScraper.scrape() integration tests (Playwright fully mocked)
-# ===========================================================================
-
-
-class TestBdcScraperScrape:
-    """BDCScraper.scrape() — end-to-end flow with all I/O mocked."""
-
-    @pytest.fixture
-    def bdc_scraper(self) -> BDCScraper:
-        return BDCScraper(username="bdc_test_user", password="test_password_123")
-
-    @pytest.mark.asyncio
-    async def test_happy_path_returns_scraper_result(self, bdc_scraper: BDCScraper) -> None:
-        """scrape() returns ScraperResult with bank_name == 'BDC' and transactions."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        # page.content() is called 4 times in the BDC happy path (same as NBE/CIB):
-        # 1. raw_html["dashboard"]
-        # 2. _extract_account -> page.content()
-        # 3. raw_html["transactions"]
-        # 4. _extract_transactions -> page.content()
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _BDC_DASHBOARD_HTML,
-                _BDC_DASHBOARD_HTML,
-                _BDC_TRANSACTIONS_HTML,
-                _BDC_TRANSACTIONS_HTML,
-            ]
-        )
-
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        async def _query_selector_bdc(selector: str) -> Any:
-            return None if selector in _BDC_ERROR_SELECTORS else mock_element
-
-        mock_page.query_selector = _query_selector_bdc  # type: ignore[assignment]
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            result = await bdc_scraper.scrape()
-
-        assert isinstance(result, ScraperResult)
-        assert result.account.bank_name == "BDC"
-        assert result.account.balance == Decimal("20500.00")
-        assert len(result.transactions) == 2
-        assert result.transactions[0].transaction_type == "debit"
-        assert result.transactions[1].transaction_type == "credit"
-
-    @pytest.mark.asyncio
-    async def test_happy_path_account_number_masked(self, bdc_scraper: BDCScraper) -> None:
-        """account_number_masked follows ****XXXX format."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _BDC_DASHBOARD_HTML,
-                _BDC_DASHBOARD_HTML,
-                _BDC_TRANSACTIONS_HTML,
-                _BDC_TRANSACTIONS_HTML,
-            ]
-        )
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        async def _query_selector_bdc(selector: str) -> Any:
-            return None if selector in _BDC_ERROR_SELECTORS else mock_element
-
-        mock_page.query_selector = _query_selector_bdc  # type: ignore[assignment]
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            result = await bdc_scraper.scrape()
-
-        assert result.account.account_number_masked.startswith("****")
-
-    @pytest.mark.asyncio
-    async def test_happy_path_raw_html_keys_present(self, bdc_scraper: BDCScraper) -> None:
-        """ScraperResult.raw_html must contain 'dashboard' and 'transactions' keys."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-        mock_page.content = AsyncMock(
-            side_effect=[
-                _BDC_DASHBOARD_HTML,
-                _BDC_DASHBOARD_HTML,
-                _BDC_TRANSACTIONS_HTML,
-                _BDC_TRANSACTIONS_HTML,
-            ]
-        )
-        mock_element = AsyncMock()
-        mock_element.click = AsyncMock(return_value=None)
-        mock_element.inner_text = AsyncMock(return_value="")
-
-        async def _query_selector_bdc(selector: str) -> Any:
-            return None if selector in _BDC_ERROR_SELECTORS else mock_element
-
-        mock_page.query_selector = _query_selector_bdc  # type: ignore[assignment]
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            result = await bdc_scraper.scrape()
-
-        assert "dashboard" in result.raw_html
-        assert "transactions" in result.raw_html
-
-    @pytest.mark.asyncio
-    async def test_login_error_raises_scraper_login_error(self, bdc_scraper: BDCScraper) -> None:
-        """scrape() raises ScraperLoginError when failureNotification element detected."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(return_value=_BDC_LOGIN_ERROR_HTML)
-
-        mock_error_el = AsyncMock()
-        mock_error_el.inner_text = AsyncMock(return_value="Invalid username or password.")
-        # All query_selector calls return the error element — simulates the
-        # portal presenting the failure notification on the first CSS check.
-        mock_page.query_selector = AsyncMock(return_value=mock_error_el)
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperLoginError) as exc_info:
-                await bdc_scraper.scrape()
-
-        assert exc_info.value.bank_code == "BDC"
-
-    @pytest.mark.asyncio
-    async def test_playwright_timeout_raises_scraper_timeout_error(
-        self, bdc_scraper: BDCScraper
-    ) -> None:
-        """scrape() wraps PlaywrightTimeoutError in ScraperTimeoutError."""
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        # No error element — login check passes
-        mock_page.query_selector = AsyncMock(return_value=None)
-        # Both CSS and XPath selector waits time out
-        mock_page.wait_for_selector = AsyncMock(
-            side_effect=PlaywrightTimeoutError("Timeout exceeded")
-        )
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperTimeoutError) as exc_info:
-                await bdc_scraper.scrape()
-
-        assert exc_info.value.bank_code == "BDC"
-
-    @pytest.mark.asyncio
-    async def test_browser_is_always_closed_on_login_error(self, bdc_scraper: BDCScraper) -> None:
-        """browser.close() is called in finally even when ScraperLoginError is raised."""
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-
-        mock_page.content = AsyncMock(return_value=_BDC_LOGIN_ERROR_HTML)
-        mock_error_el = AsyncMock()
-        mock_error_el.inner_text = AsyncMock(return_value="Invalid username or password.")
-        mock_page.query_selector = AsyncMock(return_value=mock_error_el)
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperLoginError):
-                await bdc_scraper.scrape()
-
-        mock_browser.close.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_browser_is_always_closed_on_timeout(self, bdc_scraper: BDCScraper) -> None:
-        """browser.close() is called in finally even when ScraperTimeoutError is raised."""
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-
-        mock_pw_cm, mock_pw, mock_browser, mock_page = _build_mock_playwright()
-        mock_page.query_selector = AsyncMock(return_value=None)
-        mock_page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("timeout"))
-
-        with patch("app.scrapers.base.async_playwright", return_value=mock_pw_cm):
-            with pytest.raises(ScraperTimeoutError):
-                await bdc_scraper.scrape()
-
-        mock_browser.close.assert_awaited_once()
 
 
 # ===========================================================================

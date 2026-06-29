@@ -145,13 +145,13 @@ def test_save_credential_response_never_returns_secrets(
     client: TestClient, user_headers: dict[str, str]
 ) -> None:
     """Security: response must NOT contain encrypted_username or encrypted_password."""
-    fake_supabase = _make_supabase_mock([_fake_post_row("BDC")])
+    fake_supabase = _make_supabase_mock([_fake_post_row("BDC_RETAIL")])
 
     with patch("app.routers.credentials.get_service_role_client", return_value=fake_supabase):
         response = client.post(
             "/api/v1/accounts/credentials",
             json={
-                "bank": "BDC",
+                "bank": "BDC_RETAIL",
                 "encrypted_username": "super_secret",
                 "encrypted_password": "also_secret",
             },

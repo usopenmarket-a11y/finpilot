@@ -43,7 +43,7 @@ class UserProfile(BaseModel):
 # Bank account
 # ---------------------------------------------------------------------------
 
-SUPPORTED_BANKS = ("NBE", "CIB", "BDC", "UB")
+SUPPORTED_BANKS = ("NBE", "CIB", "BDC_RETAIL", "UB")
 ACCOUNT_TYPES = (
     "savings",
     "current",
@@ -63,7 +63,9 @@ class BankAccount(BaseModel):
 
     id: UUID = Field(description="Primary key — gen_random_uuid()")
     user_id: UUID = Field(description="FK to auth.users(id)")
-    bank_name: str = Field(description="Supported bank identifier — one of: NBE, CIB, BDC, UB")
+    bank_name: str = Field(
+        description="Supported bank identifier — one of: NBE, CIB, BDC_RETAIL, UB"
+    )
     account_number_masked: str = Field(
         description="Last 4 digits of the account number (never store full number)"
     )
@@ -269,7 +271,7 @@ class DebtPayment(BaseModel):
 # Bank credentials
 # ---------------------------------------------------------------------------
 
-SUPPORTED_BANKS_LITERAL = Literal["NBE", "CIB", "BDC", "UB"]
+SUPPORTED_BANKS_LITERAL = Literal["NBE", "CIB", "BDC_RETAIL", "UB"]
 
 
 class BankCredential(BaseModel):
@@ -286,7 +288,9 @@ class BankCredential(BaseModel):
 
     id: UUID = Field(description="Primary key — gen_random_uuid()")
     user_id: UUID = Field(description="FK to auth.users(id) — cascade-deleted with the user")
-    bank: SUPPORTED_BANKS_LITERAL = Field(description="Bank identifier — one of: NBE, CIB, BDC, UB")
+    bank: SUPPORTED_BANKS_LITERAL = Field(
+        description="Bank identifier — one of: NBE, CIB, BDC_RETAIL, UB"
+    )
     encrypted_username: str = Field(
         description="AES-256-GCM ciphertext of the bank portal username"
     )
@@ -373,9 +377,9 @@ SYNC_JOB_STATUSES = ("pending", "running", "complete", "failed")
 SYNC_JOB_STATUS_LITERAL = Literal["pending", "running", "complete", "failed"]
 
 # Matches the bank_name CHECK constraint on bank_accounts/bank_credentials and
-# the route-level Literal in apps/api/app/routers/sync.py (includes BDC_RETAIL,
-# unlike the narrower SUPPORTED_BANKS_LITERAL used by BankCredential).
-SYNC_JOB_BANK_LITERAL = Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"]
+# the route-level Literal in apps/api/app/routers/sync.py. The legacy plain
+# "BDC" scraper has been removed — only the BDC_RETAIL portal is supported now.
+SYNC_JOB_BANK_LITERAL = Literal["NBE", "CIB", "BDC_RETAIL", "UB"]
 
 
 class SyncJobResult(BaseModel):
@@ -418,7 +422,7 @@ class SyncJobRecord(BaseModel):
     )
     user_id: UUID = Field(description="FK to auth.users(id) — verified caller, cascade-deleted")
     bank: SYNC_JOB_BANK_LITERAL = Field(
-        description="Bank identifier — one of: NBE, CIB, BDC, BDC_RETAIL, UB"
+        description="Bank identifier — one of: NBE, CIB, BDC_RETAIL, UB"
     )
     credential_id: UUID | None = Field(
         default=None,

@@ -411,7 +411,7 @@ class TestExceptionHierarchy:
         assert isinstance(exc, ScraperException)
 
     def test_bank_portal_unreachable_is_scraper_exception(self) -> None:
-        exc = BankPortalUnreachableError("network error", bank_code="BDC")
+        exc = BankPortalUnreachableError("network error", bank_code="BDC_RETAIL")
         assert isinstance(exc, ScraperException)
 
     def test_login_error_bank_code_attribute(self) -> None:

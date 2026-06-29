@@ -34,7 +34,7 @@ from app.deps import get_current_user_id, get_service_role_client
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
-    BDCScraper,
+    BDCRetailScraper,
     CIBScraper,
     NBEScraper,
     ScraperLoginError,
@@ -54,7 +54,7 @@ router = APIRouter(tags=["scrape"])
 _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
-    "BDC": BDCScraper,
+    "BDC_RETAIL": BDCRetailScraper,
     "UB": UBScraper,
 }
 
@@ -77,7 +77,7 @@ class ScrapeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    bank: Literal["NBE", "CIB", "BDC", "UB"] = Field(
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"] = Field(
         description="Target bank — must be one of the supported scrapers"
     )
     encrypted_username: str = Field(description="AES-256-GCM token of the bank portal username")

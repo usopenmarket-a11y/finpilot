@@ -89,7 +89,7 @@ async def _run_daily_sync() -> None:
     for cred in credentials:
         credential_id: str = cred["id"]
         user_id = UUID(cred["user_id"])
-        bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"] = cred["bank"]
+        bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"] = cred["bank"]
 
         # If another sync is running (e.g. a manual user-triggered sync), wait
         # up to 10 minutes before giving up on this credential.
