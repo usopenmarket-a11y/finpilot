@@ -46,7 +46,6 @@ from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
     BDCRetailScraper,
-    BDCScraper,
     CIBScraper,
     NBEScraper,
     ScraperLoginError,
@@ -63,7 +62,6 @@ router = APIRouter(tags=["sync"])
 _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
-    "BDC": BDCScraper,
     "BDC_RETAIL": BDCRetailScraper,
     "UB": UBScraper,
 }
@@ -275,7 +273,7 @@ async def _load_job_from_db(job_id: str, user_id: UUID) -> SyncJobStatusResponse
 async def _background_sync_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task that performs the scrape + pipeline without blocking HTTP."""
@@ -469,7 +467,7 @@ async def _background_sync_task(
 async def _background_sync_accounts_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape demand-deposit accounts + transactions only."""
@@ -647,7 +645,7 @@ async def _background_sync_accounts_task(
 async def _background_sync_cc_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape credit card accounts + statement transactions only."""
@@ -828,7 +826,7 @@ async def _background_sync_cc_task(
 async def _background_sync_loans_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape loan / finance accounts only."""
@@ -1011,7 +1009,7 @@ async def _background_sync_loans_task(
 async def _background_sync_prepaid_cards_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape prepaid card accounts only."""
@@ -1200,7 +1198,7 @@ async def _background_sync_prepaid_cards_task(
 async def _background_sync_certificates_task(
     job_id: str,
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Background task: scrape certificate/term-deposit accounts only."""
@@ -1398,7 +1396,7 @@ async def _background_sync_certificates_task(
     summary="Start a bank account sync job",
 )
 async def start_sync_job(
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1502,7 +1500,7 @@ async def get_sync_status(
 
 def _validate_credentials_exist(
     user_id: UUID,
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     credential_id: str | None = None,
 ) -> None:
     """Raise HTTPException if no active credentials exist for the given user + bank.
@@ -1563,7 +1561,7 @@ def _purge_old_jobs(max_age_seconds: int = 3600) -> None:
     summary="Start a demand-deposit accounts-only sync job",
 )
 async def start_sync_accounts_job(
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1615,7 +1613,7 @@ async def start_sync_accounts_job(
     summary="Start a credit-card-only sync job",
 )
 async def start_sync_cc_job(
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1666,7 +1664,7 @@ async def start_sync_cc_job(
     summary="Start a certificates-only sync job",
 )
 async def start_sync_certificates_job(
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1717,7 +1715,7 @@ async def start_sync_certificates_job(
     summary="Start a loans-only sync job",
 )
 async def start_sync_loans_job(
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:
@@ -1768,7 +1766,7 @@ async def start_sync_loans_job(
     summary="Start a prepaid-cards-only sync job",
 )
 async def start_sync_prepaid_cards_job(
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"],
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"],
     user_id: UUID = Depends(get_current_user_id),
     credential_id: str | None = None,
 ) -> SyncJobStartResponse:

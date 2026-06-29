@@ -549,7 +549,7 @@ class TestRunner:
         """When all transactions are duplicates, transactions_new == 0."""
         uid = uuid4()
         real_account_uuid = uuid4()
-        scraper_result = make_scraper_result("BDC", n_transactions=4)
+        scraper_result = make_scraper_result("BDC_RETAIL", n_transactions=4)
         all_ids = [t.external_id for t in scraper_result.transactions]
 
         supabase = self._make_pipeline_supabase(

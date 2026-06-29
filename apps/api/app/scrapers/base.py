@@ -239,7 +239,7 @@ class BankScraper(ABC):
 
     Subclasses must:
     1. Set the ``bank_name`` class variable to the canonical bank code
-       (``"NBE"``, ``"CIB"``, ``"BDC"``, ``"UB"``).
+       (``"NBE"``, ``"CIB"``, ``"BDC_RETAIL"``, ``"UB"``).
     2. Implement ``scrape()`` to return a ``ScraperResult``.
 
     Credentials are stored as private instance attributes and must NEVER appear

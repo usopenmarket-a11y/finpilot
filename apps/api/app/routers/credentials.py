@@ -59,7 +59,7 @@ class SaveCredentialRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    bank: Literal["NBE", "CIB", "BDC", "BDC_RETAIL", "UB"]
+    bank: Literal["NBE", "CIB", "BDC_RETAIL", "UB"]
     encrypted_username: str
     encrypted_password: str
     label: str | None = None

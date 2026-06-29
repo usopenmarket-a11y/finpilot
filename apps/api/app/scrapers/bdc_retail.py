@@ -394,6 +394,7 @@ class BDCRetailScraper(BankScraper):
             await self._navigate_to_login(page)
             await self._login(page)
             await self._wait_for_post_login(page)
+            await self._wait_for_dashboard_content(page)
 
             # Capture and log dashboard structure for debugging
             dashboard_html = await page.content()
@@ -446,6 +447,7 @@ class BDCRetailScraper(BankScraper):
             await self._navigate_to_login(page)
             await self._login(page)
             await self._wait_for_post_login(page)
+            await self._wait_for_dashboard_content(page)
 
             dashboard_html = await page.content()
             raw_html["dashboard"] = dashboard_html
@@ -911,6 +913,72 @@ class BDCRetailScraper(BankScraper):
 
         # Proceed — login likely succeeded, post-login state is non-standard SPA
         logger.info("BDC_RETAIL: proceeding optimistically after post-login checks")
+
+    async def _wait_for_dashboard_content(self, page: Page) -> None:
+        """Wait for the T24 dashboard to populate its content via AJAX.
+
+        ``_wait_for_post_login`` returns as soon as the username field
+        disappears, but on the EdgeConnect / T24 portal that only signals
+        that the login form was replaced by the dashboard *shell*.  The
+        dashboard body (account tiles, the "View Credit Cards" nav link, and
+        every other interactive element) is injected by a *subsequent* AJAX
+        round-trip.  If we capture ``page.content()`` before that round-trip
+        completes, the DOM contains only the page title and the two CSS
+        ``<link>`` tags (``C2__C1__maincss`` / ``C2__C1__mainembedcss``) — no
+        tables, no anchors, no buttons — so navigation discovery finds
+        nothing and the scrape produces a placeholder account with a zero
+        balance and zero transactions.
+
+        This mirrors the NBE Oracle-JET fix: wait for ``networkidle`` and then
+        poll the live DOM until real interactive content (anchors with an
+        ``onclick``/``href``, or recognisable dashboard text) has actually
+        rendered.  Both waits are best-effort — if they time out we proceed
+        and let the existing fallbacks log the empty-DOM diagnostics.
+        """
+        # 1. Let the post-login AJAX settle.  T24 keeps connections open so
+        #    networkidle may never fully resolve — cap it and move on.
+        try:
+            await page.wait_for_load_state("networkidle", timeout=_WAIT_TIMEOUT_MS)
+            logger.info("BDC_RETAIL: networkidle reached after login")
+        except PlaywrightTimeoutError:
+            logger.info("BDC_RETAIL: networkidle timed out after login — polling DOM instead")
+        except Exception as exc:
+            logger.info("BDC_RETAIL: networkidle wait skipped (%s) — polling DOM", exc)
+
+        # 2. Poll the live DOM until the dashboard body has rendered real
+        #    interactive content.  The CSS <link> tags are present even on the
+        #    empty shell, so we require anchors carrying onclick/href (the nav
+        #    items) or recognisable dashboard text.
+        try:
+            await page.wait_for_function(
+                """() => {
+                    if (!document.body) return false;
+                    const anchors = Array.from(document.querySelectorAll('a'));
+                    const interactive = anchors.filter(a =>
+                        (a.getAttribute('onclick') || '').length > 0
+                        || (a.getAttribute('href') || '').length > 0);
+                    if (interactive.length > 0) return true;
+                    if (document.querySelectorAll('button, input[type="image"]').length > 0)
+                        return true;
+                    const body = document.body.innerText || '';
+                    return body.includes('Your Accounts')
+                        || body.includes('Credit Card')
+                        || body.includes('Accounts Summary')
+                        || body.includes('Logout');
+                }""",
+                timeout=_WAIT_TIMEOUT_MS,
+            )
+            logger.info("BDC_RETAIL: dashboard content populated — interactive elements present")
+        except PlaywrightTimeoutError:
+            logger.warning(
+                "BDC_RETAIL: dashboard content did not populate within %dms — "
+                "proceeding; nav discovery may find an empty DOM",
+                _WAIT_TIMEOUT_MS,
+            )
+        except Exception as exc:
+            logger.warning("BDC_RETAIL: dashboard content wait failed (%s) — proceeding", exc)
+
+        await self._random_delay(1.0, 2.0)
 
     # ------------------------------------------------------------------
     # Debug logging helpers
