@@ -690,25 +690,38 @@ class BDCRetailScraper(BankScraper):
             del username
             del password
 
-    async def _handle_session_dialog(self, page: Page) -> bool:
+    async def _handle_session_dialog(self, page: Page, *, wait_ms: int = 12_000) -> bool:
         """Detect the T24 'Session Active' conflict dialog and clear it.
 
         T24's buttonClicked() requires server-side session state that the
         headless browser cannot satisfy after a stale session. The reliable
         fix is to reload the login page which creates a fresh session token.
 
+        IMPORTANT — timing: the 'Session Active' jQuery popup is injected a
+        moment *after* the post-Sign-In AJAX "Loading..." indicator clears, so
+        a single immediate ``page.content()`` check races the dialog and
+        misses it (observed live 2026-06-29: login bounced back to the login
+        shell with the dialog unhandled, producing a placeholder card and 0
+        transactions). We therefore *poll* for the dialog up to ``wait_ms``
+        before concluding it is absent.
+
         Returns:
             True if the dialog was detected and the page was reloaded
             (caller should re-submit the login form).
             False if no dialog was present.
         """
+        # Poll for the dialog — it may lag the AJAX-complete signal.
         try:
-            html = await page.content()
-        except Exception:
+            await page.wait_for_function(
+                """() => {
+                    const t = ((document.body || {}).innerText || '').toLowerCase();
+                    return t.includes('already logged in') || t.includes('session active');
+                }""",
+                timeout=wait_ms,
+            )
+        except PlaywrightTimeoutError:
             return False
-
-        low = html.lower()
-        if "already logged in" not in low and "session active" not in low:
+        except Exception:
             return False
 
         # The session dialog is a jQuery UI popup rendered over the login page.
@@ -945,34 +958,45 @@ class BDCRetailScraper(BankScraper):
         except Exception as exc:
             logger.info("BDC_RETAIL: networkidle wait skipped (%s) — polling DOM", exc)
 
-        # 2. Poll the live DOM until the dashboard body has rendered real
-        #    interactive content.  The CSS <link> tags are present even on the
-        #    empty shell, so we require anchors carrying onclick/href (the nav
-        #    items) or recognisable dashboard text.
+        # 2. Poll the live DOM until the *authenticated* dashboard has rendered.
+        #    Simply having interactive anchors is NOT enough: after Sign In the
+        #    portal can bounce back to the login shell carrying the "Session
+        #    Active" dialog, whose Yes/No buttons and chrome anchors are
+        #    interactive but are NOT the banking dashboard (observed live
+        #    2026-06-29). We therefore REJECT the login/dialog shell and require
+        #    a genuine post-auth signal: a nav MenuItem beyond Home/Logout, a
+        #    C5__/C6__ nav onclick (account/card menus), or "Your Accounts".
         try:
             await page.wait_for_function(
                 """() => {
                     if (!document.body) return false;
-                    const anchors = Array.from(document.querySelectorAll('a'));
-                    const interactive = anchors.filter(a =>
-                        (a.getAttribute('onclick') || '').length > 0
-                        || (a.getAttribute('href') || '').length > 0);
-                    if (interactive.length > 0) return true;
-                    if (document.querySelectorAll('button, input[type="image"]').length > 0)
-                        return true;
-                    const body = document.body.innerText || '';
-                    return body.includes('Your Accounts')
-                        || body.includes('Credit Card')
-                        || body.includes('Accounts Summary')
-                        || body.includes('Logout');
+                    const body = (document.body.innerText || '');
+                    const bl = body.toLowerCase();
+                    // Reject the login / session-conflict shell outright.
+                    if (document.querySelector('#C2__C1__USER_NAME')) return false;
+                    if (bl.includes('session active')
+                        || bl.includes('already logged in')
+                        || bl.includes('please enter your login details')) return false;
+                    // Positive authenticated-dashboard signals.
+                    if (body.includes('Your Accounts')) return true;
+                    if (document.querySelector('a[onclick*="C5__"]')
+                        || document.querySelector('a[onclick*="C6__"]')) return true;
+                    // A goNavItem MenuItem other than Home / Log Out.
+                    const navItems = Array.from(document.querySelectorAll('a[onclick*="goNavItem"]'));
+                    const realNav = navItems.some(a => {
+                        const t = (a.innerText || a.textContent || '').trim().toLowerCase();
+                        return t && !t.includes('home') && !t.includes('log out')
+                            && !t.includes('logout');
+                    });
+                    return realNav;
                 }""",
                 timeout=_WAIT_TIMEOUT_MS,
             )
-            logger.info("BDC_RETAIL: dashboard content populated — interactive elements present")
+            logger.info("BDC_RETAIL: authenticated dashboard rendered — real nav present")
         except PlaywrightTimeoutError:
             logger.warning(
-                "BDC_RETAIL: dashboard content did not populate within %dms — "
-                "proceeding; nav discovery may find an empty DOM",
+                "BDC_RETAIL: authenticated dashboard did not render within %dms — "
+                "still on login/session shell? proceeding; nav discovery will diagnose",
                 _WAIT_TIMEOUT_MS,
             )
         except Exception as exc:
