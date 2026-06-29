@@ -374,6 +374,73 @@ class BDCRetailScraper(BankScraper):
 
     bank_name: ClassVar[str] = "BDC_RETAIL"
 
+    async def _launch_browser(self):  # type: ignore[override]
+        """Launch Chromium via **patchright** (undetected Playwright fork).
+
+        BDC's Temenos portal applies server-side bot detection: with vanilla
+        Playwright the login authenticates but the portal then returns a
+        "We're sorry — exceptional error" page instead of the dashboard
+        (verified live 2026-06-29). patchright + a *persistent* context gets
+        past that check — Sign In then yields the normal "Session Active"
+        dialog, and clicking YES reaches the dashboard.  See project memory
+        ``bdc_retail_patchright``.
+
+        Returns a ``(context, context, page)`` tuple: ``launch_persistent_context``
+        has no separate Browser object, so the context doubles as the
+        "browser" handle that ``_close_browser`` will ``.close()``.
+
+        NOTE: patchright is only needed for this scraper and BDC is reachable
+        only from an Egyptian IP (Render is geo-blocked), so the import is
+        lazy — the module still loads anywhere patchright is absent.
+        """
+        import tempfile
+
+        from patchright.async_api import async_playwright as patchright_playwright
+
+        playwright = await patchright_playwright().start()
+        self._playwright = playwright  # reused by _close_browser
+
+        # Per-run throwaway profile dir → genuine persistent-context fingerprint.
+        self._bdc_profile_dir = tempfile.mkdtemp(prefix="bdc_retail_profile_")
+
+        # IMPORTANT: pass NO custom launch args, user_agent, or extra headers.
+        # patchright applies its own stealth patches and a consistent
+        # fingerprint; overriding them (especially the
+        # --disable-blink-features=AutomationControlled flag) breaks the
+        # patches and makes the portal serve the "exceptional error" page or
+        # never render the login form. The proven working recipe used only the
+        # arguments below — see project memory bdc_retail_patchright.
+        context = await playwright.chromium.launch_persistent_context(
+            user_data_dir=self._bdc_profile_dir,
+            headless=True,
+            channel="chromium",
+            viewport={"width": 1440, "height": 900},
+            locale="en-US",
+            timezone_id="Africa/Cairo",
+        )
+        # NOTE: do NOT install a context-wide resource-block route here. The
+        # proven patchright recipe ran with no request interception; routing
+        # appears to interfere with the T24 login-form render (the username
+        # field never became visible). BDC runs locally only, so the Render
+        # free-tier memory savings from blocking images/media don't apply.
+
+        page = context.pages[0] if context.pages else await context.new_page()
+        logger.info("BDC_RETAIL browser launched via patchright (persistent context, stealth)")
+        return context, context, page
+
+    async def _close_browser(self, browser) -> None:  # type: ignore[override]
+        """Close the persistent context + playwright, then remove the profile dir."""
+        await super()._close_browser(browser)
+        profile_dir = getattr(self, "_bdc_profile_dir", None)
+        if profile_dir:
+            import shutil
+
+            try:
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+            self._bdc_profile_dir = None
+
     async def scrape(self) -> ScraperResult:
         """Execute the full BDC Retail scrape cycle.
 
@@ -487,20 +554,16 @@ class BDCRetailScraper(BankScraper):
     # ------------------------------------------------------------------
 
     async def _navigate_to_login(self, page: Page) -> None:
-        """Load the BDC Retail login page and verify the username field is visible."""
-        # Clear any stale server-side session first by hitting the logout endpoint.
-        # This prevents the "Session Active" dialog from appearing on the next login.
-        logger.info("BDC_RETAIL: clearing stale session via logout endpoint")
-        try:
-            await page.goto(
-                _LOGIN_URL + "?action=logout",
-                wait_until="commit",
-                timeout=15_000,
-            )
-            await self._random_delay(1.0, 2.0)
-        except Exception:
-            pass  # Logout may fail or redirect — ignore and proceed to login
+        """Load the BDC Retail login page and verify the username field is visible.
 
+        NOTE — do NOT hit ``?action=logout`` first.  Live testing (2026-06-29)
+        showed the logout preamble corrupts the server session state: combined
+        with the automated browser it pushed the portal into a "We're sorry —
+        exceptional error" page after Sign In instead of the normal "Session
+        Active" dialog.  Going straight to the login form and clicking YES on
+        the Session Active dialog reaches the dashboard cleanly.  See
+        ``_handle_session_dialog`` and project memory ``bdc_retail_patchright``.
+        """
         logger.info("BDC_RETAIL: navigating to %s", _LOGIN_URL)
         try:
             await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
