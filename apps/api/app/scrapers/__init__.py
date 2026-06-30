@@ -12,6 +12,7 @@ from app.scrapers.base import (
     ScraperPasswordChangeRequired,
     ScraperResult,
     ScraperTimeoutError,
+    ScraperUnavailableError,
 )
 from app.scrapers.bdc_retail import BDCRetailScraper
 from app.scrapers.cib import CIBScraper
@@ -29,6 +30,7 @@ __all__ = [
     "ScraperParseError",
     "ScraperOTPRequired",
     "ScraperPasswordChangeRequired",
+    "ScraperUnavailableError",
     "BankPortalUnreachableError",
     # Bank scrapers
     "NBEScraper",

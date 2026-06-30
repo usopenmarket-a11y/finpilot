@@ -160,6 +160,16 @@ class ScraperParseError(ScraperException):
     """Raised when the scraped HTML does not match the expected structure."""
 
 
+class ScraperUnavailableError(ScraperException):
+    """Raised when a scraper cannot run in the current environment.
+
+    Distinct from a transient failure: the scrape was not attempted because
+    the environment is fundamentally unsupported (e.g. a bank reachable only
+    from a specific region/host, or a required browser binary not installed).
+    The message tells the operator what to do instead.
+    """
+
+
 class ScraperOTPRequired(ScraperException):
     """Raised when the portal demands an OTP before proceeding.
 
