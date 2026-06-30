@@ -100,6 +100,25 @@ _NAV_TIMEOUT_MS = 120_000  # initial page load can take >60s
 
 _MAX_TRANSACTIONS = 30
 
+# How many times to retry the full login when the portal serves the
+# "We're sorry — exceptional error" bot-wall page after a *successful*
+# authentication.  On a fresh-session login (no stale "Session Active"
+# dialog) the portal sometimes drops straight onto this error shell; the
+# reliable recovery is to clear cookies, reload the login page and submit
+# again (same recovery the Session-Active dialog uses).  See project memory
+# ``bdc_retail_patchright``.
+_MAX_LOGIN_ATTEMPTS = 3
+
+# Visible-text phrases that identify the BDC "exceptional error" bot wall.
+_EXCEPTIONAL_ERROR_PHRASES = (
+    "exceptional error",
+    "an exceptional error has occurred",
+    "error has occured",
+    "we're sorry",
+    "we are sorry",
+    "access violation",
+)
+
 # ---------------------------------------------------------------------------
 # Selector catalogue (confirmed via Puppeteer inspection 2026-03-24)
 # ---------------------------------------------------------------------------
@@ -458,10 +477,7 @@ class BDCRetailScraper(BankScraper):
         raw_html: dict[str, str] = {}
 
         try:
-            await self._navigate_to_login(page)
-            await self._login(page)
-            await self._wait_for_post_login(page)
-            await self._wait_for_dashboard_content(page)
+            await self._login_until_dashboard(page)
 
             # Capture and log dashboard structure for debugging
             dashboard_html = await page.content()
@@ -511,10 +527,7 @@ class BDCRetailScraper(BankScraper):
         raw_html: dict[str, str] = {}
 
         try:
-            await self._navigate_to_login(page)
-            await self._login(page)
-            await self._wait_for_post_login(page)
-            await self._wait_for_dashboard_content(page)
+            await self._login_until_dashboard(page)
 
             dashboard_html = await page.content()
             raw_html["dashboard"] = dashboard_html
@@ -550,6 +563,111 @@ class BDCRetailScraper(BankScraper):
             await self._close_browser(browser)
 
     # ------------------------------------------------------------------
+    # Login orchestration (with exceptional-error recovery)
+    # ------------------------------------------------------------------
+
+    async def _is_exceptional_error_page(self, page: Page) -> bool:
+        """Return True if the page is BDC's "exceptional error" bot-wall shell.
+
+        After a *successful* authentication the portal can drop straight onto
+        a "We're sorry — An exceptional error has occurred" page (carrying a
+        ``g-recaptcha-response`` field) instead of the dashboard.  The login
+        form is gone, so ``_wait_for_post_login`` reports success, but no
+        banking content ever renders.  Detect it so ``_login_until_dashboard``
+        can retry with a fresh session.
+        """
+        try:
+            body = await page.evaluate("() => (document.body && document.body.innerText) || ''")
+        except Exception:
+            return False
+        bl = body.lower()
+        # The dashboard never contains these phrases; the error shell always does.
+        return any(p in bl for p in _EXCEPTIONAL_ERROR_PHRASES)
+
+    async def _reset_session(self, page: Page) -> None:
+        """Clear cookies and reload the login page for a fresh server session.
+
+        This is the proven recovery from the exceptional-error bot wall: a new
+        session token lets the next Sign In reach the dashboard.  Mirrors the
+        fallback already used by ``_handle_session_dialog``.
+        """
+        try:
+            await page.context.clear_cookies()
+        except Exception as exc:
+            logger.warning("BDC_RETAIL: clear_cookies failed during reset (%s)", exc)
+        await self._random_delay(2.0, 4.0)
+        await page.goto(_LOGIN_URL, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
+        await page.wait_for_selector(_SEL_USERNAME, timeout=_WAIT_TIMEOUT_MS)
+
+    async def _login_until_dashboard(self, page: Page) -> None:
+        """Drive login → dashboard, retrying through the exceptional-error wall.
+
+        Runs the navigate → login → post-login → dashboard-content sequence and,
+        if the portal lands on the "exceptional error" shell (no Session Active
+        dialog, login form gone but no banking content), clears the session and
+        retries up to ``_MAX_LOGIN_ATTEMPTS`` times.  The Session-Active dialog
+        path is still handled inside ``_login`` itself.
+
+        Raises:
+            ScraperLoginError: If every attempt ends on the exceptional-error
+                page (persistent bot wall — typically a non-Egyptian IP or the
+                portal rate-limiting after too many rapid attempts).
+        """
+        last_error_text = ""
+        for attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+            if attempt == 1:
+                await self._navigate_to_login(page)
+            else:
+                logger.warning(
+                    "BDC_RETAIL: exceptional-error wall hit — resetting session and "
+                    "retrying login (attempt %d/%d)",
+                    attempt,
+                    _MAX_LOGIN_ATTEMPTS,
+                )
+                await self._reset_session(page)
+
+            await self._login(page)
+            await self._wait_for_post_login(page)
+
+            # Cheap check first: are we already on the error shell right after
+            # login?  If so, skip the 90s dashboard-content wait and retry.
+            if await self._is_exceptional_error_page(page):
+                try:
+                    last_error_text = (
+                        await page.evaluate("() => document.body.innerText || ''")
+                    )[:200]
+                except Exception:
+                    last_error_text = "(exceptional error page)"
+                await self._safe_screenshot(page, f"exceptional_error_attempt{attempt}")
+                continue
+
+            await self._wait_for_dashboard_content(page)
+
+            # The dashboard-content wait can still expire onto the error shell.
+            if await self._is_exceptional_error_page(page):
+                try:
+                    last_error_text = (
+                        await page.evaluate("() => document.body.innerText || ''")
+                    )[:200]
+                except Exception:
+                    last_error_text = "(exceptional error page)"
+                await self._safe_screenshot(page, f"exceptional_error_attempt{attempt}")
+                continue
+
+            # Reached the real dashboard.
+            if attempt > 1:
+                logger.info("BDC_RETAIL: dashboard reached after %d login attempt(s)", attempt)
+            return
+
+        raise ScraperLoginError(
+            "BDC_RETAIL: portal served the exceptional-error page on every login "
+            f"attempt ({_MAX_LOGIN_ATTEMPTS}). This is the server-side bot wall — "
+            "scrape must run from an Egyptian IP and not be rate-limited. "
+            f"Last page text: {last_error_text!r}",
+            bank_code="BDC_RETAIL",
+        )
+
+    # ------------------------------------------------------------------
     # Navigation
     # ------------------------------------------------------------------
 
@@ -557,12 +675,16 @@ class BDCRetailScraper(BankScraper):
         """Load the BDC Retail login page and verify the username field is visible.
 
         NOTE — do NOT hit ``?action=logout`` first.  Live testing (2026-06-29)
-        showed the logout preamble corrupts the server session state: combined
-        with the automated browser it pushed the portal into a "We're sorry —
-        exceptional error" page after Sign In instead of the normal "Session
-        Active" dialog.  Going straight to the login form and clicking YES on
-        the Session Active dialog reaches the dashboard cleanly.  See
-        ``_handle_session_dialog`` and project memory ``bdc_retail_patchright``.
+        showed the logout preamble corrupts the server session state and pushes
+        the portal into a "We're sorry — exceptional error" page after Sign In.
+        Go straight to the login form.
+
+        Even without the logout preamble, a *fresh-session* login can still land
+        on that exceptional-error shell directly (no "Session Active" dialog) —
+        ``_login_until_dashboard`` detects that and retries with a clean session.
+        When a stale session exists, the "Session Active" dialog appears instead
+        and ``_handle_session_dialog`` clicks YES.  See project memory
+        ``bdc_retail_patchright``.
         """
         logger.info("BDC_RETAIL: navigating to %s", _LOGIN_URL)
         try:
