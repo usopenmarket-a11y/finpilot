@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -84,6 +85,7 @@ from app.scrapers.base import (
     ScraperParseError,
     ScraperResult,
     ScraperTimeoutError,
+    ScraperUnavailableError,
 )
 
 logger = logging.getLogger(__name__)
@@ -411,8 +413,28 @@ class BDCRetailScraper(BankScraper):
         NOTE: patchright is only needed for this scraper and BDC is reachable
         only from an Egyptian IP (Render is geo-blocked), so the import is
         lazy — the module still loads anywhere patchright is absent.
+
+        Raises:
+            ScraperUnavailableError: When running on Render. BDC is geo-blocked
+                there (Oregon IPs get the bot wall) AND patchright's Chromium
+                binary is not installed in the Render build, so the launch would
+                crash with a cryptic "Executable doesn't exist" error. We fail
+                fast with an actionable message instead: BDC must be synced from
+                the local Egyptian machine via ``run_bdc_local.py``.
         """
         import tempfile
+
+        # Render is geo-blocked by BDC and does not ship patchright's browser.
+        # The presence of Render's browser cache dir is the same environment
+        # signal used in ``base.py``.  Don't even try to launch here.
+        if os.path.isdir("/opt/render/project/src/.playwright-browsers"):
+            raise ScraperUnavailableError(
+                "BDC_RETAIL cannot be synced from the hosted backend: Banque du "
+                "Caire blocks non-Egyptian IPs and the headless browser is not "
+                "available in this environment. Run the BDC sync locally from the "
+                "Egyptian machine (apps/api/run_bdc_local.py).",
+                bank_code="BDC_RETAIL",
+            )
 
         from patchright.async_api import async_playwright as patchright_playwright
 

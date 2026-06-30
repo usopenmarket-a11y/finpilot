@@ -52,6 +52,7 @@ from app.scrapers import (
     ScraperParseError,
     ScraperPasswordChangeRequired,
     ScraperTimeoutError,
+    ScraperUnavailableError,
     UBScraper,
 )
 
@@ -366,6 +367,11 @@ async def _background_sync_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
+        except ScraperUnavailableError as _unavail_exc:
+            logger.warning("Sync unavailable in this environment", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = str(_unavail_exc) or "Sync unavailable in this environment"
+            return
         except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
@@ -556,6 +562,11 @@ async def _background_sync_accounts_task(
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
             return
+        except ScraperUnavailableError as _unavail_exc:
+            logger.warning("Sync unavailable in this environment", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = str(_unavail_exc) or "Sync unavailable in this environment"
+            return
         except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Accounts sync failed: portal unreachable", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
@@ -728,6 +739,11 @@ async def _background_sync_cc_task(
             logger.warning("CC sync failed: could not parse portal response", extra={"bank": bank})
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
+            return
+        except ScraperUnavailableError as _unavail_exc:
+            logger.warning("Sync unavailable in this environment", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = str(_unavail_exc) or "Sync unavailable in this environment"
             return
         except BankPortalUnreachableError as _bpu_exc:
             logger.warning("CC sync failed: portal unreachable", extra={"bank": bank})
@@ -911,6 +927,11 @@ async def _background_sync_loans_task(
             )
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
+            return
+        except ScraperUnavailableError as _unavail_exc:
+            logger.warning("Sync unavailable in this environment", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = str(_unavail_exc) or "Sync unavailable in this environment"
             return
         except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Loans sync failed: portal unreachable", extra={"bank": bank})
@@ -1098,6 +1119,11 @@ async def _background_sync_prepaid_cards_task(
             )
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
+            return
+        except ScraperUnavailableError as _unavail_exc:
+            logger.warning("Sync unavailable in this environment", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = str(_unavail_exc) or "Sync unavailable in this environment"
             return
         except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Prepaid cards sync failed: portal unreachable", extra={"bank": bank})
@@ -1287,6 +1313,11 @@ async def _background_sync_certificates_task(
             )
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Failed to parse bank portal response"
+            return
+        except ScraperUnavailableError as _unavail_exc:
+            logger.warning("Sync unavailable in this environment", extra={"bank": bank})
+            _JOBS[job_id]["status"] = "failed"
+            _JOBS[job_id]["error"] = str(_unavail_exc) or "Sync unavailable in this environment"
             return
         except BankPortalUnreachableError as _bpu_exc:
             logger.warning("Certificates sync failed: portal unreachable", extra={"bank": bank})
