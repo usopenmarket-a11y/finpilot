@@ -45,6 +45,7 @@ from app.models.db import SyncJobResult
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
+    BDCKonyScraper,
     BDCRetailScraper,
     CIBScraper,
     NBEScraper,
@@ -63,7 +64,11 @@ router = APIRouter(tags=["sync"])
 _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
-    "BDC_RETAIL": BDCRetailScraper,
+    # BDC_RETAIL now uses the NEW Kony/Infinity portal scraper (verified live
+    # 2026-07-27: accounts + credit-card details). The old T24 BDCRetailScraper
+    # is retained in the codebase for reference/rollback until the Kony scraper
+    # also carries card transactions. See memory bdc_new_kony_portal.
+    "BDC_RETAIL": BDCKonyScraper,
     "UB": UBScraper,
 }
 
@@ -537,7 +542,7 @@ async def _background_sync_accounts_task(
                     assert isinstance(scraper, NBEScraper)
                     result = await scraper.scrape_accounts()
                 elif bank == "BDC_RETAIL":
-                    assert isinstance(scraper, BDCRetailScraper)
+                    assert isinstance(scraper, (BDCKonyScraper, BDCRetailScraper))
                     result = await scraper.scrape_accounts()
                 else:
                     result = await scraper.scrape()

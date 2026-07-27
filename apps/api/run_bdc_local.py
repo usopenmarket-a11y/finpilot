@@ -64,11 +64,13 @@ async def main() -> None:
         settings.supabase_service_role_key.get_secret_value(),
     )
 
-    # Scrape
-    from app.scrapers.bdc_retail import BDCRetailScraper
+    # Scrape — uses the new Kony/Infinity portal scraper (BDC_RETAIL switched
+    # over 2026-07-27). The old T24 BDCRetailScraper is still importable for
+    # rollback if needed.
+    from app.scrapers.bdc_kony import BDCKonyScraper
 
-    logger.info("Starting BDC Retail scrape for user %s", user_id)
-    scraper = BDCRetailScraper(username=username, password=password)
+    logger.info("Starting BDC (Kony) scrape for user %s", user_id)
+    scraper = BDCKonyScraper(username=username, password=password)
     result = await scraper.scrape()
 
     logger.info(

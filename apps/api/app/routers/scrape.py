@@ -34,7 +34,7 @@ from app.deps import get_current_user_id, get_service_role_client
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
-    BDCRetailScraper,
+    BDCKonyScraper,
     CIBScraper,
     NBEScraper,
     ScraperLoginError,
@@ -54,7 +54,7 @@ router = APIRouter(tags=["scrape"])
 _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
-    "BDC_RETAIL": BDCRetailScraper,
+    "BDC_RETAIL": BDCKonyScraper,
     "UB": UBScraper,
 }
 
