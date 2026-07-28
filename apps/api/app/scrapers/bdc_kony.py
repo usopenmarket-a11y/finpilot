@@ -537,9 +537,7 @@ class BDCKonyScraper(BankScraper):
             accounts.append(account)
 
             if _CARD_TXN_OP:
-                transactions.extend(
-                    await self._fetch_card_transactions(page, account, c, now)
-                )
+                transactions.extend(await self._fetch_card_transactions(page, account, c, now))
 
         logger.info(
             "BDC_KONY: fetched %d card(s), %d card transaction(s)",
@@ -556,7 +554,9 @@ class BDCKonyScraper(BankScraper):
         try:
             data = await self._api_post(page, _CARD_TXN_OP, {"cardRef": card_ref})
         except ScraperParseError:
-            logger.warning("BDC_KONY: card txn API call failed for %s", account.account_number_masked)
+            logger.warning(
+                "BDC_KONY: card txn API call failed for %s", account.account_number_masked
+            )
             return []
 
         txns: list[Transaction] = []

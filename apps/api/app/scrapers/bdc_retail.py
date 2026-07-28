@@ -655,9 +655,9 @@ class BDCRetailScraper(BankScraper):
             # login?  If so, skip the 90s dashboard-content wait and retry.
             if await self._is_exceptional_error_page(page):
                 try:
-                    last_error_text = (
-                        await page.evaluate("() => document.body.innerText || ''")
-                    )[:200]
+                    last_error_text = (await page.evaluate("() => document.body.innerText || ''"))[
+                        :200
+                    ]
                 except Exception:
                     last_error_text = "(exceptional error page)"
                 await self._safe_screenshot(page, f"exceptional_error_attempt{attempt}")
@@ -668,9 +668,9 @@ class BDCRetailScraper(BankScraper):
             # The dashboard-content wait can still expire onto the error shell.
             if await self._is_exceptional_error_page(page):
                 try:
-                    last_error_text = (
-                        await page.evaluate("() => document.body.innerText || ''")
-                    )[:200]
+                    last_error_text = (await page.evaluate("() => document.body.innerText || ''"))[
+                        :200
+                    ]
                 except Exception:
                     last_error_text = "(exceptional error page)"
                 await self._safe_screenshot(page, f"exceptional_error_attempt{attempt}")
