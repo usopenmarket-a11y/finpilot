@@ -249,7 +249,8 @@ class TestFetchAccounts:
         acct = accounts[0]
         assert isinstance(acct, BankAccount)
         assert acct.account_number_masked == "****2898"
-        assert acct.account_type == "checking"
+        # Kony "Checking" maps to the DB-allowed "current" type.
+        assert acct.account_type == "current"
         assert acct.currency == "EGP"
         assert acct.balance == Decimal("0")
         assert acct.product_name == "DUMMY ACCOUNT"
@@ -264,6 +265,20 @@ class TestFetchAccounts:
         s = BDCKonyScraper(username="u", password="p")
         page = _fake_page([{"status": 200, "text": '{"Accounts": []}'}])
         assert await s._fetch_accounts(page, datetime.now(UTC)) == []
+
+    async def test_savings_type_mapped(self) -> None:
+        s = BDCKonyScraper(username="u", password="p")
+        body = '{"Accounts": [{"accountID": "111122223333", "accountType": "Savings", "currencyCode": "EGP", "availableBalance": "10"}]}'
+        page = _fake_page([{"status": 200, "text": body}])
+        accounts = await s._fetch_accounts(page, datetime.now(UTC))
+        assert accounts[0].account_type == "savings"
+
+    async def test_unknown_type_defaults_to_current(self) -> None:
+        s = BDCKonyScraper(username="u", password="p")
+        body = '{"Accounts": [{"accountID": "111122223333", "accountType": "Weird", "currencyCode": "EGP", "availableBalance": "10"}]}'
+        page = _fake_page([{"status": 200, "text": body}])
+        accounts = await s._fetch_accounts(page, datetime.now(UTC))
+        assert accounts[0].account_type == "current"
 
 
 @pytest.mark.asyncio
@@ -329,7 +344,7 @@ class TestScrape:
         assert isinstance(result, ScraperResult)
         assert len(result.accounts) == 2
         types = {a.account_type for a in result.accounts}
-        assert types == {"checking", "credit_card"}
+        assert types == {"current", "credit_card"}
 
     async def test_scrape_raises_when_nothing_returned(self) -> None:
         s = BDCKonyScraper(username="u", password="p")

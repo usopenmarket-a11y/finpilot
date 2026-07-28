@@ -83,6 +83,29 @@ _CARD_LIST_OP = "/services/data/v1/CreditCard/operations/CreditCardModel/fetchCr
 # card *details* (balance/limit/due) sync while transactions are pending.
 _CARD_TXN_OP = ""
 
+# Map Kony ``accountType`` strings to the values allowed by the DB
+# ``bank_accounts_account_type_check`` constraint (savings/current/payroll/
+# credit/credit_card/loan/certificate/deposit/prepaid_card). Kony calls a
+# chequing account "Checking", which the schema does not permit — it uses
+# "current". Unknown types fall back to "current" (a generic deposit account).
+_ACCOUNT_TYPE_MAP = {
+    "checking": "current",
+    "current": "current",
+    "chequing": "current",
+    "savings": "savings",
+    "saving": "savings",
+    "deposit": "deposit",
+    "term deposit": "deposit",
+    "certificate": "certificate",
+    "loan": "loan",
+    "credit": "credit",
+    "credit card": "credit_card",
+    "creditcard": "credit_card",
+    "prepaid": "prepaid_card",
+    "prepaid card": "prepaid_card",
+}
+_DEFAULT_ACCOUNT_TYPE = "current"
+
 _ZERO_UUID = UUID("00000000-0000-0000-0000-000000000000")
 
 _NAV_TIMEOUT_MS = 120_000
@@ -470,7 +493,8 @@ class BDCKonyScraper(BankScraper):
         for a in raw_accounts:
             account_id = str(a.get("accountID") or a.get("account_id") or "")
             balance = _to_decimal(a.get("availableBalance", a.get("currentBalance")))
-            account_type = (a.get("accountType") or "checking").strip().lower()
+            raw_type = (a.get("accountType") or "").strip().lower()
+            account_type = _ACCOUNT_TYPE_MAP.get(raw_type, _DEFAULT_ACCOUNT_TYPE)
             accounts.append(
                 BankAccount(
                     id=_ZERO_UUID,
