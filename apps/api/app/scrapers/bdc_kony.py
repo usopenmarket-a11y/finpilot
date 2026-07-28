@@ -278,7 +278,13 @@ class BDCKonyScraper(BankScraper):
             ScraperTimeoutError: the dashboard never became ready (often the
                 portal rate-limiting after too many rapid logins).
         """
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        # The browser is patchright, which raises its OWN TimeoutError class
+        # (not playwright's). Catch both so a rate-limit stall surfaces as our
+        # clear ScraperTimeoutError instead of an opaque parse error.
+        from patchright._impl._errors import TimeoutError as _PatchrightTimeout
+        from playwright.async_api import TimeoutError as _PlaywrightTimeout
+
+        PlaywrightTimeoutError = (_PlaywrightTimeout, _PatchrightTimeout)
 
         # Kony refreshes the JWT through the session, so keep the LATEST one the
         # SPA sends (not just the first). Stored on the instance so _api_post
