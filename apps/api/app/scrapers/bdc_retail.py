@@ -425,9 +425,14 @@ class BDCRetailScraper(BankScraper):
         import tempfile
 
         # Render is geo-blocked by BDC and does not ship patchright's browser.
-        # The presence of Render's browser cache dir is the same environment
-        # signal used in ``base.py``.  Don't even try to launch here.
-        if os.path.isdir("/opt/render/project/src/.playwright-browsers"):
+        # ``APP_ENV=production`` is set explicitly in render.yaml so it is a
+        # reliable hosted-backend signal on every request; the browser-cache dir
+        # is kept as a secondary signal (its ``isdir`` check proved unreliable at
+        # runtime). Don't even try to launch here.
+        _on_hosted_backend = os.environ.get("APP_ENV") == "production" or os.path.isdir(
+            "/opt/render/project/src/.playwright-browsers"
+        )
+        if _on_hosted_backend:
             raise ScraperUnavailableError(
                 "BDC_RETAIL cannot be synced from the hosted backend: Banque du "
                 "Caire blocks non-Egyptian IPs and the headless browser is not "

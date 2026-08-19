@@ -189,9 +189,19 @@ class BDCKonyScraper(BankScraper):
                 browser is not installed there; fail fast with an actionable
                 message instead of a cryptic launch crash.
         """
-        # Render is geo-blocked by BDC and lacks patchright's Chromium. Same
-        # environment signal as base.py / the T24 scraper.
-        if os.path.isdir("/opt/render/project/src/.playwright-browsers"):
+        # Render is geo-blocked by BDC and lacks patchright's Chromium. Fail
+        # fast here instead of crashing/hanging on a browser that cannot launch.
+        #
+        # Signal priority: ``APP_ENV=production`` is set explicitly in
+        # render.yaml, so it is present on the hosted backend on EVERY request —
+        # unlike the browsers-cache dir, whose ``isdir`` check proved unreliable
+        # at runtime (Render's build/runtime filesystems can differ), letting
+        # the guard fall through to a crashing "Executable doesn't exist" launch.
+        # Keep the dir check as a secondary signal.
+        _on_hosted_backend = os.environ.get("APP_ENV") == "production" or os.path.isdir(
+            "/opt/render/project/src/.playwright-browsers"
+        )
+        if _on_hosted_backend:
             raise ScraperUnavailableError(
                 "BDC_RETAIL cannot be synced from the hosted backend: Banque du "
                 "Caire blocks non-Egyptian IPs and the headless browser is not "

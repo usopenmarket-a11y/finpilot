@@ -28,6 +28,7 @@ from app.scrapers.base import (
     BankScraper,
     ScraperParseError,
     ScraperResult,
+    ScraperUnavailableError,
 )
 from app.scrapers.bdc_kony import (
     BDCKonyScraper,
@@ -463,6 +464,44 @@ class TestLoginAndCaptureAuth:
         page = _login_page(dashboard=False, reject=True)
         with pytest.raises(ScraperLoginError):
             await s._login_and_capture_auth(page)
+
+
+# ---------------------------------------------------------------------------
+# Hosted-backend guard: BDC is EG-only + no patchright browser on Render.
+# _launch_browser must fail fast with ScraperUnavailableError on the hosted
+# backend BEFORE trying to launch a browser (which would crash or hang).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestHostedBackendGuard:
+    async def test_app_env_production_raises_without_browser_dir(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On Render (APP_ENV=production) the guard must fire even when the
+        Playwright browsers dir is absent — the filesystem check is unreliable
+        at runtime, so it must not be the sole signal."""
+        import app.scrapers.bdc_kony as mod
+
+        # Simulate Render env but a MISSING browsers dir (the failure mode that
+        # let the guard fall through to a crashing/hanging browser launch).
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setattr(mod.os.path, "isdir", lambda _p: False)
+
+        s = BDCKonyScraper(username="u", password="p")
+        with pytest.raises(ScraperUnavailableError):
+            await s._launch_browser()
+
+    async def test_browser_dir_present_still_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Existing signal (Render browsers dir present) keeps working."""
+        import app.scrapers.bdc_kony as mod
+
+        monkeypatch.delenv("APP_ENV", raising=False)
+        monkeypatch.setattr(mod.os.path, "isdir", lambda _p: True)
+
+        s = BDCKonyScraper(username="u", password="p")
+        with pytest.raises(ScraperUnavailableError):
+            await s._launch_browser()
 
 
 # ---------------------------------------------------------------------------
