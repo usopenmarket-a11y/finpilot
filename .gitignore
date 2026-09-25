@@ -62,11 +62,5 @@ apps/api/.claude/
 apps/api/.venv-win/
 supabase/.temp/
 
-# Local scraper/debug scripts
-apps/api/recon_cc_menu.py
-apps/api/recon_login_step2.py
-apps/api/recon_ubt_uns.py
-apps/api/run_cc_scraper.py
-
 Screenshots/
 Banks/

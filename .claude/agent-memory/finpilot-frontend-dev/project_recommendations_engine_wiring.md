@@ -34,7 +34,8 @@ wire -> JSON string. */` comment.
 
 ## /dashboard/recommendations real-data wiring (2026-06-15)
 
-Implemented per `docs/superpowers/specs/2026-06-15-real-recommendations-design.md`.
+Implemented in `apps/web/src/app/dashboard/recommendations/page.tsx` and the
+matching API recommendation modules. The original design spec was retired.
 Page is `apps/web/src/app/dashboard/recommendations/page.tsx`, an async server
 component mirroring `apps/web/src/app/dashboard/page.tsx`'s data-fetch pattern
 (createClient from `@/lib/supabase/server`, parallel Supabase queries +

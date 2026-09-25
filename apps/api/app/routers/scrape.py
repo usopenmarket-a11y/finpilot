@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
 from app.crypto import CryptoError, decrypt
-from app.deps import get_current_user_id, get_service_role_client
+from app.deps import get_async_service_role_client, get_current_user_id, get_service_role_client
 from app.pipeline.runner import run_pipeline
 from app.scrapers import (
     BankPortalUnreachableError,
@@ -213,7 +213,7 @@ async def trigger_scrape(
     # ------------------------------------------------------------------
     transactions_saved = 0
     try:
-        supabase_client = get_service_role_client()
+        supabase_client = await get_async_service_role_client()
         pipeline_result = await run_pipeline(
             result, user_id=user_id, supabase_client=supabase_client
         )

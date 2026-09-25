@@ -57,7 +57,7 @@ _ALLOWED_CORS_HEADERS = [
 if settings.app_env == "production" and ("*" in settings.cors_origins or not settings.cors_origins):
     raise RuntimeError(
         "CORS misconfiguration: cors_origins must not contain '*' or be empty in "
-        "production.  Set CORS_ORIGINS to the explicit Vercel deployment URL(s)."
+        "production. Set CORS_ORIGINS to the explicit site origin(s)."
     )
 
 

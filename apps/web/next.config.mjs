@@ -1,4 +1,7 @@
 // Non-secret public keys — safe to commit as fallback values.
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL ??
   "https://sftwyjuugkvmjpwamcoi.supabase.co";
@@ -9,18 +12,30 @@ const SUPABASE_URL =
 // split across two env vars (both injected via the env block below) and
 // re-joined in client.ts so each individual string is short enough that
 // terser won't touch it.
+const suppliedAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const _ANON_P1 =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_P1 ??
+  (suppliedAnonKey ? suppliedAnonKey.slice(0, Math.ceil(suppliedAnonKey.length / 2)) : undefined) ??
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNm";
 const _ANON_P2 =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_P2 ??
+  (suppliedAnonKey ? suppliedAnonKey.slice(Math.ceil(suppliedAnonKey.length / 2)) : undefined) ??
   "dHd5anV1Z2t2bWpwd2FtY29pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDMwMjQsImV4cCI6MjA4OTE3OTAyNH0.yDJQ4s_HFmUJov-lDlAbe3wx-2uqQ2SosBOW2Dx6KuU";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "https://finpilot-api-lrfg.onrender.com";
+const API_REWRITE_URL = process.env.API_INTERNAL_URL ?? API_URL;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(process.env.DOCKER_BUILD === "1"
+    ? {
+        output: "standalone",
+        experimental: {
+          outputFileTracingRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
+        },
+      }
+    : {}),
   env: {
     NEXT_PUBLIC_SUPABASE_URL: SUPABASE_URL,
     // Full key for server components (process.env is not minified server-side).
@@ -53,7 +68,7 @@ const nextConfig = {
     return [
       {
         source: "/api/v1/:path*",
-        destination: `${API_URL}/api/v1/:path*`,
+        destination: `${API_REWRITE_URL}/api/v1/:path*`,
       },
     ];
   },

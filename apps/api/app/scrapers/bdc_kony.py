@@ -23,20 +23,18 @@ This scraper uses a **hybrid** strategy proven by live capture 2026-07-27
         POST /services/data/v1/Holdings/operations/DigitalArrangements/getList
         (accounts; body ``jsondata={}``)
 
-    Credit-card + card-transaction operations are wired through
-    ``_CARD_LIST_OP`` / ``_CARD_TXN_OP`` — **fill these in from the pending
-    card-section capture** (Cards tab → Credit → expand arrow). Until then the
-    card methods no-op and only accounts are returned.
+    Credit-card details are wired through ``_CARD_LIST_OP``. Card transactions
+    remain unavailable until ``_CARD_TXN_OP`` is captured and implemented.
 
-This scraper is built **alongside** ``BDCRetailScraper``; ``BDC_RETAIL`` is not
-switched over until this one is verified writing real transactions.
-
-BDC is reachable only from an Egyptian IP (Render is geo-blocked), so this runs
-locally via ``run_bdc_local.py`` — same operational constraint as the T24 one.
+``BDC_RETAIL`` routes to this scraper. Hosted deployments require an Egyptian
+HTTP(S) proxy configured with a sticky session through ``BDC_PROXY_*`` settings,
+plus the matching Patchright Chromium installation. The existing local runner
+can still connect directly from Egypt.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -48,8 +46,10 @@ from typing import Any, ClassVar
 from urllib.parse import quote
 from uuid import UUID
 
+from app.config import settings
 from app.models.db import BankAccount, Transaction
 from app.scrapers.base import (
+    BankPortalUnreachableError,
     BankScraper,
     ScraperLoginError,
     ScraperParseError,
@@ -57,6 +57,7 @@ from app.scrapers.base import (
     ScraperTimeoutError,
     ScraperUnavailableError,
 )
+from app.scrapers.bdc_proxy import get_bdc_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ _ZERO_UUID = UUID("00000000-0000-0000-0000-000000000000")
 _NAV_TIMEOUT_MS = 120_000
 _LOGIN_RENDER_TIMEOUT_MS = 60_000
 _DASHBOARD_TIMEOUT_MS = 60_000
+_API_EVALUATE_TIMEOUT_S = 75
 
 
 # ---------------------------------------------------------------------------
@@ -179,53 +181,51 @@ class BDCKonyScraper(BankScraper):
     bank_name: ClassVar[str] = "BDC_RETAIL"  # same logical bank as the T24 one
 
     async def _launch_browser(self):  # type: ignore[override]
-        """Launch Chromium via patchright (undetected) — same recipe as T24.
+        """Launch patchright, routing the whole BDC session through its proxy.
 
-        Pass ONLY headless/channel/viewport/locale/timezone. Custom args, UA, or
-        request routing break patchright's stealth (see bdc_new_kony_portal).
-
-        Raises:
-            ScraperUnavailableError: on Render — BDC is EG-only and patchright's
-                browser is not installed there; fail fast with an actionable
-                message instead of a cryptic launch crash.
+        Hosted deployments require an Egyptian proxy. Local development may
+        still connect directly. Avoid custom UA, args and request interception
+        so the existing patchright login behaviour is preserved.
         """
-        # Render is geo-blocked by BDC and lacks patchright's Chromium. Fail
-        # fast here instead of crashing/hanging on a browser that cannot launch.
-        #
-        # Signal priority: ``APP_ENV=production`` is set explicitly in
-        # render.yaml, so it is present on the hosted backend on EVERY request —
-        # unlike the browsers-cache dir, whose ``isdir`` check proved unreliable
-        # at runtime (Render's build/runtime filesystems can differ), letting
-        # the guard fall through to a crashing "Executable doesn't exist" launch.
-        # Keep the dir check as a secondary signal.
-        _on_hosted_backend = os.environ.get("APP_ENV") == "production" or os.path.isdir(
-            "/opt/render/project/src/.playwright-browsers"
+        on_hosted_backend = (
+            settings.app_env.lower() == "production"
+            or os.environ.get("APP_ENV", "").lower() == "production"
+            or os.environ.get("RENDER", "").lower() == "true"
+            or os.path.isdir("/opt/render/project/src/.playwright-browsers")
         )
-        if _on_hosted_backend:
-            raise ScraperUnavailableError(
-                "BDC_RETAIL cannot be synced from the hosted backend: Banque du "
-                "Caire blocks non-Egyptian IPs and the headless browser is not "
-                "available in this environment. Run the BDC sync locally from the "
-                "Egyptian machine (apps/api/run_bdc_local.py).",
-                bank_code=self.bank_name,
-            )
+        proxy = get_bdc_proxy(required=on_hosted_backend)
 
         from patchright.async_api import async_playwright as patchright_playwright
 
-        playwright = await patchright_playwright().start()
-        self._playwright = playwright
-        self._bdc_profile_dir = tempfile.mkdtemp(prefix="bdc_kony_profile_")
-        context = await playwright.chromium.launch_persistent_context(
-            user_data_dir=self._bdc_profile_dir,
-            headless=True,
-            channel="chromium",
-            viewport={"width": 1440, "height": 900},
-            locale="en-US",
-            timezone_id="Africa/Cairo",
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
-        logger.info("BDC_KONY browser launched via patchright (persistent context, stealth)")
-        return context, context, page
+        context = None
+        try:
+            playwright = await patchright_playwright().start()
+            self._playwright = playwright
+            self._bdc_profile_dir = tempfile.mkdtemp(prefix="bdc_kony_profile_")
+            context = await playwright.chromium.launch_persistent_context(
+                user_data_dir=self._bdc_profile_dir,
+                headless=True,
+                channel="chromium",
+                viewport={"width": 1440, "height": 900},
+                locale="en-US",
+                timezone_id="Africa/Cairo",
+                **({"proxy": proxy} if proxy else {}),
+            )
+            page = context.pages[0] if context.pages else await context.new_page()
+            logger.info("BDC_KONY browser launched (proxy configured=%s)", proxy is not None)
+            return context, context, page
+        except BaseException as exc:
+            # Launch happens before scrape()'s finally block. Release the driver
+            # and profile even on launch failure/cancellation. Do not expose raw
+            # browser exceptions, which may contain proxy configuration.
+            await self._close_browser(context)
+            if not isinstance(exc, Exception):
+                raise
+            raise ScraperUnavailableError(
+                "BDC browser could not start. Ensure the backend build installs "
+                "Patchright Chromium and check its available memory and proxy configuration.",
+                bank_code=self.bank_name,
+            ) from None
 
     async def _close_browser(self, browser) -> None:  # type: ignore[override]
         await super()._close_browser(browser)
@@ -272,7 +272,12 @@ class BDCKonyScraper(BankScraper):
             )
             return ScraperResult(accounts=accounts, transactions=transactions)
 
-        except (ScraperLoginError, ScraperTimeoutError, ScraperParseError):
+        except (
+            BankPortalUnreachableError,
+            ScraperLoginError,
+            ScraperTimeoutError,
+            ScraperParseError,
+        ):
             raise
         except Exception as exc:  # pragma: no cover - defensive
             await self._safe_screenshot(page, "kony_unexpected_error")
@@ -314,7 +319,8 @@ class BDCKonyScraper(BankScraper):
         # The browser is patchright, which raises its OWN TimeoutError class
         # (not playwright's). Catch both so a rate-limit stall surfaces as our
         # clear ScraperTimeoutError instead of an opaque parse error.
-        from patchright._impl._errors import TimeoutError as _PatchrightTimeout
+        from patchright.async_api import Error as _PatchrightError
+        from patchright.async_api import TimeoutError as _PatchrightTimeout
         from playwright.async_api import TimeoutError as _PlaywrightTimeout
 
         PlaywrightTimeoutError = (_PlaywrightTimeout, _PatchrightTimeout)
@@ -346,6 +352,12 @@ class BDCKonyScraper(BankScraper):
             raise ScraperTimeoutError(
                 "BDC_KONY: portal did not load within timeout", bank_code=self.bank_name
             ) from exc
+        except _PatchrightError:
+            raise BankPortalUnreachableError(
+                "BDC portal could not be reached. Check the proxy connection, Egyptian "
+                "location, and provider access to bdconline.com.eg.",
+                bank_code=self.bank_name,
+            ) from None
 
         # Locate the login iframe and wait for the password field.
         login_frame = None
@@ -445,19 +457,23 @@ class BDCKonyScraper(BankScraper):
         characters in the auto-forwarded session cookie.)
         """
         auth = getattr(self, "_kony_auth", {}) or {}
-        result = await page.evaluate(
+        evaluation = page.evaluate(
             """async ({url, body, auth}) => {
                 const headers = {'content-type': 'application/x-www-form-urlencoded'};
                 if (auth.jwt) headers['x-kony-authorization'] = auth.jwt;
                 if (auth.deviceid) headers['x-kony-deviceid'] = auth.deviceid;
                 if (auth.reportingparams) headers['x-kony-reportingparams'] = auth.reportingparams;
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 60000);
                 try {
                     const r = await fetch(url, {method:'POST', headers, body,
-                                               credentials:'include'});
+                                               credentials:'include', signal:controller.signal});
                     const text = await r.text();
                     return {status: r.status, text};
                 } catch (e) {
                     return {status: 0, text: '', error: String(e)};
+                } finally {
+                    clearTimeout(timer);
                 }
             }""",
             {
@@ -466,6 +482,12 @@ class BDCKonyScraper(BankScraper):
                 "auth": auth,
             },
         )
+        try:
+            result = await asyncio.wait_for(evaluation, timeout=_API_EVALUATE_TIMEOUT_S)
+        except TimeoutError as exc:
+            raise ScraperTimeoutError(
+                "BDC_KONY: API request timed out", bank_code=self.bank_name
+            ) from exc
         if result.get("error") or not result.get("status"):
             raise ScraperParseError(
                 f"BDC_KONY: API {op_path} fetch failed: {result.get('error')}",
@@ -495,8 +517,8 @@ class BDCKonyScraper(BankScraper):
         try:
             data = await self._api_post(page, _ACCOUNTS_OP)
         except ScraperParseError:
-            logger.warning("BDC_KONY: accounts API call failed", exc_info=True)
-            return []
+            logger.warning("BDC_KONY: accounts API call failed")
+            raise
 
         raw_accounts = data.get("Accounts") or []
         accounts: list[BankAccount] = []
@@ -538,8 +560,8 @@ class BDCKonyScraper(BankScraper):
         try:
             card_data = await self._api_post(page, _CARD_LIST_OP)
         except ScraperParseError:
-            logger.warning("BDC_KONY: card list API call failed", exc_info=True)
-            return [], []
+            logger.warning("BDC_KONY: card list API call failed")
+            raise
 
         # Field names confirmed from the live fetchCreditCards response
         # (bdc_new_kony_portal): maskedCardNumber, embossingName, product,
@@ -600,6 +622,10 @@ class BDCKonyScraper(BankScraper):
             if amount <= 0:
                 continue
             txn_date = _parse_kony_date(r.get("transactionDate") or r.get("date"))
+            if txn_date is None:
+                raise ScraperParseError(
+                    "BDC card transaction has an invalid date", bank_code=self.bank_name
+                )
             description = (r.get("description") or r.get("transactionDetails") or "N/A").strip()
             # Category text like "Card Payment" (credit) vs "Purchase" (debit).
             cat = (r.get("transactionCategory") or "").lower()

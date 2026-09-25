@@ -83,47 +83,6 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  /** Re-sum all payments then derive outstanding_balance and status for the debt. */
-  async function recalcDebt(): Promise<{ outstanding_balance: number; status: Debt['status'] }> {
-    const supabase = createClient();
-    const { data } = await (supabase as unknown as {
-      from: (table: string) => {
-        select: (cols: string) => {
-          eq: (col: string, val: string) => Promise<{ data: { amount: number }[] | null; error: unknown }>;
-        };
-      };
-    })
-      .from('debt_payments')
-      .select('amount')
-      .eq('debt_id', debt.id);
-
-    const totalPaid = (data ?? []).reduce((sum, p) => sum + p.amount, 0);
-    const outstanding = Math.max(0, debt.original_amount - totalPaid);
-    const status: Debt['status'] =
-      outstanding === 0
-        ? 'settled'
-        : outstanding < debt.original_amount
-        ? 'partial'
-        : 'active';
-    return { outstanding_balance: outstanding, status };
-  }
-
-  async function updateDebt(fields: { outstanding_balance: number; status: Debt['status'] }) {
-    const supabase = createClient();
-    await (supabase as unknown as {
-      from: (table: string) => {
-        update: (data: Record<string, unknown>) => {
-          eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
-        };
-      };
-    })
-      .from('debts')
-      .update(fields)
-      .eq('id', debt.id);
-  }
-
-  // ── Delete ────────────────────────────────────────────────────────────────
-
   async function handleDelete(payment: DebtPayment) {
     setDeletingId(payment.id);
     setActionError(null);
@@ -142,12 +101,9 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
 
       if (delError) throw new Error(delError.message);
 
-      // Recompute: add the deleted payment amount back then re-sum from DB
-      // (fetchPayments hasn't run yet so we remove from local state first)
       setPayments((prev) => prev.filter((p) => p.id !== payment.id));
 
-      const fields = await recalcDebt();
-      await updateDebt(fields);
+      // The payment mutation and balance adjustment committed together.
       onChanged();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Delete failed. Please try again.');
@@ -204,7 +160,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
 
       if (updateError) throw new Error(updateError.message);
 
-      // Update local list optimistically before recalc
+      // Update local state only after the database transaction succeeds
       setPayments((prev) =>
         prev.map((p) =>
           p.id === payment.id
@@ -219,8 +175,7 @@ export function PaymentsManager({ debt, onClose, onChanged }: PaymentsManagerPro
       );
       setEditingId(null);
 
-      const fields = await recalcDebt();
-      await updateDebt(fields);
+      // The payment mutation and balance adjustment committed together.
       onChanged();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Save failed. Please try again.');

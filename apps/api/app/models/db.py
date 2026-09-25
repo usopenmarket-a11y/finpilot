@@ -120,6 +120,9 @@ class BankAccount(BaseModel):
         default=None,
         description="Label of the bank credential that produced this account (e.g. 'NBE-Fady')",
     )
+    credential_id: UUID | None = Field(
+        default=None, description="Credential that produced this account"
+    )
     created_at: datetime = Field(description="Row creation timestamp (TIMESTAMPTZ)")
     updated_at: datetime = Field(description="Last modification timestamp (TIMESTAMPTZ)")
 

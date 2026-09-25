@@ -213,7 +213,7 @@ async def test_nbe_extract_balance(mock_page):
 
 ## Python Coding Standards
 
-- Python 3.11+, strict type hints on all functions and class attributes
+- Python 3.12, strict type hints on all functions and class attributes
 - Pydantic v2 for all data models
 - `async def` for all Playwright operations and I/O
 - `snake_case` for files, functions, variables

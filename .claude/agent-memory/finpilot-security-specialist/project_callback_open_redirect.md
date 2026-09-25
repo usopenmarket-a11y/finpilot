@@ -20,7 +20,9 @@ return NextResponse.redirect(`${safeBase}/dashboard`)
 
 ## Required env var
 
-`NEXT_PUBLIC_SITE_URL` must be set in production Vercel deployments to the canonical app URL (e.g. `https://finpilot.vercel.app`). It is documented in `apps/web/.env.example`.
+`NEXT_PUBLIC_SITE_URL` must be set to the canonical app URL in production. The
+Kali Compose stack sets it from `SITE_DOMAIN`; local development variables are
+documented in `apps/web/.env.local.example`.
 
 ## Error handling added
 

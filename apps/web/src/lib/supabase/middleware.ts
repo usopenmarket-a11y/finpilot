@@ -46,18 +46,24 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isAuthRoute = request.nextUrl.pathname.startsWith('/auth')
+  const isRecoveryOrCallback = ['/auth/callback', '/auth/update-password'].includes(request.nextUrl.pathname)
   const isPublicRoute = request.nextUrl.pathname === '/'
+  const redirectWithCookies = (url: URL) => {
+    const response = NextResponse.redirect(url)
+    supabaseResponse.cookies.getAll().forEach(cookie => response.cookies.set(cookie))
+    return response
+  }
 
   if (!user && !isAuthRoute && !isPublicRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
-    return NextResponse.redirect(url)
+    return redirectWithCookies(url)
   }
 
-  if (user && isAuthRoute) {
+  if (user && isAuthRoute && !isRecoveryOrCallback) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+    return redirectWithCookies(url)
   }
 
   return supabaseResponse

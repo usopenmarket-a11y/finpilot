@@ -146,6 +146,10 @@ def _normalize_account(
         # Certificate / deposit metadata — pass through from scraper; None for other types
         interest_rate=account.interest_rate,
         maturity_date=account.maturity_date,
+        opened_date=account.opened_date,
+        product_name=account.product_name,
+        credential_label=account.credential_label,
+        credential_id=account.credential_id,
         created_at=account.created_at,
         updated_at=account.updated_at,
     )

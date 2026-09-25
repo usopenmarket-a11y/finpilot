@@ -1,6 +1,6 @@
 ---
 name: NBE Portal Facts
-description: Live recon data for alahlynet.com.eg — login flow, selectors, data format, OTP
+description: Live recon data for alahlynet.com.eg — login flow, selectors, data format, OTP, production quirks
 type: project
 ---
 
@@ -43,6 +43,53 @@ NBE portal is alahlynet.com.eg (NOT ahly-net.com). The old ahly-net.com selector
 - Date format: `DD Mon YYYY` (e.g. `12 Mar 2026`) — parse with `%d %b %Y`
 - Amount format: `EGP 10,100.00` or empty string — strip currency prefix + commas
 - Up to 10 rows per page; paginate with `button[title='Next Page']` (check `disabled` attribute)
+
+## Dashboard widget selectors (confirmed 2026-06-16)
+- `li.CSA a` — Accounts (Current & Savings)
+- `li.TRD a` — Certificates / Deposits
+- `li.LON a` — Loans and Finances
+- `li.CCA a` — Credit Cards
+- `li.PRE a` — Prepaid Cards
+Each widget click flips a card, revealing `li.flip-account-list__items` rows inside a
+`div.flip-account.{PRODUCT_CODE}` container. Scope HTML parsing to that container to
+avoid mixing rows from multiple products.
+
+## Production timing (Render Oregon → NBE Egypt, 2026-06-16)
+- Login page load: ~42s
+- Dashboard ready (li.loggedInUser): ~34s after login submit
+- Total login: ~76s
+- CC widget reveal (li.CCA): can take up to 63s post-login
+- Widget row rendering after click (KnockoutJS): 5–30s typically
+- Timeout constants: _PAGE_LOAD_TIMEOUT_MS=150s, _WAIT_TIMEOUT_MS=240s, _SHORT_TIMEOUT_MS=20s
+
+## Split-sync re-navigation hang (FIXED 2026-06-16)
+**Root cause:** `_scrape_certificates`, `_scrape_loans`, and `_scrape_prepaid_cards` were
+unconditionally calling `page.goto(_LOGIN_URL, wait_until="domcontentloaded")` at the top of
+each helper, even in the split-sync path (`scrape_certificates()`, `scrape_loans()`,
+`scrape_prepaid_cards()`) where the page is ALREADY on the dashboard after `_wait_for_dashboard()`.
+On Render this redundant goto hung indefinitely (no log output for 9+ minutes).
+
+**Fix applied:** Added "skip goto if already on dashboard" guard to all three helpers, identical
+to the guard already in `_scrape_credit_cards` (implemented earlier):
+```python
+current_url = page.url
+on_dashboard = "page=home" in current_url or current_url.rstrip("/") == _LOGIN_URL.rstrip("/")
+if not on_dashboard:
+    await page.goto(_LOGIN_URL, wait_until="commit", ...)  # "commit" not "domcontentloaded"
+    await page.wait_for_selector("li.loggedInUser", timeout=90_000)
+    await page.wait_for_selector(WIDGET_SEL, timeout=120_000)
+else:
+    await page.wait_for_selector(WIDGET_SEL, timeout=_SHORT_TIMEOUT_MS)  # 20s — already hydrated
+```
+Also changed `wait_until="domcontentloaded"` → `wait_until="commit"` in the re-navigation path
+to avoid hangs when Oracle JET is slow to signal domcontentloaded.
+
+## Certificate timeout budget (post-fix)
+Split-sync path: login ~76s + _SHORT_TIMEOUT_MS widget check 20s + click 240s + rows 240s = ~576s worst-case.
+The client poll cap for certificates in `apps/web/src/lib/api-client.ts` (`syncBankCertificates`)
+is 4 minutes (240s). This is too short — the scrape alone can take up to ~576s worst-case.
+**Recommendation:** Raise `syncBankCertificates` maxWaitMs to 480_000 (8 min), matching accounts/CC.
+(Frontend owns this file — flag to frontend agent or orchestrator.)
 
 ## Anti-bot notes
 - Portal uses Oracle JET which fires XHR after clicking interactive elements.

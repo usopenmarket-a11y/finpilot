@@ -89,25 +89,14 @@ export function EditDebtForm({ debt, onSuccess, onCancel }: EditDebtFormProps) {
     try {
       const supabase = createClient();
       const newAmount = parseFloat(values.original_amount);
-      const newOutstanding = Math.max(
-        0,
-        debt.outstanding_balance + (newAmount - debt.original_amount),
-      );
-      const newStatus: Debt['status'] =
-        newOutstanding === 0
-          ? 'settled'
-          : newOutstanding < newAmount
-          ? 'partial'
-          : 'active';
+      // The database adjusts the current balance when original_amount changes.
 
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('debts')
         .update({
           counterparty_name: values.counterparty_name.trim(),
           debt_type: values.debt_type,
           original_amount: newAmount,
-          outstanding_balance: newOutstanding,
-          status: newStatus,
           currency: values.currency,
           due_date: values.due_date || null,
           notes: values.notes.trim() || null,

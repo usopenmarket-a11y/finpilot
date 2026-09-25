@@ -1,0 +1,67 @@
+name: finpilot
+
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    env_file:
+      - ./apps/api/.env
+    environment:
+      APP_ENV: production
+      APP_RELOAD: "false"
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Set NEXT_PUBLIC_SUPABASE_URL in .env}
+      SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?Set NEXT_PUBLIC_SUPABASE_ANON_KEY in .env}
+      CORS_ORIGINS: '["https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}"]'
+    expose:
+      - "8000"
+    init: true
+    shm_size: "1gb"
+    restart: unless-stopped
+    networks:
+      - internal
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Set NEXT_PUBLIC_SUPABASE_URL in .env}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?Set NEXT_PUBLIC_SUPABASE_ANON_KEY in .env}
+        NEXT_PUBLIC_API_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+        NEXT_PUBLIC_SITE_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+        NEXT_PUBLIC_APP_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+        API_INTERNAL_URL: http://api:8000
+    environment:
+      NEXT_PUBLIC_SITE_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+    expose:
+      - "3000"
+    restart: unless-stopped
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  caddy_data:
+  caddy_config:

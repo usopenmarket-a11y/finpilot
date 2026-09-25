@@ -479,11 +479,13 @@ export function BankAccountsSection() {
   // be fetched fresh immediately before each API call (see getAccessToken).
   useEffect(() => {
     const supabase = createClient();
-    void supabase.auth.getSession().then(({ data }) => {
+    async function loadUser() {
+      const { data } = await supabase.auth.getSession();
       if (data.session) {
         setUserId(data.session.user.id);
       }
-    });
+    }
+    void loadUser().catch(() => {});
   }, []);
 
   // Always fetch a fresh access token right before making an API call so we

@@ -193,47 +193,16 @@ async def delete_credential(
     credential_id: UUID,
     user_id: UUID = Depends(get_current_user_id),
 ) -> None:
-    """Delete the stored credential row identified by its UUID.
+    """Delete one credential; the DB trigger hides only its linked accounts.
 
-    Also soft-hides all bank_accounts belonging to the same user+bank so
-    they no longer appear in the dashboard.  Accounts will reappear if the
-    user re-adds credentials for the same bank and syncs again.
-
-    The user_id guard ensures a user cannot delete another user's row.
-    If no matching row exists the operation is silently treated as a
-    success (idempotent delete).
+    Deactivation and deletion are atomic. Missing/foreign credentials remain
+    an idempotent no-op because the delete always filters by the verified user.
     """
     client = _get_client()
     try:
-        # Fetch the credential first so we know which bank to hide accounts for.
-        cred_resp = (
-            client.table("bank_credentials")
-            .select("id, bank")
-            .eq("id", str(credential_id))
-            .eq("user_id", str(user_id))
-            .limit(1)
-            .execute()
-        )
-        first: Any = cred_resp.data[0] if cred_resp.data else None
-        bank_code: str | None = first["bank"] if first else None
-
-        # Delete the credential row.
         client.table("bank_credentials").delete().eq("id", str(credential_id)).eq(
             "user_id", str(user_id)
         ).execute()
-
-        # Soft-hide all bank_accounts for this user+bank so they disappear from
-        # the dashboard immediately.  They will reappear on the next sync if the
-        # user re-adds credentials for the same bank.
-        if bank_code:
-            client.table("bank_accounts").update({"is_active": False}).eq(
-                "user_id", str(user_id)
-            ).eq("bank_name", bank_code).execute()
-            logger.info(
-                "Soft-hid bank_accounts for bank=%s user_id=%s after credential delete",
-                bank_code,
-                user_id,
-            )
     except Exception as exc:
         logger.error(
             "Failed to delete credentials id=%s user_id=%s: %s", credential_id, user_id, exc

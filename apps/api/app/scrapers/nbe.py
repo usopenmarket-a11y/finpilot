@@ -55,8 +55,9 @@ must collect the OTP from the user and resume the scrape session.
 
 Selector strategy
 -----------------
-Selectors are verified against live HTML captured via ``recon_nbe.py`` (see
-``/tmp/finpilot_debug/nbe_recon/login_page.html`` and ``dom_inputs.txt``).
+Selectors were originally checked against live portal HTML. Recheck them
+against the current portal when changing the scraper; the old one-off capture
+script and local debug files are no longer part of this repository.
 
 Oracle JET renders inner cells with ``id="ViewStatement1:{row}_{col}"`` that
 the transaction parser matches against a stable regex pattern.

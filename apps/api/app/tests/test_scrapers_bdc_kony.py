@@ -16,6 +16,7 @@ Coverage targets
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -28,6 +29,7 @@ from app.scrapers.base import (
     BankScraper,
     ScraperParseError,
     ScraperResult,
+    ScraperTimeoutError,
     ScraperUnavailableError,
 )
 from app.scrapers.bdc_kony import (
@@ -59,8 +61,8 @@ _CARDS_JSON = {
     "opstatus": 0,
     "Cards": [
         {
-            "maskedCardNumber": "553592******9208",
-            "embossingName": "FADY ADEL",
+            "maskedCardNumber": "000000******1234",
+            "embossingName": "TEST USER",
             "product": "MasterCard",
             "currency": "EGP",
             "closingBalance": "20621.37",
@@ -109,13 +111,13 @@ class TestMask:
         assert _mask("999999917692898") == "****2898"
 
     def test_masked_card_number_digits_only(self) -> None:
-        assert _mask("553592******9208") == "****9208"
+        assert _mask("000000******1234") == "****1234"
 
     def test_short_id_uses_tail(self) -> None:
         assert _mask("12").startswith("****")
 
     def test_always_prefixed(self) -> None:
-        assert _mask("55359209").startswith("****")
+        assert _mask("12345678").startswith("****")
 
 
 class TestMakeExternalId:
@@ -214,6 +216,19 @@ class TestApiPost:
         with pytest.raises(ScraperParseError):
             await s._api_post(page, "/services/data/v1/x")
 
+    async def test_stalled_api_call_times_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import app.scrapers.bdc_kony as mod
+
+        async def never_returns(*_args: Any, **_kwargs: Any) -> None:
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(mod, "_API_EVALUATE_TIMEOUT_S", 0.01)
+        s = BDCKonyScraper(username="u", password="p")
+        page = MagicMock()
+        page.evaluate = AsyncMock(side_effect=never_returns)
+        with pytest.raises(ScraperTimeoutError):
+            await s._api_post(page, "/services/data/v1/x")
+
     async def test_non_json_raises(self) -> None:
         s = BDCKonyScraper(username="u", password="p")
         page = _fake_page([{"status": 200, "text": "<html>not json</html>"}])
@@ -256,11 +271,11 @@ class TestFetchAccounts:
         assert acct.balance == Decimal("0")
         assert acct.product_name == "DUMMY ACCOUNT"
 
-    async def test_api_failure_returns_empty(self) -> None:
+    async def test_api_failure_raises(self) -> None:
         s = BDCKonyScraper(username="u", password="p")
         page = _fake_page([{"status": 500, "text": ""}])
-        accounts = await s._fetch_accounts(page, datetime.now(UTC))
-        assert accounts == []
+        with pytest.raises(ScraperParseError):
+            await s._fetch_accounts(page, datetime.now(UTC))
 
     async def test_empty_accounts_list(self) -> None:
         s = BDCKonyScraper(username="u", password="p")
@@ -292,19 +307,19 @@ class TestFetchCards:
         assert len(cards) == 1
         card = cards[0]
         assert card.account_type == "credit_card"
-        assert card.account_number_masked == "****9208"
+        assert card.account_number_masked == "****1234"
         assert card.balance == Decimal("43904.01")  # outstanding
         assert card.billed_amount == Decimal("20621.37")  # closingBalance
         assert card.payment_due_date == date(2026, 7, 30)
-        assert card.product_name == "FADY ADEL"
+        assert card.product_name == "TEST USER"
         assert card.is_active is True
         assert txns == []  # _CARD_TXN_OP is stubbed
 
-    async def test_card_api_failure_returns_empty(self) -> None:
+    async def test_card_api_failure_raises(self) -> None:
         s = BDCKonyScraper(username="u", password="p")
         page = _fake_page([{"status": 500, "text": ""}])
-        cards, txns = await s._fetch_cards(page, datetime.now(UTC), {})
-        assert cards == [] and txns == []
+        with pytest.raises(ScraperParseError):
+            await s._fetch_cards(page, datetime.now(UTC), {})
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +347,18 @@ def _install_mock_browser(scraper: BDCKonyScraper, page: MagicMock) -> None:
 
 @pytest.mark.asyncio
 class TestScrape:
+    async def test_card_api_failure_does_not_report_partial_success(self) -> None:
+        s = BDCKonyScraper(username="u", password="p")
+        page = _fake_page(
+            [
+                {"status": 200, "text": _json(_ACCOUNTS_JSON)},
+                {"status": 500, "text": ""},
+            ]
+        )
+        _install_mock_browser(s, page)
+        with pytest.raises(ScraperParseError):
+            await s.scrape()
+
     async def test_scrape_returns_account_and_card(self) -> None:
         s = BDCKonyScraper(username="u", password="p")
         page = _fake_page(

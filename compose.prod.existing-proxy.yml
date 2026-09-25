@@ -1,0 +1,14 @@
+# Use with compose.prod.yml when this host already has an HTTPS reverse proxy.
+# Only loopback ports are published; the bundled Caddy service is disabled.
+services:
+  api:
+    ports:
+      - "127.0.0.1:${API_BIND_PORT:-18000}:8000"
+
+  web:
+    ports:
+      - "127.0.0.1:${WEB_BIND_PORT:-13000}:3000"
+
+  caddy:
+    profiles:
+      - bundled-proxy

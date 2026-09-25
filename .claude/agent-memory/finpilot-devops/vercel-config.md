@@ -1,13 +1,13 @@
 ---
 name: Vercel Frontend Deployment Configuration
-description: Vercel deployment setup for Next.js 15 frontend with environment variables
+description: Legacy Vercel deployment setup for the Next.js 14 frontend with environment variables
 type: reference
 ---
 
 ## Project Configuration
 
 **Root Directory:** `apps/web`
-**Framework:** Next.js 15 (App Router)
+**Framework:** Next.js 14 (App Router)
 **Build Command:** `pnpm run build`
 **Output Directory:** `.next`
 

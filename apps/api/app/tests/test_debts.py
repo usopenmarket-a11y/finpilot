@@ -8,12 +8,10 @@ Covers every endpoint under /api/v1/debts:
   DELETE /api/v1/debts/{debt_id}
   POST   /api/v1/debts/{debt_id}/payments
 
-All tests run synchronously via FastAPI's TestClient — the debts router uses
-in-memory storage with no async I/O, so the sync client is the right tool.
-
-State isolation is handled by the autouse ``reset_storage`` fixture, which
-calls ``clear_storage()`` exported from the router before every test.  No test
-depends on ordering; each is fully independent.
+FastAPI TestClient exercises the HTTP contract against a Supabase test double.
+Each test gets an isolated database double. Atomic balance changes, rollback,
+and concurrency are covered separately by test_database_integrity.py against
+an actual PostgreSQL instance with the production migration applied.
 
 Authentication
 ---------------
@@ -59,11 +57,17 @@ def client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def reset_storage() -> None:
-    """Clear in-memory debt storage before every test to guarantee isolation."""
-    from app.routers.debts import clear_storage
+def reset_storage(monkeypatch):
+    """Replace the database at its client boundary, never production storage."""
+    from unittest.mock import AsyncMock
 
-    clear_storage()
+    from app.tests.fake_debt_store import FakeDebtStore
+
+    store = FakeDebtStore()
+    monkeypatch.setattr(
+        "app.routers.debts.get_async_service_role_client", AsyncMock(return_value=store)
+    )
+    return store
 
 
 @pytest.fixture
@@ -76,6 +80,23 @@ def user_headers(auth_headers):
 def other_user_headers(auth_headers):
     """Authorization headers for a second, distinct test user (``OTHER_USER_ID``)."""
     return auth_headers(user_id=OTHER_USER_ID)
+
+
+def test_debt_survives_a_new_application_instance(client, user_headers):
+    from app.main import create_app
+
+    created = _create_debt(client, user_headers)
+    with TestClient(create_app()) as restarted:
+        response = restarted.get(f"/api/v1/debts/{created['id']}", headers=user_headers)
+    assert response.status_code == 200
+    assert response.json()["id"] == created["id"]
+
+
+def test_invalid_calendar_date_is_rejected(client, user_headers):
+    response = client.post(
+        "/api/v1/debts", json=_lent_payload(due_date="2026-02-31"), headers=user_headers
+    )
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -961,8 +982,7 @@ def test_payment_date_is_stored_correctly(client: TestClient, user_headers: dict
 # Cross-user isolation (IDOR prevention)
 # ===========================================================================
 #
-# These tests verify that the in-memory _debts/_payments stores, which are
-# shared module-level dicts across ALL callers, correctly isolate data by the
+# These tests verify that queries against shared database storage isolate data by the
 # verified user_id from the JWT. A user must never be able to view, list,
 # modify, delete, or pay against another user's debt.
 

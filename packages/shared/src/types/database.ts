@@ -1,6 +1,7 @@
 // AUTO-GENERATED — do not edit manually.
 // Regenerate with: Supabase MCP → generate_typescript_types
 // Last generated: 2026-06-13
+// Includes pending migration additions from 20260907_fix_data_integrity.sql.
 
 export type Json =
   | string
@@ -77,6 +78,7 @@ export type Database = {
           bank_name: string
           billed_amount: number | null
           created_at: string
+          credential_id: string | null
           credential_label: string | null
           credit_limit: number | null
           currency: string
@@ -100,6 +102,7 @@ export type Database = {
           bank_name: string
           billed_amount?: number | null
           created_at?: string
+          credential_id?: string | null
           credential_label?: string | null
           credit_limit?: number | null
           currency?: string
@@ -123,6 +126,7 @@ export type Database = {
           bank_name?: string
           billed_amount?: number | null
           created_at?: string
+          credential_id?: string | null
           credential_label?: string | null
           credit_limit?: number | null
           currency?: string
@@ -139,7 +143,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "bank_accounts_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "bank_credentials"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       bank_credentials: {
         Row: {
@@ -509,7 +521,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      replace_credit_card_transactions: {
+        Args: { p_account_id: string; p_user_id: string; p_transactions: Json }
+        Returns: number
+      }
     }
     Enums: {
       asset_type_enum:

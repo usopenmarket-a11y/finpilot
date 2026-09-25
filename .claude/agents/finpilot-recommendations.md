@@ -52,7 +52,7 @@ You generate six categories of financial recommendations, all returned as Pydant
 ## Technical Standards
 
 ### Python & FastAPI
-- Python 3.11+, strict type hints everywhere
+- Python 3.12, strict type hints everywhere
 - All route handlers use `async def`
 - All data models use Pydantic v2 (`model_config`, `field_validator`, etc.)
 - Imports ordered: stdlib → third-party → local

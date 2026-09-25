@@ -20,10 +20,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web lint
       - run: pnpm --filter web type-check
+      - run: pnpm --filter web test
 
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finpilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: apps/api
@@ -34,6 +49,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
       ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
       CLAUDE_API_KEY: test-key
+      FINPILOT_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/finpilot_test
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

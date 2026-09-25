@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     log_level: str = "info"
 
+    # BDC-only browser proxy. Use an Egyptian sticky session; all three values
+    # are secret so accidental settings/validation output cannot disclose them.
+    bdc_proxy_server: SecretStr = SecretStr("")
+    bdc_proxy_username: SecretStr = SecretStr("")
+    bdc_proxy_password: SecretStr = SecretStr("")
+
     # ------------------------------------------------------------------
     # Supabase
     # ------------------------------------------------------------------

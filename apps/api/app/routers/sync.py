@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -103,8 +104,8 @@ async def _keepalive_while_running(job_id: str) -> None:
     Two responsibilities, combined into one loop so both run on the same
     cadence without spawning extra tasks:
 
-    1. Ping the external health endpoint so Render free-tier does not
-       suspend the instance mid-scrape.
+    1. On Render only, ping the external health endpoint so its free tier does
+       not suspend the instance mid-scrape.
     2. Mirror the current ``_JOBS[job_id]`` snapshot into the durable
        ``sync_jobs`` table, so ``GET /accounts/sync/status/{job_id}`` can
        recover job state if a redeploy/restart wipes the in-memory dict.
@@ -122,7 +123,8 @@ async def _keepalive_while_running(job_id: str) -> None:
             if job["status"] not in ("pending", "running"):
                 break
             try:
-                await client.get(_HEALTH_URL)
+                if os.environ.get("RENDER", "").lower() == "true":
+                    await client.get(_HEALTH_URL)
             except Exception:
                 pass  # non-fatal — just keep going
             await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
@@ -177,6 +179,24 @@ def _set_job_terminal(
     _JOBS[job_id]["result"] = result
     _JOBS[job_id]["error"] = error
     _JOBS[job_id]["finished_at"] = datetime.now(UTC)
+
+
+def _fail_pipeline_job(job_id: str, bank: str, sync_type: str, exc: Exception) -> None:
+    """Report persistence failure without exposing bank data in logs or status."""
+    code = getattr(exc, "code", None)
+    safe_code = code if isinstance(code, str) and len(code) <= 8 and code.isalnum() else "n/a"
+    logger.error(
+        "Pipeline failed during %s sync for bank=%s: %s code=%s",
+        sync_type,
+        bank,
+        type(exc).__name__,
+        safe_code,
+    )
+    _set_job_terminal(
+        job_id,
+        "failed",
+        error="Scrape succeeded, but bank data could not be saved. Check API logs.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -293,14 +313,13 @@ async def _background_sync_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password, label")
+                .select("id, encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
+                .eq("bank", bank)
             )
             if credential_id is not None:
                 query = query.eq("id", credential_id)
-            else:
-                query = query.eq("bank", bank)
             response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
@@ -411,12 +430,12 @@ async def _background_sync_task(
                 user_id=user_id,
                 supabase_client=pipeline_client,
                 credential_label=cred_label,
+                credential_id=UUID(row["id"]),
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
-            logger.warning(
-                "Pipeline failed during sync (scrape succeeded): %s", exc, extra={"bank": bank}
-            )
+            _fail_pipeline_job(job_id, bank, "full", exc)
+            return
 
         # ------------------------------------------------------------------
         # Step 5 — update last_synced_at (non-fatal).
@@ -489,14 +508,13 @@ async def _background_sync_accounts_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password, label")
+                .select("id, encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
+                .eq("bank", bank)
             )
             if credential_id is not None:
                 query = query.eq("id", credential_id)
-            else:
-                query = query.eq("bank", bank)
             response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
@@ -603,14 +621,12 @@ async def _background_sync_accounts_task(
                 user_id=user_id,
                 supabase_client=pipeline_client,
                 credential_label=cred_label,
+                credential_id=UUID(row["id"]),
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
-            logger.warning(
-                "Pipeline failed during accounts sync (scrape succeeded): %s",
-                exc,
-                extra={"bank": bank},
-            )
+            _fail_pipeline_job(job_id, bank, "accounts", exc)
+            return
 
         now_iso = datetime.now(UTC).isoformat()
         try:
@@ -672,14 +688,13 @@ async def _background_sync_cc_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password, label")
+                .select("id, encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
+                .eq("bank", bank)
             )
             if credential_id is not None:
                 query = query.eq("id", credential_id)
-            else:
-                query = query.eq("bank", bank)
             response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
@@ -779,14 +794,12 @@ async def _background_sync_cc_task(
                 user_id=user_id,
                 supabase_client=pipeline_client,
                 credential_label=cred_label,
+                credential_id=UUID(row["id"]),
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
-            logger.warning(
-                "Pipeline failed during CC sync (scrape succeeded): %s",
-                exc,
-                extra={"bank": bank},
-            )
+            _fail_pipeline_job(job_id, bank, "credit cards", exc)
+            return
 
         now_iso = datetime.now(UTC).isoformat()
         try:
@@ -858,14 +871,13 @@ async def _background_sync_loans_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password, label")
+                .select("id, encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
+                .eq("bank", bank)
             )
             if credential_id is not None:
                 query = query.eq("id", credential_id)
-            else:
-                query = query.eq("bank", bank)
             response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
@@ -967,14 +979,12 @@ async def _background_sync_loans_task(
                 user_id=user_id,
                 supabase_client=pipeline_client,
                 credential_label=cred_label,
+                credential_id=UUID(row["id"]),
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
-            logger.warning(
-                "Pipeline failed during loans sync (scrape succeeded): %s",
-                exc,
-                extra={"bank": bank},
-            )
+            _fail_pipeline_job(job_id, bank, "loans", exc)
+            return
 
         now_iso = datetime.now(UTC).isoformat()
         try:
@@ -1046,14 +1056,13 @@ async def _background_sync_prepaid_cards_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password, label")
+                .select("id, encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
+                .eq("bank", bank)
             )
             if credential_id is not None:
                 query = query.eq("id", credential_id)
-            else:
-                query = query.eq("bank", bank)
             response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
@@ -1161,14 +1170,12 @@ async def _background_sync_prepaid_cards_task(
                 user_id=user_id,
                 supabase_client=pipeline_client,
                 credential_label=cred_label,
+                credential_id=UUID(row["id"]),
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
-            logger.warning(
-                "Pipeline failed during prepaid cards sync (scrape succeeded): %s",
-                exc,
-                extra={"bank": bank},
-            )
+            _fail_pipeline_job(job_id, bank, "prepaid cards", exc)
+            return
 
         now_iso = datetime.now(UTC).isoformat()
         try:
@@ -1240,14 +1247,13 @@ async def _background_sync_certificates_task(
         try:
             query = (
                 client.table("bank_credentials")
-                .select("encrypted_username, encrypted_password, label")
+                .select("id, encrypted_username, encrypted_password, label")
                 .eq("user_id", str(user_id))
                 .eq("is_active", True)
+                .eq("bank", bank)
             )
             if credential_id is not None:
                 query = query.eq("id", credential_id)
-            else:
-                query = query.eq("bank", bank)
             response = query.limit(1).execute()
         except Exception as exc:
             logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)
@@ -1355,14 +1361,12 @@ async def _background_sync_certificates_task(
                 user_id=user_id,
                 supabase_client=pipeline_client,
                 credential_label=cred_label,
+                credential_id=UUID(row["id"]),
             )
             transactions_saved = pipeline_result.transactions_new
         except Exception as exc:
-            logger.warning(
-                "Pipeline failed during certificates sync (scrape succeeded): %s",
-                exc,
-                extra={"bank": bank},
-            )
+            _fail_pipeline_job(job_id, bank, "certificates", exc)
+            return
 
         now_iso = datetime.now(UTC).isoformat()
         try:
@@ -1554,11 +1558,10 @@ def _validate_credentials_exist(
             .select("id")
             .eq("user_id", str(user_id))
             .eq("is_active", True)
+            .eq("bank", bank)
         )
         if credential_id is not None:
             query = query.eq("id", credential_id)
-        else:
-            query = query.eq("bank", bank)
         response = query.limit(1).execute()
     except Exception as exc:
         logger.error("Failed to fetch credentials for bank=%s: %s", bank, exc)

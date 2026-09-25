@@ -97,7 +97,7 @@ You have **read-only access** to all other paths. If you need to suggest changes
 ## Coding Standards (from project CLAUDE.md)
 
 ### Python Tests
-- Python 3.11+, type hints everywhere
+- Python 3.12, type hints everywhere
 - Async by default: `async def test_*` with `@pytest.mark.asyncio`
 - Import order: stdlib → third-party → local
 - snake_case for files, functions, variables

@@ -37,7 +37,11 @@ from app.config import settings
 from app.models.db import Transaction
 from app.pipeline.deduplicator import filter_new_transactions
 from app.pipeline.normalizer import normalize_account, normalize_transaction
-from app.pipeline.upserter import delete_ephemeral_transactions, insert_transactions, upsert_account
+from app.pipeline.upserter import (
+    insert_transactions,
+    replace_credit_card_transactions,
+    upsert_account,
+)
 from app.scrapers.base import ScraperResult
 
 logger = logging.getLogger(__name__)
@@ -75,6 +79,7 @@ async def run_pipeline(
     user_id: UUID,
     supabase_client: AsyncClient,
     credential_label: str | None = None,
+    credential_id: UUID | None = None,
 ) -> PipelineRunResult:
     """Execute the full ETL pipeline on a ScraperResult.
 
@@ -133,6 +138,8 @@ async def run_pipeline(
         normalized_account = normalize_account(raw_account, user_id, placeholder_account_id)
         if credential_label is not None:
             normalized_account.credential_label = credential_label
+        if credential_id is not None:
+            normalized_account.credential_id = credential_id
 
         # ------------------------------------------------------------------
         # Stage 2: Upsert account → real account_id
@@ -177,23 +184,6 @@ async def run_pipeline(
             continue
 
         # ------------------------------------------------------------------
-        # Stage 3b: For credit card accounts, delete ephemeral transactions
-        # (UBT, UNS, statement) before inserting fresh ones — these are
-        # always replaced on each sync, not accumulated.
-        # ------------------------------------------------------------------
-        if normalized_account.account_type == "credit_card":
-            _ephemeral_sources = ("nbe_cc_unbilled", "nbe_cc_unsettled", "nbe_cc_statement")
-            deleted = await delete_ephemeral_transactions(
-                real_account_id, _ephemeral_sources, supabase_client
-            )
-            if deleted:
-                logger.info(
-                    "Deleted %d ephemeral CC transaction(s) for account %s before fresh insert",
-                    deleted,
-                    account_masked,
-                )
-
-        # ------------------------------------------------------------------
         # Stage 4: Normalize transactions with the real account_id
         # ------------------------------------------------------------------
         normalized_txns = [
@@ -205,8 +195,7 @@ async def run_pipeline(
         ]
 
         # ------------------------------------------------------------------
-        # Stage 5: Deduplicate (skipped for credit cards — ephemeral txns
-        # were already deleted above, so all incoming txns are "new")
+        # Stage 5: Deduplicate (credit cards use atomic replacement below)
         # ------------------------------------------------------------------
         if normalized_account.account_type == "credit_card":
             new_transactions = normalized_txns
@@ -229,7 +218,12 @@ async def run_pipeline(
         # Stage 6: Insert
         # ------------------------------------------------------------------
         if new_transactions:
-            inserted = await insert_transactions(new_transactions, supabase_client)
+            if normalized_account.account_type == "credit_card":
+                inserted = await replace_credit_card_transactions(
+                    real_account_id, user_id, new_transactions, supabase_client
+                )
+            else:
+                inserted = await insert_transactions(new_transactions, supabase_client)
             total_inserted += inserted
 
             # ------------------------------------------------------------------

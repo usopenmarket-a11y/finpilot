@@ -90,6 +90,10 @@ async def upsert_account(
         else None,
     }
 
+    # Direct scrapes have no stored credential. Do not erase an existing link.
+    if account.credential_id is not None:
+        account_data["credential_id"] = str(account.credential_id)
+
     # Use ignoreMergeColumns for billing fields that should not be overwritten
     # when the scraper fails to capture them (null). Supabase upsert with
     # ignoreMergeColumns keeps the existing DB value when the incoming value is null.
@@ -188,31 +192,31 @@ async def insert_transactions(
     return inserted_count
 
 
-async def delete_ephemeral_transactions(
+async def replace_credit_card_transactions(
     account_id: UUID,
-    sources: tuple[str, ...],
+    user_id: UUID,
+    transactions: list[Transaction],
     supabase_client: AsyncClient,
 ) -> int:
-    """Delete transactions with the given source tags for an account.
+    """Replace a normalized CC batch in one database transaction.
 
-    Used for UBT/UNS/statement transactions that are replaced on every sync
-    rather than accumulated. Returns the number of rows deleted.
+    A failed insert rolls back the deletion. Empty/missing scraper sections
+    retain their previous history; they are not a confirmed empty snapshot.
     """
-    response = (
-        await supabase_client.table("transactions")
-        .delete()
-        .eq("account_id", str(account_id))
-        .in_("raw_data->>source", list(sources))
-        .execute()
-    )
-    deleted = len(response.data) if response.data else 0
-    logger.info(
-        "Deleted %d ephemeral transaction(s) for account_id=%s sources=%s",
-        deleted,
-        account_id,
-        sources,
-    )
-    return deleted
+    if not transactions:
+        return 0
+    if any(t.account_id != account_id or t.user_id != user_id for t in transactions):
+        raise ValueError("Transaction ownership mismatch")
+    rows = {_transaction_to_dict(t)["id"]: _transaction_to_dict(t) for t in transactions}
+    response = await supabase_client.rpc(
+        "replace_credit_card_transactions",
+        {
+            "p_account_id": str(account_id),
+            "p_user_id": str(user_id),
+            "p_transactions": list(rows.values()),
+        },
+    ).execute()
+    return int(response.data)
 
 
 def _transaction_to_dict(txn: Transaction) -> dict:
@@ -242,7 +246,7 @@ def _transaction_to_dict(txn: Transaction) -> dict:
         "sub_category": txn.sub_category,
         "transaction_date": txn.transaction_date.isoformat(),
         "value_date": txn.value_date.isoformat() if txn.value_date else None,
-        "balance_after": str(txn.balance_after) if txn.balance_after else None,
+        "balance_after": str(txn.balance_after) if txn.balance_after is not None else None,
         "raw_data": txn.raw_data,
         "is_categorized": txn.is_categorized,
     }

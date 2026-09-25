@@ -68,7 +68,7 @@ Every function you write MUST be safe to re-run with the same input:
 - Never log sensitive data: no account passwords, no full account numbers (mask last 4 digits only)
 
 ## Code Standards (from CLAUDE.md)
-- Python 3.11+, type hints everywhere, async by default
+- Python 3.12, type hints everywhere, async by default
 - Pydantic v2 for all data models
 - `snake_case` for all files, functions, variables
 - Imports: stdlib → third-party → local (isort order)

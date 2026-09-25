@@ -18,4 +18,4 @@ AES-256-GCM encryption module lives at `apps/api/app/crypto.py`. Implemented usi
 
 **Why:** Bank credentials must never be stored in plaintext (security rule #1). AES-256-GCM provides authenticated encryption so tampering is detected on decrypt.
 
-**How to apply:** Any code that persists bank credentials must call `encrypt` before write and `decrypt` after read. The plaintext must be zeroed by the caller (scraper scope) after use — the crypto module only zeroes the key, not the returned plaintext.
+**How to apply:** Any code that persists bank credentials must call `encrypt` before write and `decrypt` after read. The caller should minimize the lifetime of decrypted plaintext and never log or persist it. Python strings cannot be reliably zeroed; the crypto module only clears its mutable key buffer.

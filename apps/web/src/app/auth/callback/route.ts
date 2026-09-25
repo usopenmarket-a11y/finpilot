@@ -49,11 +49,18 @@ export async function GET(request: Request) {
   const code = searchParams.get('code')
 
   const safeBase = getSafeRedirectBase(origin)
+  // Only this exact recovery path is accepted; never redirect to arbitrary input.
+  const destination = searchParams.get('next') === '/auth/update-password'
+    ? '/auth/update-password'
+    : '/dashboard'
+  const redirect = (path: string) => safeBase
+    ? NextResponse.redirect(`${safeBase}${path}`)
+    : new NextResponse(null, { status: 303, headers: { Location: path } })
 
   if (!code) {
     // No auth code present — redirect to login with an error indicator so
     // the UI can display a meaningful message rather than a blank screen.
-    return NextResponse.redirect(`${safeBase}/auth/login?error=missing_code`)
+    return redirect('/auth/login?error=missing_code')
   }
 
   const supabase = await createClient()
@@ -62,8 +69,8 @@ export async function GET(request: Request) {
   if (error) {
     // Exchange failed (expired code, already-used code, etc.).  Do NOT
     // redirect to /dashboard — the user has no valid session.
-    return NextResponse.redirect(`${safeBase}/auth/login?error=auth_failed`)
+    return redirect('/auth/login?error=auth_failed')
   }
 
-  return NextResponse.redirect(`${safeBase}/dashboard`)
+  return redirect(destination)
 }

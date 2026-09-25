@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@finpilot/shared'
 
 // Reassemble the anon key from two short halves injected via next.config.mjs
@@ -9,6 +10,8 @@ const anonKey =
   (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_P1 ?? '') +
   (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_P2 ?? '')
 
-export function createClient() {
-  return createBrowserClient<Database>(supabaseUrl, anonKey)
+export function createClient(): SupabaseClient<Database> {
+  // SSR 0.5 uses the old SupabaseClient generic parameter order. The runtime
+  // client is unchanged; expose the installed SDK's correct schema typing.
+  return createBrowserClient<Database>(supabaseUrl, anonKey) as unknown as SupabaseClient<Database>
 }

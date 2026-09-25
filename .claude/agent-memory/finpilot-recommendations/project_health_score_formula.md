@@ -8,8 +8,8 @@ type: project
 
 `generate_monthly_plan()` in `apps/api/app/recommendations/monthly_plan.py` used to compute
 `health_score` as `1.0` minus flat penalties (-0.3 up-trend, -0.2 negative net, -0.1 dominant
-category), producing only a handful of discrete values. Per
-`docs/superpowers/specs/2026-06-15-real-recommendations-design.md` (Part A), this was replaced
+category), producing only a handful of discrete values. In
+the June 2026 recommendations work, this was replaced
 with a continuous weighted blend on 2026-06-15. The old `HEALTH_PENALTY_*` constants were
 removed entirely.
 

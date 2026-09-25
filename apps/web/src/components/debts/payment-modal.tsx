@@ -87,7 +87,7 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
       const amount = parseFloat(values.amount);
 
       // Insert payment record
-      const { data: payment, error: paymentError } = await (supabase as any)
+      const { data: payment, error: paymentError } = await supabase
         .from('debt_payments')
         .insert({
           debt_id: debt.id,
@@ -103,29 +103,7 @@ export function PaymentModal({ debt, open, onClose, onSuccess }: PaymentModalPro
         throw new Error(paymentError.message);
       }
 
-      // Update debt outstanding_balance and status
-      const newBalance = Math.max(0, debt.outstanding_balance - amount);
-      const newStatus =
-        newBalance === 0
-          ? 'settled'
-          : newBalance < debt.original_amount
-          ? 'partial'
-          : debt.status;
-
-      const { error: debtError } = await (supabase as any)
-        .from('debts')
-        .update({
-          outstanding_balance: newBalance,
-          status: newStatus,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', debt.id);
-
-      if (debtError) {
-        console.error('[PaymentModal] Update debts error:', debtError);
-        throw new Error(debtError.message);
-      }
-
+      // The database trigger updates the locked debt balance in this insert transaction.
       onSuccess(payment as DebtPayment);
       handleClose();
     } catch (err) {
