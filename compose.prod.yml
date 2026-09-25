@@ -34,6 +34,7 @@ services:
         API_INTERNAL_URL: http://api:8000
     environment:
       NEXT_PUBLIC_SITE_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+      API_INTERNAL_URL: http://api:8000
     expose:
       - "3000"
     restart: unless-stopped

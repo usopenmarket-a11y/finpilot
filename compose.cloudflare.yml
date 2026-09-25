@@ -1,0 +1,25 @@
+# Public access through Cloudflare Tunnel (use with compose.prod.yml).
+#
+#   docker compose -f compose.prod.yml -f compose.cloudflare.yml up -d --build
+#
+# cloudflared makes an outbound connection to Cloudflare, so no router ports,
+# public IP, or local TLS are needed. The tunnel's public hostname must equal
+# SITE_DOMAIN and route to http://web:3000; the website forwards /api/v1 to
+# the API container. Protect the hostname with a Cloudflare Access
+# application so only allowed emails reach the FinPilot login page.
+# No host ports are published; the bundled Caddy service is disabled.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - web
+    restart: unless-stopped
+    networks:
+      - internal
+
+  caddy:
+    profiles:
+      - bundled-proxy

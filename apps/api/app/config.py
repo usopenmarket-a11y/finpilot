@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     bdc_proxy_server: SecretStr = SecretStr("")
     bdc_proxy_username: SecretStr = SecretStr("")
     bdc_proxy_password: SecretStr = SecretStr("")
+    # Production normally requires that proxy. Set true only on a host whose
+    # own internet connection is in Egypt (e.g. a home Linux server).
+    bdc_direct_connection: bool = False
 
     # ------------------------------------------------------------------
     # Supabase

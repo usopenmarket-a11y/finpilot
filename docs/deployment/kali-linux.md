@@ -5,7 +5,9 @@ Run the Next.js website and FastAPI backend in Docker. This setup uses your
 start a local database. The default stack also runs Caddy, which serves one
 public URL, sends `/api/v1/*` to the API, and sends other requests to the
 website. Caddy obtains and renews HTTPS certificates. To run everything on this
-machine only, without a public domain, see [Local-only run](#local-only-run). See the
+machine only, without a public domain, see [Local-only run](#local-only-run). For
+phone access through Cloudflare, see
+[Cloudflare Tunnel with Cloudflare Access](#cloudflare-tunnel-with-cloudflare-access). See the
 [architecture guide](../architecture.md) for the service boundaries.
 
 ## 1. Prepare the host and public name
@@ -151,6 +153,45 @@ Supabase redirect URLs must then use the new web port. Both ports bind to
 The web image embeds its URLs at build time. Use `--build` whenever you switch
 between the local and public setups, and use the same `-f` files for `ps`,
 `logs`, `down`, and updates.
+
+## Cloudflare Tunnel with Cloudflare Access
+
+Use this to open FinPilot from a phone or any browser at your own domain, for
+example `https://finpilot.yourdomain.com`, without opening router ports. The
+`cloudflared` container connects out to Cloudflare. Cloudflare Access (free for
+up to 50 users) asks for an allowed email and a one-time code before anyone
+reaches the FinPilot login page.
+
+Requirements: a domain whose DNS is managed by Cloudflare, and a Cloudflare
+Zero Trust organization (free plan).
+
+1. **Create the tunnel.** In Zero Trust, open **Networks > Tunnels**, create a
+   `cloudflared` tunnel, and copy its token. Add a public hostname such as
+   `finpilot.yourdomain.com` with service `HTTP` and URL `web:3000`.
+2. **Protect it.** Under **Access > Applications**, add a self-hosted
+   application for the same hostname with an **Allow** policy that includes
+   only your email addresses. Keep the default one-time PIN login or add
+   Google.
+3. **Configure FinPilot.** In `.env`, set `SITE_DOMAIN` to the hostname and
+   `CLOUDFLARE_TUNNEL_TOKEN` to the token. From an Egyptian home connection,
+   set `BDC_DIRECT_CONNECTION=true` in `apps/api/.env`.
+4. **Allow the login redirects.** Add `https://<hostname>/auth/callback` and
+   `https://<hostname>/auth/callback?next=/auth/update-password` to the
+   Supabase Auth redirect URLs.
+5. **Start it:**
+
+   ```sh
+   docker compose -f compose.prod.yml -f compose.cloudflare.yml up -d --build
+   docker compose -f compose.prod.yml -f compose.cloudflare.yml logs --tail=50 cloudflared
+   ```
+
+   The log should show registered tunnel connections. Open
+   `https://<hostname>` on the phone, pass the Cloudflare email check, then
+   sign in to FinPilot.
+
+Treat the tunnel token like a password: anyone with it can serve traffic for
+the hostname. Rotate it in the dashboard if it leaks. Use the same two Compose
+files for every later `ps`, `logs`, `down`, or rebuild.
 
 ## Existing reverse proxy
 

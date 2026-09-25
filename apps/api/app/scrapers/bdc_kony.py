@@ -193,7 +193,7 @@ class BDCKonyScraper(BankScraper):
             or os.environ.get("RENDER", "").lower() == "true"
             or os.path.isdir("/opt/render/project/src/.playwright-browsers")
         )
-        proxy = get_bdc_proxy(required=on_hosted_backend)
+        proxy = get_bdc_proxy(required=on_hosted_backend and not settings.bdc_direct_connection)
 
         from patchright.async_api import async_playwright as patchright_playwright
 

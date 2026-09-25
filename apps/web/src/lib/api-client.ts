@@ -11,8 +11,13 @@
  * `@/lib/supabase/server` (server components).
  */
 
+// Server-rendered pages call the API container directly (API_INTERNAL_URL,
+// read at runtime) because a container often cannot reach the site's own
+// public or tunnel address. Browsers use the public address.
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? 'https://finpilot-api-lrfg.onrender.com';
+  (typeof window === 'undefined' ? process.env.API_INTERNAL_URL : undefined) ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  'https://finpilot-api-lrfg.onrender.com';
 
 // ---------------------------------------------------------------------------
 // Types

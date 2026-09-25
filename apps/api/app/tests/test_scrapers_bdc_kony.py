@@ -542,6 +542,27 @@ class TestHostedBackendGuard:
         with pytest.raises(ScraperUnavailableError):
             await s._launch_browser()
 
+    async def test_direct_connection_setting_skips_required_proxy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A production host inside Egypt may opt out of the mandatory proxy."""
+        import app.scrapers.bdc_kony as mod
+
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setattr(mod.os.path, "isdir", lambda _p: False)
+        monkeypatch.setattr(mod.settings, "bdc_direct_connection", True)
+        seen: list[bool] = []
+
+        def fake_proxy(*, required: bool = False) -> None:
+            seen.append(required)
+            raise RuntimeError("stop before launching a browser")
+
+        monkeypatch.setattr(mod, "get_bdc_proxy", fake_proxy)
+        s = BDCKonyScraper(username="u", password="p")
+        with pytest.raises(RuntimeError, match="stop before"):
+            await s._launch_browser()
+        assert seen == [False]
+
 
 # ---------------------------------------------------------------------------
 # helpers
