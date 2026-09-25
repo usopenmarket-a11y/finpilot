@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-type-check-frontend:
     name: Frontend Lint & Type Check
@@ -58,7 +61,7 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --locked
       - name: Run tests
         run: uv run pytest -v --cov=app --cov-report=term-missing
 
@@ -76,10 +79,26 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --locked
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check
         run: uv run ruff format --check .
       - name: Mypy type check
         run: uv run mypy app/
+
+  compose-config:
+    name: Compose Config
+    runs-on: ubuntu-latest
+    env:
+      SITE_DOMAIN: ci.example.com
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-key
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Validate Compose files
+        run: |
+          cp apps/api/.env.production.example apps/api/.env
+          docker compose -f compose.prod.yml config --quiet
+          docker compose -f compose.prod.yml -f compose.prod.existing-proxy.yml config --quiet
+          docker compose -f compose.prod.yml -f compose.local.yml config --quiet

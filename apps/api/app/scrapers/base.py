@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _DEBUG_DIR = Path("/tmp/finpilot_debug")
 
+# Upper bound for each teardown step. A wedged Chromium must not keep a
+# timed-out sync (and the process-wide scrape slot) alive during cleanup.
+_BROWSER_CLOSE_TIMEOUT_S = 20.0
+
 # ---------------------------------------------------------------------------
 # Playwright browser path — ensure PLAYWRIGHT_BROWSERS_PATH is set so
 # Playwright finds the browsers installed during the Render build step.
@@ -306,79 +310,88 @@ class BankScraper(ABC):
         """
         playwright = await async_playwright().start()
         self._playwright = playwright  # keep reference for teardown
+        browser: Browser | None = None
+        try:
+            viewport_width = random.randint(1280, 1920)
+            viewport_height = random.randint(800, 1080)
+            user_agent = random.choice(_USER_AGENTS)
 
-        viewport_width = random.randint(1280, 1920)
-        viewport_height = random.randint(800, 1080)
-        user_agent = random.choice(_USER_AGENTS)
+            browser: Browser = await playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-extensions",
+                    # Memory reduction for Render free tier (512 MB RAM limit)
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--disable-translate",
+                    "--hide-scrollbars",
+                    "--metrics-recording-only",
+                    "--mute-audio",
+                    "--no-first-run",
+                    "--safebrowsing-disable-auto-update",
+                    "--js-flags=--max-old-space-size=128",
+                    "--renderer-process-limit=1",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                ],
+            )
 
-        browser: Browser = await playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-extensions",
-                # Memory reduction for Render free tier (512 MB RAM limit)
-                "--disable-background-networking",
-                "--disable-default-apps",
-                "--disable-sync",
-                "--disable-translate",
-                "--hide-scrollbars",
-                "--metrics-recording-only",
-                "--mute-audio",
-                "--no-first-run",
-                "--safebrowsing-disable-auto-update",
-                "--js-flags=--max-old-space-size=128",
-                "--renderer-process-limit=1",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-            ],
-        )
+            context: BrowserContext = await browser.new_context(
+                viewport={"width": viewport_width, "height": viewport_height},
+                user_agent=user_agent,
+                locale="en-US",
+                timezone_id="Africa/Cairo",
+                extra_http_headers={
+                    "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+                },
+            )
 
-        context: BrowserContext = await browser.new_context(
-            viewport={"width": viewport_width, "height": viewport_height},
-            user_agent=user_agent,
-            locale="en-US",
-            timezone_id="Africa/Cairo",
-            extra_http_headers={
-                "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-            },
-        )
+            # Remove the ``navigator.webdriver`` property that headless Chrome sets.
+            # This is the single most reliable bot-detection signal.
+            await context.add_init_script(
+                """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3],
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en', 'ar'],
+                });
+                """
+            )
 
-        # Remove the ``navigator.webdriver`` property that headless Chrome sets.
-        # This is the single most reliable bot-detection signal.
-        await context.add_init_script(
-            """
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined,
-            });
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3],
-            });
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US', 'en', 'ar'],
-            });
-            """
-        )
+            # Block images, fonts, media, and stylesheets context-wide.  This is
+            # the single biggest memory win for headless scraping of image/CSS-
+            # heavy banking SPAs — see _BLOCKED_RESOURCE_TYPES docstring.
+            await context.route("**/*", _block_heavy_resources)
 
-        # Block images, fonts, media, and stylesheets context-wide.  This is
-        # the single biggest memory win for headless scraping of image/CSS-
-        # heavy banking SPAs — see _BLOCKED_RESOURCE_TYPES docstring.
-        await context.route("**/*", _block_heavy_resources)
+            page: Page = await context.new_page()
 
-        page: Page = await context.new_page()
+            logger.debug(
+                "%s browser launched — viewport=%dx%d ua=%s",
+                self.bank_name,
+                viewport_width,
+                viewport_height,
+                user_agent[:40] + "...",
+            )
 
-        logger.debug(
-            "%s browser launched — viewport=%dx%d ua=%s",
-            self.bank_name,
-            viewport_width,
-            viewport_height,
-            user_agent[:40] + "...",
-        )
-
-        return browser, context, page
+            return browser, context, page
+        except BaseException:
+            # Callers only receive the browser once this returns, so release a
+            # half-started Chromium here; otherwise it outlives the failed sync.
+            if browser is not None:
+                await self._close_browser(browser)
+            else:
+                await self._stop_playwright()
+            raise
 
     async def _close_browser(self, browser: Browser) -> None:
         """Gracefully close the browser and the underlying Playwright instance.
@@ -386,14 +399,17 @@ class BankScraper(ABC):
         Safe to call even if the browser is already closed.
         """
         try:
-            await browser.close()
+            await asyncio.wait_for(browser.close(), _BROWSER_CLOSE_TIMEOUT_S)
         except Exception as exc:
             logger.debug("%s browser close error (ignored): %s", self.bank_name, exc)
+        await self._stop_playwright()
 
+    async def _stop_playwright(self) -> None:
+        """Stop the Playwright driver (and its browsers), bounded in time."""
         playwright = getattr(self, "_playwright", None)
         if playwright is not None:
             try:
-                await playwright.stop()
+                await asyncio.wait_for(playwright.stop(), _BROWSER_CLOSE_TIMEOUT_S)
             except Exception as exc:
                 logger.debug("%s playwright stop error (ignored): %s", self.bank_name, exc)
             self._playwright = None

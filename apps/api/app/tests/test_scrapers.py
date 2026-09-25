@@ -26,6 +26,7 @@ self-contained and avoids filesystem dependencies.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import date, datetime
 from decimal import Decimal
@@ -2183,3 +2184,48 @@ class TestNbeProductRetryLogic:
 
         assert result == []
         assert mock_page.click.await_count == 1
+
+
+class TestBrowserLifecycle:
+    """Launch/teardown must never strand a Chromium process or hang the job."""
+
+    async def test_launch_failure_after_browser_start_releases_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.scrapers import base as base_module
+        from app.scrapers.nbe import NBEScraper
+
+        browser = MagicMock()
+        browser.close = AsyncMock()
+        browser.new_context = AsyncMock(side_effect=RuntimeError("context failed"))
+        playwright = MagicMock()
+        playwright.chromium.launch = AsyncMock(return_value=browser)
+        playwright.stop = AsyncMock()
+        starter = MagicMock()
+        starter.start = AsyncMock(return_value=playwright)
+        monkeypatch.setattr(base_module, "async_playwright", lambda: starter)
+
+        scraper = NBEScraper(username="u", password="p")
+        with pytest.raises(RuntimeError, match="context failed"):
+            await scraper._launch_browser()
+
+        browser.close.assert_awaited_once()
+        playwright.stop.assert_awaited_once()
+        assert scraper._playwright is None
+
+    async def test_close_browser_is_bounded_when_chromium_hangs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.scrapers import base as base_module
+        from app.scrapers.nbe import NBEScraper
+
+        monkeypatch.setattr(base_module, "_BROWSER_CLOSE_TIMEOUT_S", 0.05)
+        browser = MagicMock()
+        browser.close = AsyncMock(side_effect=lambda: asyncio.Event().wait())
+        scraper = NBEScraper(username="u", password="p")
+        playwright = MagicMock()
+        playwright.stop = AsyncMock()
+        scraper._playwright = playwright
+
+        await asyncio.wait_for(scraper._close_browser(browser), timeout=2)
+        playwright.stop.assert_awaited_once()

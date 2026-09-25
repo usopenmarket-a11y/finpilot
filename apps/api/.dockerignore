@@ -11,7 +11,7 @@ __pycache__
 .uv
 .claude
 .env
-.env.local
+.env.*
 app/tests
 scripts
 recon_*.py

@@ -15,6 +15,30 @@ container and avoid deployments during an active sync. If scraping succeeds
 but saving to Supabase fails, the job reports `failed` and does not advance
 the credential's `last_synced_at` timestamp.
 
+### Time limits
+
+The API stops any scrape that exceeds its job type's deadline, closes the
+browser, and reports `Bank portal timed out`, which frees the single scrape
+slot for the next request:
+
+| Job type | Server deadline | Browser polling limit |
+| --- | --- | --- |
+| Full sync | 40 min | 45 min |
+| NBE accounts | 35 min | 40 min |
+| NBE cards, certificates, loans, prepaid | 15 min each | 20 min |
+
+The deadlines come from recorded `sync_jobs` durations on the old Render host,
+where successful NBE account runs took up to about 31 minutes. The values live
+in `_PHASE_DEADLINE_S` (`apps/api/app/routers/sync.py`) and
+`SYNC_CLIENT_WAIT_MS` (`apps/web/src/lib/api-client.ts`); change both together
+and keep the browser limit longer. Browser teardown is bounded as well, so a
+stuck Chromium cannot hold the slot.
+
+If the API restarts during a sync, a later status poll marks that job
+`failed` with an "interrupted" message instead of reporting `running`
+indefinitely. NBE "Sync all" runs every product phase even when one fails and
+then lists the phases that need a retry.
+
 The daily scheduler code exists in `apps/api/app/scheduler.py` but is not
 started by `apps/api/app/main.py`. Automatic daily sync is currently disabled.
 

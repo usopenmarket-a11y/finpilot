@@ -59,6 +59,24 @@ check passed. Both production Compose variants parsed, and all relative links
 in the new guides resolved. The maintained tests are in `apps/api/app/tests`
 and `apps/web/tests`.
 
+## Sync timeout fix on 2026-09-25
+
+Recorded `sync_jobs` rows showed two causes of "Sync job timed out". The
+browser stopped polling before NBE finished (accounts limit 15 minutes while
+successful runs took up to about 31 minutes; cards 8 minutes against runs of
+up to 9.5 minutes). Jobs orphaned by an API restart also stayed `running`, so
+the browser polled them until its limit; 27 such rows existed. The API now
+enforces per-phase deadlines, releases the browser on timeout or failed
+launch, and reports orphaned jobs as interrupted. The web client waits longer
+than the server deadlines, and NBE "Sync all" continues past a failed phase.
+See [bank-sync.md](bank-sync.md#time-limits).
+
+The live database check on the same day confirmed that the September
+migration is still not applied: `bank_accounts.credential_id` and the
+`replace_credit_card_transactions` RPC are absent. Existing debt balances
+equal original amount minus recorded payments for all three debts, so the
+migration's balance triggers start from consistent data.
+
 ## Local bank diagnostics on 2026-09-25
 
 The configured hosted Supabase project has four active bank credentials:

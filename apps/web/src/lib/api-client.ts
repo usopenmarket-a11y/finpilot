@@ -214,6 +214,18 @@ export async function savePreferences(
 // ---------------------------------------------------------------------------
 
 /**
+ * How long the browser keeps polling each job type. The API enforces a hard
+ * deadline per job type (_PHASE_DEADLINE_S in apps/api/app/routers/sync.py:
+ * full 40, accounts 35, other phases 15 minutes); these add a few minutes of
+ * headroom so the server's own timeout/failure result always arrives first.
+ */
+const SYNC_CLIENT_WAIT_MS = {
+  full: 45 * 60 * 1000,
+  accounts: 40 * 60 * 1000,
+  phase: 20 * 60 * 1000,
+} as const;
+
+/**
  * Poll a job until it reaches 'complete' or 'failed' status.
  *
  * Internal helper - not exported. All public sync functions delegate here.
@@ -295,7 +307,7 @@ async function _pollSyncJob(
  * so this uses a background job pattern:
  * 1. POST /accounts/sync/{bank} returns immediately with a job_id (HTTP 202)
  * 2. Poll GET /accounts/sync/status/{job_id} every 5 seconds
- * 3. Return result when status is 'complete' or 'failed' (max 20 minutes)
+ * 3. Return result when status is 'complete' or 'failed' (max 45 minutes)
  */
 export async function syncBank(
   accessToken: string,
@@ -307,14 +319,14 @@ export async function syncBank(
     `/api/v1/accounts/sync/${bank}${qs}`,
     { method: 'POST', accessToken }
   );
-  const maxWaitMs = 20 * 60 * 1000; // full scrape (login + CC + certs + 4 accounts + re-login)
+  const maxWaitMs = SYNC_CLIENT_WAIT_MS.full;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 /**
  * Sync NBE demand-deposit accounts and transactions only (skip CC and certs).
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 15 minutes (heaviest phase).
+ * Timeout: 40 minutes (heaviest phase).
  */
 export async function syncBankAccounts(
   accessToken: string,
@@ -329,14 +341,14 @@ export async function syncBankAccounts(
   // Accounts is the heaviest NBE phase (login + up to 4 demand-deposit
   // accounts, each with transaction pagination, plus session recovery), so it
   // gets the most client-side polling headroom before we give up on the job.
-  const maxWaitMs = 15 * 60 * 1000;
+  const maxWaitMs = SYNC_CLIENT_WAIT_MS.accounts;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 /**
  * Sync NBE credit card accounts and statement transactions only (skip demand-deposit and certs).
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 8 minutes.
+ * Timeout: 20 minutes.
  */
 export async function syncBankCreditCards(
   accessToken: string,
@@ -348,7 +360,7 @@ export async function syncBankCreditCards(
     `/api/v1/accounts/sync/${bank}/credit-cards${qs}`,
     { method: 'POST', accessToken }
   );
-  const maxWaitMs = 8 * 60 * 1000;
+  const maxWaitMs = SYNC_CLIENT_WAIT_MS.phase;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
@@ -370,7 +382,7 @@ export async function hideAccount(accessToken: string, accountId: string): Promi
 /**
  * Sync NBE certificate/term-deposit accounts only (skip demand-deposit and CC).
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 8 minutes.
+ * Timeout: 20 minutes.
  */
 export async function syncBankCertificates(
   accessToken: string,
@@ -382,16 +394,14 @@ export async function syncBankCertificates(
     `/api/v1/accounts/sync/${bank}/certificates${qs}`,
     { method: 'POST', accessToken }
   );
-  // 8 min to match the other products: on Render the ~76s login plus the TRD
-  // widget reveal/row waits can exceed the old 4-min cap.
-  const maxWaitMs = 8 * 60 * 1000;
+  const maxWaitMs = SYNC_CLIENT_WAIT_MS.phase;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 /**
  * Sync NBE loan / finance accounts only.
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 8 minutes.
+ * Timeout: 20 minutes.
  */
 export async function syncBankLoans(
   accessToken: string,
@@ -403,14 +413,14 @@ export async function syncBankLoans(
     `/api/v1/accounts/sync/${bank}/loans${qs}`,
     { method: 'POST', accessToken }
   );
-  const maxWaitMs = 8 * 60 * 1000;
+  const maxWaitMs = SYNC_CLIENT_WAIT_MS.phase;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 
 /**
  * Sync NBE prepaid card accounts only.
  * Falls back to full scrape for non-NBE banks.
- * Timeout: 8 minutes.
+ * Timeout: 20 minutes.
  */
 export async function syncBankPrepaidCards(
   accessToken: string,
@@ -422,7 +432,7 @@ export async function syncBankPrepaidCards(
     `/api/v1/accounts/sync/${bank}/prepaid-cards${qs}`,
     { method: 'POST', accessToken }
   );
-  const maxWaitMs = 8 * 60 * 1000;
+  const maxWaitMs = SYNC_CLIENT_WAIT_MS.phase;
   return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
 }
 

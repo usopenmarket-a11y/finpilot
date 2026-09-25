@@ -9,6 +9,7 @@ synchronous request/response contract (202 + job_id + pending status, and the
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from types import SimpleNamespace
 from uuid import uuid4
@@ -198,3 +199,125 @@ async def test_scrape_success_with_pipeline_failure_is_reported_as_failed(
         assert updates == []
     finally:
         del sync_router._JOBS[job_id]
+
+
+_TASK_METHODS = [
+    ("_background_sync_task", "scrape"),
+    ("_background_sync_accounts_task", "scrape_accounts"),
+    ("_background_sync_cc_task", "scrape_credit_cards"),
+    ("_background_sync_loans_task", "scrape_loans"),
+    ("_background_sync_prepaid_cards_task", "scrape_prepaid_cards"),
+    ("_background_sync_certificates_task", "scrape_certificates"),
+]
+
+
+@pytest.mark.parametrize(("task_name", "scraper_method"), _TASK_METHODS)
+async def test_hung_scraper_is_stopped_by_server_deadline(
+    task_name: str,
+    scraper_method: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stalled portal must fail the job and release the scrape slot."""
+    cleanup_ran: list[bool] = []
+
+    class FakeQuery:
+        def select(self, *_args: object) -> FakeQuery:
+            return self
+
+        def eq(self, *_args: object) -> FakeQuery:
+            return self
+
+        def limit(self, *_args: object) -> FakeQuery:
+            return self
+
+        def execute(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": str(uuid4()),
+                        "encrypted_username": "encrypted",
+                        "encrypted_password": "encrypted",
+                        "label": None,
+                    }
+                ]
+            )
+
+    class FakeClient:
+        def table(self, _name: str) -> FakeQuery:
+            return FakeQuery()
+
+    async def hung_scrape(_self: NBEScraper) -> object:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_ran.append(True)  # the scraper's browser teardown must run
+        return object()
+
+    monkeypatch.setattr(sync_router, "get_service_role_client", FakeClient)
+    monkeypatch.setattr(sync_router, "decrypt", lambda *_args: "decrypted")
+    monkeypatch.setattr(NBEScraper, scraper_method, hung_scrape)
+    monkeypatch.setattr(
+        sync_router, "_PHASE_DEADLINE_S", dict.fromkeys(sync_router._PHASE_DEADLINE_S, 0.05)
+    )
+
+    job_id = str(uuid4())
+    sync_router._JOBS[job_id] = {
+        "status": "pending",
+        "result": None,
+        "error": None,
+        "finished_at": None,
+    }
+    try:
+        await asyncio.wait_for(
+            getattr(sync_router, task_name)(job_id, uuid4(), "NBE", None), timeout=5
+        )
+        job = sync_router._JOBS[job_id]
+        assert job["status"] == "failed"
+        assert "timed out" in job["error"]
+        assert cleanup_ran == [True]
+        assert not sync_router._SCRAPE_SEMAPHORE.locked()
+    finally:
+        del sync_router._JOBS[job_id]
+
+
+@pytest.mark.parametrize("stale_status", ["pending", "running"])
+async def test_status_of_orphaned_job_reports_interruption(
+    stale_status: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A durable running row with no live task (API restarted) must not poll forever."""
+    persisted: list[dict[str, object]] = []
+
+    async def fake_load(job_id: str, _user_id: object) -> sync_router.SyncJobStatusResponse:
+        return sync_router.SyncJobStatusResponse(job_id=job_id, status=stale_status)
+
+    async def fake_persist(_job_id: str, job: dict[str, object]) -> None:
+        persisted.append(job)
+
+    monkeypatch.setattr(sync_router, "_load_job_from_db", fake_load)
+    monkeypatch.setattr(sync_router, "_persist_job_to_db", fake_persist)
+
+    response = await sync_router.get_sync_status(str(uuid4()), uuid4())
+
+    assert response.status == "failed"
+    assert response.error is not None and "interrupted" in response.error
+    assert len(persisted) == 1 and persisted[0]["status"] == "failed"
+    assert persisted[0]["finished_at"] is not None
+
+
+async def test_status_of_finished_durable_job_is_returned_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_load(job_id: str, _user_id: object) -> sync_router.SyncJobStatusResponse:
+        return sync_router.SyncJobStatusResponse(
+            job_id=job_id, status="failed", error="Bank portal timed out"
+        )
+
+    async def fail_persist(*_args: object) -> None:
+        raise AssertionError("finished jobs must not be rewritten")
+
+    monkeypatch.setattr(sync_router, "_load_job_from_db", fake_load)
+    monkeypatch.setattr(sync_router, "_persist_job_to_db", fail_persist)
+
+    response = await sync_router.get_sync_status(str(uuid4()), uuid4())
+    assert response.status == "failed"
+    assert response.error == "Bank portal timed out"

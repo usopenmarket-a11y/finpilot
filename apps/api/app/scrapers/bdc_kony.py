@@ -387,6 +387,10 @@ class BDCKonyScraper(BankScraper):
             await login_frame.fill(_SEL_PASSWORD, password)
             await login_frame.click(_SEL_LOGIN_BTN)
             logger.info("BDC_KONY: submitted login — waiting for dashboard")
+        except PlaywrightTimeoutError as exc:
+            raise ScraperTimeoutError(
+                "BDC_KONY: login form did not respond within timeout", bank_code=self.bank_name
+            ) from exc
         finally:
             del username
             del password

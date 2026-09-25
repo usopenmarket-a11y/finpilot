@@ -780,7 +780,10 @@ export function BankAccountsSection() {
       // the work for no benefit — use the original single full sync for them.
       if (cred.bank === 'NBE') {
         const results: SyncResult[] = [];
+        const failedPhases: string[] = [];
 
+        // Phases are independent sessions: a timeout in one (e.g. accounts)
+        // must not skip the others, so keep going and report failures at the end.
         for (const [i, phase] of NBE_SYNC_PHASES.entries()) {
           const phaseInfo: SyncPhaseInfo = {
             index: i + 1,
@@ -789,23 +792,24 @@ export function BankAccountsSection() {
           };
 
           const phaseResult = await runNbePhase(accessToken, cred, 'NBE', phase, phaseInfo);
-          if (!phaseResult) {
-            // runNbePhase already recorded the error. Refresh so any phases
-            // that succeeded before this failure show in the coverage bar.
-            await Promise.all([fetchCredentials(), fetchSyncedAccounts(userId)]);
-            return;
+          if (phaseResult) {
+            results.push(phaseResult);
+          } else {
+            failedPhases.push(phase.label);
           }
-          results.push(phaseResult);
         }
 
         const totalScraped = results.reduce((sum, r) => sum + r.transactions_scraped, 0);
         const totalSaved = results.reduce((sum, r) => sum + r.transactions_saved, 0);
+        const summary = `Synced ${totalScraped} transactions (${totalSaved} new)`;
         setSyncStates((prev) => ({
           ...prev,
           [key]: {
             loading: false,
-            error: null,
-            lastResult: `Synced ${totalScraped} transactions (${totalSaved} new) across accounts, cards & certificates`,
+            error: failedPhases.length
+              ? `Could not sync ${failedPhases.join(', ')} (${results.length} of ${NBE_SYNC_PHASES.length} parts succeeded). Retry those items individually.`
+              : null,
+            lastResult: failedPhases.length ? summary : `${summary} across all NBE products`,
             startedAt: null,
             phase: null,
           },

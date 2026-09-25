@@ -47,8 +47,9 @@ uv run patchright install chromium
 ```
 
 The production Dockerfile installs the browsers and their Linux packages
-automatically. `docker-compose.yml` from the original prototype is retired;
-use [the production Compose guide](deployment/kali-linux.md) for containers.
+automatically. `docker-compose.yml` from the original prototype is retired.
+To run the containers on this machine without a domain, use the
+[local-only Compose override](deployment/kali-linux.md#local-only-run).
 
 ## Checks
 

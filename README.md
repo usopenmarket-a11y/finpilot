@@ -14,7 +14,8 @@ a complete base schema for a new Supabase installation.
 
 Start with [the Kali Linux deployment guide](docs/deployment/kali-linux.md).
 The production stack is in `compose.prod.yml`; the existing-proxy override is
-in `compose.prod.existing-proxy.yml`.
+in `compose.prod.existing-proxy.yml`. `compose.local.yml` runs the same
+containers on `http://localhost:3000` without a domain or TLS.
 
 ## Development
 

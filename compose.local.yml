@@ -1,0 +1,43 @@
+# Local-only override: run the full stack on this machine over plain HTTP,
+# without a public domain, DNS, TLS, or the bundled Caddy service.
+#
+#   docker compose -f compose.prod.yml -f compose.local.yml up -d --build
+#
+# Open http://localhost:3000. The browser calls /api/v1/* on the same origin;
+# the Next.js server forwards those requests to the API container.
+# Set SITE_DOMAIN=localhost in .env; compose.prod.yml requires the variable,
+# but every value derived from it is replaced below.
+#
+# APP_ENV=development means BDC sync connects directly instead of requiring
+# the Egyptian proxy. That only works from an Egyptian connection; set the
+# BDC_PROXY_* values in apps/api/.env otherwise. Development mode also enables
+# the API's /docs page, which is reachable only through the loopback port.
+#
+# Both ports bind to 127.0.0.1 only. Web build arguments differ from the
+# public setup, so rebuild (--build) whenever switching between the two.
+services:
+  api:
+    environment:
+      APP_ENV: development
+      CORS_ORIGINS: '["http://localhost:${LOCAL_WEB_PORT:-3000}"]'
+    ports:
+      - "127.0.0.1:${LOCAL_API_PORT:-8000}:8000"
+
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:${LOCAL_WEB_PORT:-3000}
+        NEXT_PUBLIC_SITE_URL: http://localhost:${LOCAL_WEB_PORT:-3000}
+        NEXT_PUBLIC_APP_URL: http://localhost:${LOCAL_WEB_PORT:-3000}
+        API_INTERNAL_URL: http://api:8000
+    environment:
+      NEXT_PUBLIC_SITE_URL: http://localhost:${LOCAL_WEB_PORT:-3000}
+      # Server-rendered pages call NEXT_PUBLIC_API_URL from inside this
+      # container, so Next.js must listen on the same port as the host.
+      PORT: ${LOCAL_WEB_PORT:-3000}
+    ports:
+      - "127.0.0.1:${LOCAL_WEB_PORT:-3000}:${LOCAL_WEB_PORT:-3000}"
+
+  caddy:
+    profiles:
+      - bundled-proxy

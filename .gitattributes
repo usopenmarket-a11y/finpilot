@@ -1,0 +1,23 @@
+# Store and check out text files with LF on every platform. The repository is
+# edited from Windows, but Dockerfiles, Compose files, the Caddyfile, env files
+# and any shell scripts are consumed on Linux, where CRLF breaks them.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF if any are added later.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files: never normalize or diff as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.zip  binary
+*.gz   binary

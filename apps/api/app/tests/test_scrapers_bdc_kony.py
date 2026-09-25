@@ -483,6 +483,18 @@ class TestLoginAndCaptureAuth:
         with pytest.raises(ScraperTimeoutError):
             await s._login_and_capture_auth(page)
 
+    async def test_login_form_timeout_raises_timeout(self) -> None:
+        from patchright._impl._errors import TimeoutError as _PT
+
+        from app.scrapers.base import ScraperTimeoutError
+
+        s = BDCKonyScraper(username="u", password="p")
+        s._safe_screenshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        page = _login_page()
+        page.frames[0].fill = AsyncMock(side_effect=_PT("timeout"))
+        with pytest.raises(ScraperTimeoutError):
+            await s._login_and_capture_auth(page)
+
     async def test_bad_credentials_raises_login_error(self) -> None:
         from app.scrapers.base import ScraperLoginError
 

@@ -31,6 +31,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -83,6 +85,43 @@ _JOBS: dict[str, dict[str, Any]] = {}
 # gets a 429 so the client can retry rather than crashing the instance.
 _SCRAPE_SEMAPHORE = asyncio.Semaphore(1)
 
+# Hard wall-clock cap per job type, enforced on the server so a stalled portal
+# can never hold the scrape slot indefinitely. Sized from recorded sync_jobs
+# durations (successful NBE accounts runs took up to ~31 min on Render; other
+# NBE phases up to ~10 min). The web client polls a few minutes longer than
+# these, so it always receives the server's outcome. Keep the two in step with
+# SYNC_CLIENT_WAIT_MS in apps/web/src/lib/api-client.ts.
+_PHASE_DEADLINE_S: dict[str, float] = {
+    "full": 40 * 60,
+    "accounts": 35 * 60,
+    "credit_cards": 15 * 60,
+    "certificates": 15 * 60,
+    "loans": 15 * 60,
+    "prepaid_cards": 15 * 60,
+}
+
+
+@asynccontextmanager
+async def _scrape_slot(bank: str, job_type: str) -> AsyncIterator[None]:
+    """Hold the single scrape slot, bounded by the job type's deadline.
+
+    On expiry the scraper coroutine is cancelled (its ``finally`` closes the
+    browser) and a ``ScraperTimeoutError`` is raised to the job handler.
+    """
+    deadline = _PHASE_DEADLINE_S[job_type]
+    async with _SCRAPE_SEMAPHORE:
+        try:
+            async with asyncio.timeout(deadline):
+                yield
+        except TimeoutError as exc:
+            logger.warning(
+                "Sync exceeded server deadline", extra={"bank": bank, "job_type": job_type}
+            )
+            raise ScraperTimeoutError(
+                f"{job_type} sync exceeded {deadline / 60:.0f} minutes", bank_code=bank
+            ) from exc
+
+
 # ---------------------------------------------------------------------------
 # Render free-tier keepalive
 # ---------------------------------------------------------------------------
@@ -119,6 +158,10 @@ async def _keepalive_while_running(job_id: str) -> None:
             job = _JOBS.get(job_id)
             if job is None:
                 break
+            if job["status"] not in ("pending", "running") and not job.get("finished_at"):
+                # Most failure paths set status directly; stamp the finish time
+                # here so the job is purgeable and its durable row is complete.
+                job["finished_at"] = datetime.now(UTC)
             await _persist_job_to_db(job_id, job)
             if job["status"] not in ("pending", "running"):
                 break
@@ -370,7 +413,7 @@ async def _background_sync_task(
             scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
 
             logger.info("Sync initiated via stored credentials", extra={"bank": bank})
-            async with _SCRAPE_SEMAPHORE:
+            async with _scrape_slot(bank, "full"):
                 result = await scraper.scrape()
         except ScraperPasswordChangeRequired:
             _JOBS[job_id]["error"] = (
@@ -555,7 +598,7 @@ async def _background_sync_accounts_task(
             scraper_class = _SCRAPER_MAP[bank]
             scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
             logger.info("Accounts-only sync initiated via stored credentials", extra={"bank": bank})
-            async with _SCRAPE_SEMAPHORE:
+            async with _scrape_slot(bank, "accounts"):
                 if bank == "NBE":
                     assert isinstance(scraper, NBEScraper)
                     result = await scraper.scrape_accounts()
@@ -735,7 +778,7 @@ async def _background_sync_cc_task(
             scraper_class = _SCRAPER_MAP[bank]
             scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
             logger.info("CC-only sync initiated via stored credentials", extra={"bank": bank})
-            async with _SCRAPE_SEMAPHORE:
+            async with _scrape_slot(bank, "credit_cards"):
                 if bank == "NBE":
                     assert isinstance(scraper, NBEScraper)
                     result = await scraper.scrape_credit_cards()
@@ -918,7 +961,7 @@ async def _background_sync_loans_task(
             scraper_class = _SCRAPER_MAP[bank]
             scraper = scraper_class(username=username, password=password)  # type: ignore[abstract]
             logger.info("Loans-only sync initiated via stored credentials", extra={"bank": bank})
-            async with _SCRAPE_SEMAPHORE:
+            async with _scrape_slot(bank, "loans"):
                 if bank == "NBE":
                     assert isinstance(scraper, NBEScraper)
                     result = await scraper.scrape_loans()
@@ -1105,7 +1148,7 @@ async def _background_sync_prepaid_cards_task(
             logger.info(
                 "Prepaid-cards-only sync initiated via stored credentials", extra={"bank": bank}
             )
-            async with _SCRAPE_SEMAPHORE:
+            async with _scrape_slot(bank, "prepaid_cards"):
                 if bank == "NBE":
                     assert isinstance(scraper, NBEScraper)
                     result = await scraper.scrape_prepaid_cards()
@@ -1296,7 +1339,7 @@ async def _background_sync_certificates_task(
             logger.info(
                 "Certificates-only sync initiated via stored credentials", extra={"bank": bank}
             )
-            async with _SCRAPE_SEMAPHORE:
+            async with _scrape_slot(bank, "certificates"):
                 if bank == "NBE":
                     assert isinstance(scraper, NBEScraper)
                     result = await scraper.scrape_certificates()
@@ -1534,6 +1577,20 @@ async def get_sync_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job {job_id} not found",
+        )
+    if db_status.status in ("pending", "running"):
+        # Only one API process runs scrapes, so a live job is always in _JOBS.
+        # A durable row still marked active is left over from a restart that
+        # killed its task; report it as finished instead of polling forever.
+        interrupted = {
+            "status": "failed",
+            "result": None,
+            "error": "Sync was interrupted because the API restarted. Please sync again.",
+            "finished_at": datetime.now(UTC),
+        }
+        await _persist_job_to_db(job_id, interrupted)
+        return SyncJobStatusResponse(
+            job_id=job_id, status="failed", error=str(interrupted["error"])
         )
     return db_status
 

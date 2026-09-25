@@ -4,7 +4,8 @@ Run the Next.js website and FastAPI backend in Docker. This setup uses your
 **existing hosted Supabase project** for authentication and data; it does not
 start a local database. The default stack also runs Caddy, which serves one
 public URL, sends `/api/v1/*` to the API, and sends other requests to the
-website. Caddy obtains and renews HTTPS certificates. See the
+website. Caddy obtains and renews HTTPS certificates. To run everything on this
+machine only, without a public domain, see [Local-only run](#local-only-run). See the
 [architecture guide](../architecture.md) for the service boundaries.
 
 ## 1. Prepare the host and public name
@@ -115,6 +116,42 @@ If Caddy cannot get a certificate, verify DNS, external port forwarding, and
 that nothing else owns host ports 80/443. [Caddy's HTTPS requirements](https://caddyserver.com/docs/automatic-https)
 describe the public DNS and port checks.
 
+## Local-only run
+
+To use FinPilot only on this machine, without a domain, DNS, port forwarding,
+or TLS, add `compose.local.yml`. It disables Caddy and publishes the website
+and API on loopback over plain HTTP. Configure the two `.env` files as in
+[step 2](#2-clone-and-configure), with these differences:
+
+- Set `SITE_DOMAIN=localhost` in `.env`. Compose requires the variable; the
+  local override replaces every URL derived from it.
+- In Supabase Auth, add `http://localhost:3000/auth/callback` and
+  `http://localhost:3000/auth/callback?next=/auth/update-password` to the
+  allowed redirect URLs. Keep the public site URL if one is configured.
+- The override sets `APP_ENV=development`, so BDC sync connects directly
+  instead of requiring the Egyptian proxy. A direct connection works only from
+  an Egyptian network; otherwise set the `BDC_PROXY_*` values.
+
+```sh
+docker compose -f compose.prod.yml -f compose.local.yml config --quiet
+docker compose -f compose.prod.yml -f compose.local.yml up -d --build
+docker compose -f compose.prod.yml -f compose.local.yml ps
+curl -fsS http://localhost:8000/api/v1/health
+curl -fsS http://localhost:3000/api/v1/health
+```
+
+Open `http://localhost:3000`. The browser calls `/api/v1/*` on that origin and
+the web server forwards those requests to the API container. The second
+`curl` checks that forwarding. The API is also published at
+`http://127.0.0.1:8000`, where development mode serves its `/docs` page. Set
+`LOCAL_WEB_PORT` or `LOCAL_API_PORT` in `.env` if those ports are taken; the
+Supabase redirect URLs must then use the new web port. Both ports bind to
+127.0.0.1 only, so other devices on the network cannot reach them.
+
+The web image embeds its URLs at build time. Use `--build` whenever you switch
+between the local and public setups, and use the same `-f` files for `ps`,
+`logs`, `down`, and updates.
+
 ## Existing reverse proxy
 
 If this Kali machine already runs an HTTPS reverse proxy, use the included
@@ -142,7 +179,8 @@ docker compose -f compose.prod.yml up -d --build
 docker compose -f compose.prod.yml ps
 ```
 
-Use the two-file Compose command above for updates if using an existing proxy.
+Use the matching two-file Compose command for updates if using the local
+override or an existing proxy.
 To stop the application without deleting TLS data, run
 `docker compose -f compose.prod.yml down`. Back up your Supabase project and
 the two private `.env` files separately. Do not use `down -v` during routine
