@@ -47,9 +47,9 @@ schema from an empty project. See [database.md](database.md).
 The API dispatches NBE, CIB, BDC Kony (`BDC_RETAIL`), and UB scrapers. CIB's
 live scraper currently fails fast because its portal blocks automation. NBE/UB
 use Playwright; BDC Kony uses Patchright Chromium. Production BDC sync requires
-an Egyptian sticky proxy in the current code. Its account balance and card
-detail capture are implemented, while transaction capture remains incomplete.
-See [bank-sync.md](bank-sync.md) before relying on BDC transaction totals.
+an Egyptian sticky proxy in the current code. It captures account balances,
+credit card details, and credit card transaction history; deposit account
+transactions are not captured. See [bank-sync.md](bank-sync.md).
 
 The scheduler implementation remains in `apps/api/app/scheduler.py`, but
 `apps/api/app/main.py` does not start it. Sync is currently initiated from the
@@ -58,7 +58,8 @@ UI/API. Do not assume automatic daily sync is running on the Linux host.
 ## Deployment boundary
 
 The current self-hosted deployment is documented in
-[kali-linux.md](deployment/kali-linux.md). `render.yaml`, `vercel.json`, and the
+[kali-linux.md](deployment/kali-linux.md), including publishing through a
+Cloudflare Tunnel behind Cloudflare Access. `render.yaml`, `vercel.json`, and the
 old deploy notification workflow remain in the repository for the existing
 cloud deployment during migration; they are not part of the Linux Compose
 stack. Confirm the cutover before removing those integrations.

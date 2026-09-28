@@ -23,8 +23,8 @@ This scraper uses a **hybrid** strategy proven by live capture 2026-07-27
         POST /services/data/v1/Holdings/operations/DigitalArrangements/getList
         (accounts; body ``jsondata={}``)
 
-    Credit-card details are wired through ``_CARD_LIST_OP``. Card transactions
-    remain unavailable until ``_CARD_TXN_OP`` is captured and implemented.
+    Credit-card details come from ``_CARD_LIST_OP`` and each card's history
+    from ``_CARD_TXN_OP`` (both confirmed live 2026-09-26).
 
 ``BDC_RETAIL`` routes to this scraper. Hosted deployments require an Egyptian
 HTTP(S) proxy configured with a sticky session through ``BDC_PROXY_*`` settings,
@@ -74,15 +74,27 @@ _LOGIN_IFRAME_MARKER = "LoginPage.html"
 _SEL_USERNAME = "#usernameInput"
 _SEL_PASSWORD = "#passwordInput"  # NOTE: type=text, not type=password
 _SEL_LOGIN_BTN = "button.login-btn"
+_SEL_LOGIN_ERROR = "#errorMsg"
+# The redesigned login page (2026-09) masks the password with a script that
+# records keystrokes from ``beforeinput`` events and submits that recorded
+# value, so the password must be typed key by key, not set with fill().
+_PASSWORD_KEY_DELAY_MS = 40
 
-# Kony DBX JSON API operations (POST, form body ``jsondata=<url-encoded json>``).
-# All confirmed live 2026-07-27 except _CARD_TXN_OP (see below).
+# Kony DBX JSON API operations (POST, body ``jsondata=<url-encoded json>``).
 _ACCOUNTS_OP = "/services/data/v1/Holdings/operations/DigitalArrangements/getList"
 _CARD_LIST_OP = "/services/data/v1/CreditCard/operations/CreditCardModel/fetchCreditCards"
-# TODO(card-txn-capture): the card-transactions/statement operation fires when a
-# card is opened from Cards → Credit → (card). Not yet captured; leave falsy so
-# card *details* (balance/limit/due) sync while transactions are pending.
-_CARD_TXN_OP = ""
+# Opening Cards in the portal calls this first. Without it, the first history
+# call of a session stalled past the request timeout (live, 2026-09-26); after
+# it, history returned in ~2 s.
+_CARD_ACTIVE_OP = "/services/data/v1/BDC_CardsManagement/operations/Cards/getAllActiveCards"
+# Cards → Credit → (card) → Transaction History; body ``{"PAN": <cardNumber>}``.
+# Returns the card's whole available history in one ``Transaction`` list.
+_CARD_TXN_OP = "/services/data/v1/BDC_CardsManagement/operations/Cards/getCreditTransactionsHistory"
+# The portal sends every call with this content type. The card history
+# operation requires it: a form content type returns HTTP 200 with an empty
+# ``Transaction`` list.
+_JSON_CONTENT_TYPE = "application/json"
+_FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 
 # Map Kony ``accountType`` strings to the values allowed by the DB
 # ``bank_accounts_account_type_check`` constraint (savings/current/payroll/
@@ -110,7 +122,14 @@ _DEFAULT_ACCOUNT_TYPE = "current"
 _ZERO_UUID = UUID("00000000-0000-0000-0000-000000000000")
 
 _NAV_TIMEOUT_MS = 120_000
-_LOGIN_RENDER_TIMEOUT_MS = 60_000
+# Each load polls 10 times (2 s apart, plus up to 2 s per selector wait) for
+# the login iframe before the page is reloaded.
+_LOGIN_RENDER_POLLS = 10
+_LOGIN_PAGE_ATTEMPTS = 4
+# Each form step normally takes <1 s. Steps before Sign In are retried on a
+# fresh page load; nothing has been submitted at that point.
+_FORM_STEP_TIMEOUT_MS = 15_000
+_LOGIN_FORM_ATTEMPTS = 2
 _DASHBOARD_TIMEOUT_MS = 60_000
 _API_EVALUATE_TIMEOUT_S = 75
 
@@ -168,6 +187,19 @@ def _parse_kony_date(value: Any) -> date | None:
         except (ValueError, OSError):
             return None
     return None
+
+
+_CARD_CREDIT_KINDS = {"payment", "refund", "reversal", "credit"}
+
+
+def _card_amount_owed(card: dict, limit: Decimal) -> Decimal:
+    """Return what the cardholder owes, including pending authorisations."""
+    utilized = card.get("utilizedAmount")
+    if utilized not in (None, ""):
+        return _to_decimal(utilized) + _to_decimal(card.get("holdAmount"))
+    if limit > 0 and card.get("availableBalance") not in (None, ""):
+        return max(limit - _to_decimal(card.get("availableBalance")), Decimal("0"))
+    return _to_decimal(card.get("closingBalance"))
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +351,6 @@ class BDCKonyScraper(BankScraper):
         # The browser is patchright, which raises its OWN TimeoutError class
         # (not playwright's). Catch both so a rate-limit stall surfaces as our
         # clear ScraperTimeoutError instead of an opaque parse error.
-        from patchright.async_api import Error as _PatchrightError
         from patchright.async_api import TimeoutError as _PatchrightTimeout
         from playwright.async_api import TimeoutError as _PlaywrightTimeout
 
@@ -346,51 +377,73 @@ class BDCKonyScraper(BankScraper):
 
         page.on("request", _on_request)
 
-        try:
-            await page.goto(_APP_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-        except PlaywrightTimeoutError as exc:
-            raise ScraperTimeoutError(
-                "BDC_KONY: portal did not load within timeout", bank_code=self.bank_name
-            ) from exc
-        except _PatchrightError:
-            raise BankPortalUnreachableError(
-                "BDC portal could not be reached. Check the proxy connection, Egyptian "
-                "location, and provider access to bdconline.com.eg.",
-                bank_code=self.bank_name,
-            ) from None
-
-        # Locate the login iframe and wait for the password field.
-        login_frame = None
-        for _ in range(30):
-            for fr in page.frames:
-                if _LOGIN_IFRAME_MARKER in (fr.url or ""):
-                    login_frame = fr
-                    break
-            if login_frame:
-                try:
-                    await login_frame.wait_for_selector(_SEL_PASSWORD, timeout=2_000)
-                    break
-                except Exception:
-                    pass
-            await page.wait_for_timeout(2_000)
-
-        if login_frame is None:
-            await self._safe_screenshot(page, "kony_no_login_iframe")
-            raise ScraperLoginError(
-                "BDC_KONY: login form (iframe) never rendered", bank_code=self.bank_name
-            )
-
         username = self._username
         password = self._password
         try:
-            await login_frame.fill(_SEL_USERNAME, username)
-            await login_frame.fill(_SEL_PASSWORD, password)
-            await login_frame.click(_SEL_LOGIN_BTN)
+            # Form steps before Sign In are safe to repeat on a fresh load:
+            # nothing has been submitted, so no failed login is recorded.
+            login_frame = None
+            for form_attempt in range(1, _LOGIN_FORM_ATTEMPTS + 1):
+                login_frame = await self._open_login_form(page)
+                step = "username"
+                try:
+                    await login_frame.fill(_SEL_USERNAME, username, timeout=_FORM_STEP_TIMEOUT_MS)
+                    step = "password focus"
+                    await login_frame.click(_SEL_PASSWORD, timeout=_FORM_STEP_TIMEOUT_MS)
+                    step = "password typing"
+                    await login_frame.locator(_SEL_PASSWORD).press_sequentially(
+                        password, delay=_PASSWORD_KEY_DELAY_MS, timeout=_FORM_STEP_TIMEOUT_MS
+                    )
+                except PlaywrightTimeoutError as exc:
+                    logger.warning(
+                        "BDC_KONY: login form step '%s' timed out (attempt %d/%d)",
+                        step,
+                        form_attempt,
+                        _LOGIN_FORM_ATTEMPTS,
+                    )
+                    if form_attempt == _LOGIN_FORM_ATTEMPTS:
+                        await self._safe_screenshot(page, "kony_login_form_timeout")
+                        raise ScraperTimeoutError(
+                            f"BDC_KONY: login form did not respond within timeout ({step})",
+                            bank_code=self.bank_name,
+                        ) from exc
+                    continue
+                break
+            assert login_frame is not None
+
+            typed = await login_frame.evaluate(
+                "(sel) => document.querySelector(sel).value.length", _SEL_PASSWORD
+            )
+            if typed != len(password):
+                raise ScraperParseError(
+                    "BDC_KONY: login form did not accept the password input",
+                    bank_code=self.bank_name,
+                )
+
+            # Submit once. A click that times out never reached the button, so
+            # fall back to the button's own handler rather than failing.
+            try:
+                await login_frame.click(
+                    _SEL_LOGIN_BTN, timeout=_FORM_STEP_TIMEOUT_MS, no_wait_after=True
+                )
+            except PlaywrightTimeoutError as exc:
+                logger.warning("BDC_KONY: Sign In click timed out; triggering the button directly")
+                clicked = await login_frame.evaluate(
+                    """(sel) => {
+                        const b = document.querySelector(sel);
+                        if (!b) return false;
+                        b.click();
+                        return true;
+                    }""",
+                    _SEL_LOGIN_BTN,
+                )
+                if not clicked:
+                    await self._safe_screenshot(page, "kony_login_button_missing")
+                    raise ScraperTimeoutError(
+                        "BDC_KONY: login form did not respond within timeout (sign in)",
+                        bank_code=self.bank_name,
+                    ) from exc
             logger.info("BDC_KONY: submitted login — waiting for dashboard")
-        except PlaywrightTimeoutError as exc:
-            raise ScraperTimeoutError(
-                "BDC_KONY: login form did not respond within timeout", bank_code=self.bank_name
-            ) from exc
         finally:
             del username
             del password
@@ -413,6 +466,20 @@ class BDCKonyScraper(BankScraper):
                 body = await page.evaluate("() => (document.body.innerText||'').toLowerCase()")
             except Exception:
                 pass
+            # The login iframe always contains a hidden error element; only a
+            # visible one means the portal rejected the attempt.
+            try:
+                login_error = await login_frame.evaluate(
+                    """(sel) => {
+                        const e = document.querySelector(sel);
+                        return e && e.offsetHeight ? (e.innerText || '').toLowerCase() : '';
+                    }""",
+                    _SEL_LOGIN_ERROR,
+                )
+            except Exception:
+                login_error = ""
+            if isinstance(login_error, str):
+                body = f"{body} {login_error}"
             if any(p in body for p in ("invalid", "incorrect", "not match", "locked")):
                 await self._safe_screenshot(page, "kony_login_rejected")
                 raise ScraperLoginError(
@@ -445,12 +512,70 @@ class BDCKonyScraper(BankScraper):
             logger.info("BDC_KONY: captured session JWT + deviceid")
         return auth
 
+    async def _open_login_form(self, page):  # noqa: ANN001, ANN202
+        """Load the portal and return the login iframe, reloading if needed.
+
+        The portal intermittently resets the connection for its main app
+        script or stalls before rendering the login iframe; a fresh load
+        normally renders it in ~10 s, so reload instead of waiting longer.
+        """
+        from patchright.async_api import Error as _PatchrightError
+        from patchright.async_api import TimeoutError as _PatchrightTimeout
+        from playwright.async_api import TimeoutError as _PlaywrightTimeout
+
+        for attempt in range(1, _LOGIN_PAGE_ATTEMPTS + 1):
+            try:
+                await page.goto(_APP_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            except (_PlaywrightTimeout, _PatchrightTimeout) as exc:
+                raise ScraperTimeoutError(
+                    "BDC_KONY: portal did not load within timeout", bank_code=self.bank_name
+                ) from exc
+            except _PatchrightError:
+                raise BankPortalUnreachableError(
+                    "BDC portal could not be reached. Check the proxy connection, Egyptian "
+                    "location, and provider access to bdconline.com.eg.",
+                    bank_code=self.bank_name,
+                ) from None
+
+            login_frame = await self._wait_for_login_frame(page)
+            if login_frame is not None:
+                return login_frame
+            logger.warning(
+                "BDC_KONY: login form not rendered (attempt %d/%d)",
+                attempt,
+                _LOGIN_PAGE_ATTEMPTS,
+            )
+
+        await self._safe_screenshot(page, "kony_no_login_iframe")
+        raise ScraperTimeoutError(
+            "BDC_KONY: login form never rendered after reloading the portal",
+            bank_code=self.bank_name,
+        )
+
+    async def _wait_for_login_frame(self, page):  # noqa: ANN001, ANN202
+        """Return the login iframe once its password field exists, else None."""
+        for _ in range(_LOGIN_RENDER_POLLS):
+            for fr in page.frames:
+                if _LOGIN_IFRAME_MARKER in (fr.url or ""):
+                    try:
+                        await fr.wait_for_selector(_SEL_PASSWORD, timeout=2_000)
+                        return fr
+                    except Exception:
+                        break
+            await page.wait_for_timeout(2_000)
+        return None
+
     # ------------------------------------------------------------------
     # JSON API calls (via the page's own request context = same session)
     # ------------------------------------------------------------------
 
     async def _api_post(
-        self, page, op_path: str, payload: dict | None = None, _retrying: bool = False
+        self,
+        page,
+        op_path: str,
+        payload: dict | None = None,
+        _retrying: bool = False,
+        content_type: str = _FORM_CONTENT_TYPE,
     ) -> dict:
         """POST a Kony data operation from *inside the page* and return the JSON.
 
@@ -462,8 +587,8 @@ class BDCKonyScraper(BankScraper):
         """
         auth = getattr(self, "_kony_auth", {}) or {}
         evaluation = page.evaluate(
-            """async ({url, body, auth}) => {
-                const headers = {'content-type': 'application/x-www-form-urlencoded'};
+            """async ({url, body, auth, contentType}) => {
+                const headers = {'content-type': contentType};
                 if (auth.jwt) headers['x-kony-authorization'] = auth.jwt;
                 if (auth.deviceid) headers['x-kony-deviceid'] = auth.deviceid;
                 if (auth.reportingparams) headers['x-kony-reportingparams'] = auth.reportingparams;
@@ -484,6 +609,7 @@ class BDCKonyScraper(BankScraper):
                 "url": _BASE + op_path,
                 "body": "jsondata=" + quote(json.dumps(payload or {})),
                 "auth": auth,
+                "contentType": content_type,
             },
         )
         try:
@@ -502,7 +628,9 @@ class BDCKonyScraper(BankScraper):
             # request (updates self._kony_auth via the listener) and retry once.
             logger.info("BDC_KONY: API %s got 401 — refreshing token and retrying", op_path)
             await page.wait_for_timeout(3_000)
-            return await self._api_post(page, op_path, payload, _retrying=True)
+            return await self._api_post(
+                page, op_path, payload, _retrying=True, content_type=content_type
+            )
         if result["status"] >= 400:
             raise ScraperParseError(
                 f"BDC_KONY: API {op_path} returned HTTP {result['status']}",
@@ -553,14 +681,17 @@ class BDCKonyScraper(BankScraper):
     async def _fetch_cards(
         self, page, now: datetime, auth: dict[str, str]
     ) -> tuple[list[BankAccount], list[Transaction]]:
-        """Fetch credit cards + their transactions via the Cards API.
+        """Fetch credit cards and each card's transactions via the Cards API.
 
-        Wired but inert until ``_CARD_LIST_OP`` / ``_CARD_TXN_OP`` are confirmed
-        from the pending Cards-section capture (Cards → Credit → expand arrow).
-        Returns empty lists until then so accounts still sync.
+        A failed card list or history call fails the scrape rather than
+        reporting a card without its transactions.
         """
         accounts: list[BankAccount] = []
         transactions: list[Transaction] = []
+        try:
+            await self._api_post(page, _CARD_ACTIVE_OP, content_type=_JSON_CONTENT_TYPE)
+        except ScraperParseError:
+            logger.warning("BDC_KONY: active-cards call failed; continuing with card list")
         try:
             card_data = await self._api_post(page, _CARD_LIST_OP)
         except ScraperParseError:
@@ -568,15 +699,13 @@ class BDCKonyScraper(BankScraper):
             raise
 
         # Field names confirmed from the live fetchCreditCards response
-        # (bdc_new_kony_portal): maskedCardNumber, embossingName, product,
-        # currency, closingBalance (billed/statement), CurrentBalance,
-        # outstandingBalance, availableBalance, dueDate, accountName (card ref).
+        # (2026-09-26). ``outstandingBalance`` equals ``availableBalance`` —
+        # the unused credit — so it is not the amount owed. The portal's
+        # figures satisfy availableBalance + utilizedAmount + holdAmount =
+        # approvedLimit, where holdAmount is pending authorisations.
         for c in card_data.get("Cards", card_data.get("cards", [])):
             card_no = str(c.get("maskedCardNumber") or c.get("cardNumber") or "")
-            # Balance shown as the outstanding/current amount owed on the card.
-            balance = _to_decimal(
-                c.get("outstandingBalance", c.get("CurrentBalance", c.get("closingBalance")))
-            )
+            limit = _to_decimal(c.get("approvedLimit"), Decimal("0"))
             account = BankAccount(
                 id=_ZERO_UUID,
                 user_id=_ZERO_UUID,
@@ -584,20 +713,23 @@ class BDCKonyScraper(BankScraper):
                 account_number_masked=_mask(card_no),
                 account_type="credit_card",
                 currency=(c.get("currency") or c.get("currencyCode") or "EGP").strip() or "EGP",
-                balance=balance,
+                balance=_card_amount_owed(c, limit),
                 is_active=(str(c.get("cardStatus", "")).upper() == "ACTIVE"),
                 last_synced_at=now,
+                credit_limit=limit or None,
                 # closingBalance = last statement (billed) balance.
                 billed_amount=_to_decimal(c.get("closingBalance"), Decimal("0")) or None,
+                minimum_payment=_to_decimal(
+                    c.get("currMinPayment", c.get("minimumDue")), Decimal("0")
+                )
+                or None,
                 payment_due_date=_parse_kony_date(c.get("dueDate") or c.get("settelmentDate")),
                 product_name=c.get("embossingName") or c.get("product"),
                 created_at=now,
                 updated_at=now,
             )
             accounts.append(account)
-
-            if _CARD_TXN_OP:
-                transactions.extend(await self._fetch_card_transactions(page, account, c, now))
+            transactions.extend(await self._fetch_card_transactions(page, account, c, now))
 
         logger.info(
             "BDC_KONY: fetched %d card(s), %d card transaction(s)",
@@ -609,54 +741,112 @@ class BDCKonyScraper(BankScraper):
     async def _fetch_card_transactions(
         self, page, account: BankAccount, card: dict, now: datetime
     ) -> list[Transaction]:
-        """Fetch one card's transactions. Payload shape confirmed at capture."""
-        card_ref = card.get("cardReferenceId") or card.get("cardId") or card.get("cardNumber")
-        try:
-            data = await self._api_post(page, _CARD_TXN_OP, {"cardRef": card_ref})
-        except ScraperParseError:
-            logger.warning(
-                "BDC_KONY: card txn API call failed for %s", account.account_number_masked
+        """Fetch one credit card's transaction history.
+
+        The operation is keyed by the full card number, which is sent to the
+        portal only and never stored or logged.
+        """
+        pan = str(card.get("cardNumber") or "").strip()
+        if not pan.isdigit():
+            raise ScraperParseError(
+                f"BDC_KONY: card {account.account_number_masked} has no card number "
+                "for its transaction history",
+                bank_code=self.bank_name,
             )
-            return []
+        try:
+            for attempt in (1, 2):
+                try:
+                    data = await self._api_post(
+                        page, _CARD_TXN_OP, {"PAN": pan}, content_type=_JSON_CONTENT_TYPE
+                    )
+                    break
+                except ScraperParseError:
+                    logger.warning(
+                        "BDC_KONY: card txn API call failed for %s (attempt %d/2)",
+                        account.account_number_masked,
+                        attempt,
+                    )
+                    if attempt == 2:
+                        raise
+        finally:
+            del pan
+
+        rows = data.get("Transaction", data.get("Transactions", [])) or []
+        if not rows:
+            logger.warning(
+                "BDC_KONY: card %s returned no transactions", account.account_number_masked
+            )
 
         txns: list[Transaction] = []
-        rows = data.get("Transactions", data.get("transactions", []))
         for r in rows:
-            amount = _to_decimal(r.get("amount"))
-            if amount <= 0:
-                continue
-            txn_date = _parse_kony_date(r.get("transactionDate") or r.get("date"))
-            if txn_date is None:
-                raise ScraperParseError(
-                    "BDC card transaction has an invalid date", bank_code=self.bank_name
-                )
-            description = (r.get("description") or r.get("transactionDetails") or "N/A").strip()
-            # Category text like "Card Payment" (credit) vs "Purchase" (debit).
-            cat = (r.get("transactionCategory") or "").lower()
-            txn_type = "credit" if ("payment" in cat or "credit" in cat) else "debit"
-            txns.append(
-                Transaction(
-                    id=_ZERO_UUID,
-                    user_id=_ZERO_UUID,
-                    account_id=_ZERO_UUID,
-                    external_id=_make_external_id(txn_date, description, amount),
-                    amount=amount,
-                    currency=account.currency,
-                    transaction_type=txn_type,
-                    description=description,
-                    category=None,
-                    sub_category=None,
-                    transaction_date=txn_date,
-                    value_date=None,
-                    balance_after=None,
-                    raw_data={
-                        "source": "bdc_kony_card",
-                        "account_number_masked": account.account_number_masked,
-                        "row": r,
-                    },
-                    is_categorized=False,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
+            txn = self._parse_card_transaction(r, account, now)
+            if txn is not None:
+                txns.append(txn)
         return txns
+
+    def _parse_card_transaction(
+        self, r: dict, account: BankAccount, now: datetime
+    ) -> Transaction | None:
+        """Map one ``getCreditTransactionsHistory`` row to a Transaction.
+
+        Returns None for rows that did not move money (declined or zero).
+        """
+        status = str(r.get("txnStatus") or "").strip().lower()
+        if status and status != "approved":
+            return None
+        # AmountAcct is in the card's billing currency (EGP for foreign
+        # purchases too); txnAmount is in the merchant's currency.
+        amount = _to_decimal(r.get("AmountAcct") or r.get("txnAmount"))
+        if amount <= 0:
+            return None
+        txn_date = _parse_kony_date(r.get("txnDate") or str(r.get("TranTime") or "")[:10])
+        if txn_date is None:
+            raise ScraperParseError(
+                "BDC card transaction has an invalid date", bank_code=self.bank_name
+            )
+        description = (
+            str(r.get("txnDetails") or r.get("TermOwner") or "").strip()
+            or str(r.get("txnDescription") or "").strip()
+            or "N/A"
+        )
+        # txnDescription is "Purchase" (money spent) or "Payment" (money paid
+        # to the card, TranCode 50).
+        kind = str(r.get("txnDescription") or "").strip()
+        txn_type = "credit" if kind.lower() in _CARD_CREDIT_KINDS else "debit"
+        bank_id = str(r.get("Id") or r.get("TranNumber") or "").strip()
+        external_id = (
+            f"bdc:{bank_id}" if bank_id else _make_external_id(txn_date, description, amount)
+        )
+        original_currency = str(r.get("txnCurrecy") or "").strip()
+        return Transaction(
+            id=_ZERO_UUID,
+            user_id=_ZERO_UUID,
+            account_id=_ZERO_UUID,
+            external_id=external_id,
+            amount=amount,
+            currency=account.currency,
+            transaction_type=txn_type,
+            description=description,
+            category=None,
+            sub_category=None,
+            transaction_date=txn_date,
+            value_date=None,
+            balance_after=None,
+            # Keep only non-sensitive fields: rows also carry the full card
+            # number, track data and the linked account number.
+            raw_data={
+                "source": "bdc_kony_card",
+                "account_number_masked": account.account_number_masked,
+                "bank_transaction_id": bank_id or None,
+                "kind": kind or None,
+                "time": r.get("TranTime"),
+                "original_amount": r.get("txnAmount"),
+                "original_currency": original_currency or None,
+                "city": r.get("TermCity"),
+                "country": r.get("TermCountryName"),
+                "merchant_category_code": r.get("TermSIC"),
+            },
+            is_categorized=False,
+            created_at=now,
+            updated_at=now,
+        )

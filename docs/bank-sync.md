@@ -74,12 +74,43 @@ For the existing-proxy deployment, add
 Egyptian exit, BDC login form, and exit IP stability. It does not authenticate
 or write bank data. A passing preflight does not prove a full sync works.
 
-The Kony scraper currently captures account balances and card details;
-transaction capture is incomplete. Treat zero BDC transactions as an
-unverified scrape result, not proof of no spending. Do not rely on BDC totals
-for financial decisions until a live sync has been checked against the bank.
-The card API call has a bounded request timeout. A failed account or card API
-call fails the full scrape instead of silently reporting partial data.
+The Kony scraper captures account balances, credit card details, and each
+credit card's transaction history (checked against the portal on 2026-09-26).
+It does not capture deposit account transactions; the tested login has only a
+zero-balance placeholder account.
+
+- The portal sometimes resets the connection for its main app script or
+  stalls before showing the login form. The scraper reloads the page up to
+  three times (about 40 s each) and then reports a portal timeout, not
+  invalid credentials.
+- The redesigned login page records the password from key events, so the
+  scraper types it key by key and stops if the field did not receive it.
+- Each login form step has a 15 s limit. If a step before Sign In times out,
+  the scraper reloads the portal and fills the form once more; nothing has
+  been submitted at that point. A Sign In click that times out falls back to
+  the button's own handler. The API log names the step that timed out.
+- A card's `balance` is the amount owed: `utilizedAmount + holdAmount`
+  (approved limit minus available credit). The portal's `outstandingBalance`
+  equals the available credit and is not used.
+- History comes from `BDC_CardsManagement/.../getCreditTransactionsHistory`
+  in one response. The call needs `Content-Type: application/json`; with a
+  form content type it returns an empty list and HTTP 200. The scraper first
+  calls `getAllActiveCards`, as the portal's Cards page does; without it the
+  first history call of a session stalled past the request timeout. A failed
+  history call is retried once.
+- Foreign purchases are stored in the billed EGP amount (`AmountAcct`), with
+  the original amount and currency in `raw_data`. Declined rows are skipped.
+- Rows are keyed by the bank transaction ID (`bdc:<Id>`), so re-syncs update
+  rows in place. The full card number is sent to the portal only; it is never
+  stored in `raw_data` or logged.
+
+Card history from the retired T24 portal (`raw_data.source = 'bdc_retail'`)
+used different transaction keys, so those rows duplicate the same purchases
+in the new history.
+
+Each API call has a bounded request timeout. A failed account, card, or card
+history call fails the full scrape instead of silently reporting partial
+data. An empty card history is logged as a warning.
 
 ## NBE credit card history
 

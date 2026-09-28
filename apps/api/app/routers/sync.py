@@ -67,10 +67,9 @@ router = APIRouter(tags=["sync"])
 _SCRAPER_MAP = {
     "NBE": NBEScraper,
     "CIB": CIBScraper,
-    # BDC_RETAIL now uses the NEW Kony/Infinity portal scraper (verified live
-    # 2026-07-27: accounts + credit-card details). The old T24 BDCRetailScraper
-    # is retained in the codebase for reference/rollback until the Kony scraper
-    # also carries card transactions. See memory bdc_new_kony_portal.
+    # BDC_RETAIL uses the Kony/Infinity portal scraper (verified live
+    # 2026-09-26: accounts, credit-card details and card history). The old
+    # T24 BDCRetailScraper is retained for reference/rollback.
     "BDC_RETAIL": BDCKonyScraper,
     "UB": UBScraper,
 }

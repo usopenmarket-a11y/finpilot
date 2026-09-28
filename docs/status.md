@@ -24,8 +24,9 @@ about the live Supabase, Render, Vercel, or Kali environments.
 - Auth callback and password reset support the explicit update-password path.
 - The API can verify Supabase access tokens with JWKS keys or a legacy HS256
   secret, depending on the Supabase project.
-- BDC hosted sync has proxy validation and a credential-free preflight, while
-  transaction capture remains incomplete.
+- BDC hosted sync has proxy validation and a credential-free preflight. BDC
+  credit card transaction history is captured; deposit account transactions
+  are not.
 - The Linux stack builds both application images and routes one HTTPS domain
   through Caddy, or loopback ports through an existing proxy.
 

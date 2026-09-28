@@ -141,11 +141,16 @@ async def test_invalid_bdc_date_rejects_batch_before_persistence(monkeypatch):
         "_api_post",
         AsyncMock(
             return_value={
-                "Transactions": [{"amount": "10", "transactionDate": "invalid"}],
+                "Transaction": [
+                    {"AmountAcct": "10", "txnDate": "invalid", "txnStatus": "Approved"}
+                ],
             }
         ),
     )
     with pytest.raises(ScraperParseError, match="invalid date"):
         await scraper._fetch_card_transactions(
-            MagicMock(), _make_bank_account(), {}, datetime.now(UTC)
+            MagicMock(),
+            _make_bank_account(),
+            {"cardNumber": "0000001111111234"},
+            datetime.now(UTC),
         )

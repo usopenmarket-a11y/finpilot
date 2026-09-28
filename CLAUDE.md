@@ -15,7 +15,8 @@ file short and update the relevant guide in `docs/` when behavior changes.
 
 The web app and API run on the Kali host under one HTTPS origin; Auth and data
 remain on Supabase. See [architecture.md](docs/architecture.md) and
-[kali-linux.md](docs/deployment/kali-linux.md). `render.yaml` and `vercel.json`
+[kali-linux.md](docs/deployment/kali-linux.md). Public access can go through a
+Cloudflare Tunnel behind Cloudflare Access (same guide). `render.yaml` and `vercel.json`
 are legacy deployment files retained until cutover is verified.
 
 ## Local commands
@@ -56,8 +57,9 @@ isolated database integration-test requirement.
 - Check migration history before applying SQL. Apply the September 2026
   migration before deploying its matching API/web changes.
 - The daily scheduler is disabled; do not document automatic sync as active.
-- BDC production sync requires an Egyptian sticky proxy and its transaction
-  capture remains incomplete. See [bank-sync.md](docs/bank-sync.md).
+- BDC production sync requires an Egyptian sticky proxy unless the host is in
+  Egypt and sets `BDC_DIRECT_CONNECTION=true`. It captures credit card history
+  but not deposit account transactions. See [bank-sync.md](docs/bank-sync.md).
 
 Keep the automated tests in `apps/api/app/tests` and `apps/web/tests`. Remove
 temporary browser/login probes after use; they must never contain credentials.
