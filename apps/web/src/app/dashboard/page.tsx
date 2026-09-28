@@ -63,6 +63,8 @@ interface InsightItem {
 
 const CASH_ACCOUNT_TYPES = new Set(['savings', 'current', 'payroll']);
 const FIXED_INCOME_ACCOUNT_TYPES = new Set(['certificate', 'deposit', 'term_deposit']);
+// Bank loans and overdrafts store the amount owed; they are liabilities.
+const LOAN_ACCOUNT_TYPES = new Set(['loan']);
 
 const CATEGORY_COLORS: Record<string, string> = {
   'Food & Dining': '#f59e0b',
@@ -809,9 +811,11 @@ export default async function DashboardPage() {
   const liquidAccounts = accounts.filter((account) => CASH_ACCOUNT_TYPES.has(account.account_type));
   const fixedIncomeAccounts = accounts.filter((account) => FIXED_INCOME_ACCOUNT_TYPES.has(account.account_type));
   const creditCardAccounts = accounts.filter((account) => account.account_type === 'credit_card');
+  const loanAccounts = accounts.filter((account) => LOAN_ACCOUNT_TYPES.has(account.account_type));
   const otherBankAssetAccounts = accounts.filter(
     (account) =>
       account.account_type !== 'credit_card' &&
+      !LOAN_ACCOUNT_TYPES.has(account.account_type) &&
       !CASH_ACCOUNT_TYPES.has(account.account_type) &&
       !FIXED_INCOME_ACCOUNT_TYPES.has(account.account_type),
   );
@@ -822,6 +826,8 @@ export default async function DashboardPage() {
   const bankAssetValue = liquidBalance + fixedIncomeValue + otherBankAssetValue;
 
   const creditOutstanding = creditCardAccounts.reduce((sum, account) => sum + parseAmount(account.balance), 0);
+  // Older rows stored an overdraft as a negative balance; count the amount owed.
+  const loanOutstanding = loanAccounts.reduce((sum, account) => sum + Math.abs(parseAmount(account.balance)), 0);
   const creditLimit = creditCardAccounts.reduce((sum, account) => sum + parseAmount(account.credit_limit), 0);
   const availableCredit = Math.max(0, creditLimit - creditOutstanding);
   const creditUtilization = creditLimit > 0 ? (creditOutstanding / creditLimit) * 100 : null;
@@ -903,7 +909,7 @@ export default async function DashboardPage() {
     : null;
 
   const grossAssets = bankAssetValue + assetCurrentValue + totalLent;
-  const totalLiabilities = creditOutstanding + totalBorrowed + installmentLiability;
+  const totalLiabilities = creditOutstanding + loanOutstanding + totalBorrowed + installmentLiability;
   const netWorth = grossAssets - totalLiabilities;
 
   const healthScore = computeHealthScore({
@@ -1112,6 +1118,7 @@ export default async function DashboardPage() {
 
   const liabilityItems = [
     { label: 'Credit cards', value: creditOutstanding, tone: 'red' as Tone },
+    { label: 'Bank loans', value: loanOutstanding, tone: 'red' as Tone },
     { label: 'Borrowed debts', value: totalBorrowed, tone: 'amber' as Tone },
     { label: 'Installments', value: installmentLiability, tone: 'blue' as Tone },
   ].filter((item) => item.value > 0);

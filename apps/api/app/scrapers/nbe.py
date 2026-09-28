@@ -2303,6 +2303,12 @@ class NBEScraper(BankScraper):
                 balance_str = "-" + balance_str
             balance = _parse_amount(balance_str) or Decimal("0.00")
 
+            # Debit-current ("جاري مدين", an overdraft secured against savings)
+            # rows map to "loan" and show the drawn amount as a negative
+            # balance. Store it as the positive amount owed, like other loans.
+            if account_type == "loan":
+                balance = abs(balance)
+
             masked = self._mask_account_number(raw_account_number)
             logger.debug(
                 "NBE: row %d → masked=%s type=%s currency=%s balance=%s",
@@ -2324,6 +2330,7 @@ class NBEScraper(BankScraper):
                     balance=balance,
                     is_active=True,
                     last_synced_at=now,
+                    product_name=account_type_raw if acc_name_el else None,
                     created_at=now,
                     updated_at=now,
                 )

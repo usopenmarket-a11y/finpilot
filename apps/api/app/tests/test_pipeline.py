@@ -564,6 +564,44 @@ class TestRunner:
         assert result.transactions_new == 0
         assert result.transactions_skipped == 4
 
+    async def test_shared_masked_number_routes_to_one_account(self) -> None:
+        """Payroll and certificate ****0013: payroll transactions go to payroll only."""
+        uid = uuid4()
+        payroll = _make_bank_account()
+        payroll.account_number_masked = "****0013"
+        payroll.account_type = "payroll"
+        cert = _make_bank_account()
+        cert.account_number_masked = "****0013"
+        cert.account_type = "certificate"
+        txns = [_make_transaction(external_id=f"T{i}") for i in range(2)]
+        for txn in txns:
+            txn.raw_data = {"account_number_masked": "****0013"}
+
+        ids = {"payroll": uuid4(), "certificate": uuid4()}
+        inserted_for: list[UUID] = []
+
+        async def _upsert(account: BankAccount, *_a: object) -> UUID:
+            return ids[account.account_type]
+
+        async def _filter(batch: list[Transaction], account_id: UUID, *_a: object) -> list:
+            inserted_for.extend([account_id] * len(batch))
+            return []
+
+        with (
+            patch("app.pipeline.runner.upsert_account", new=AsyncMock(side_effect=_upsert)),
+            patch(
+                "app.pipeline.runner.filter_new_transactions",
+                new=AsyncMock(side_effect=_filter),
+            ),
+            patch("app.pipeline.runner.categorize_batch", new=AsyncMock(return_value=[])),
+        ):
+            # Certificate first: routing must not depend on account order.
+            await run_pipeline(
+                ScraperResult(accounts=[cert, payroll], transactions=txns), uid, AsyncMock()
+            )
+
+        assert inserted_for == [ids["payroll"], ids["payroll"]]
+
     def test_pipeline_run_result_has_required_fields(self) -> None:
         """PipelineRunResult dataclass exposes all documented fields."""
         now = datetime.now(tz=UTC)

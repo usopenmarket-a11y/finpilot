@@ -112,6 +112,18 @@ Each API call has a bounded request timeout. A failed account, card, or card
 history call fails the full scrape instead of silently reporting partial
 data. An empty card history is logged as a warning.
 
+## NBE account types
+
+The accounts widget's Arabic product name is stored as `product_name` and
+mapped to an account type. A debit-current row (`جاري مدين`, e.g. an
+overdraft secured against certificates) is stored as `loan` with the drawn
+amount as a positive balance owed; the portal shows it as negative. The
+dashboard counts `loan` accounts as liabilities.
+
+An NBE certificate can share its last four digits with the account it was
+opened from. When one scrape returns both, transactions go only to the
+non-certificate account.
+
 ## NBE credit card history
 
 The pipeline replaces fetched NBE unbilled, unsettled, and statement sections

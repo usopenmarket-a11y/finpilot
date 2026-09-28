@@ -74,6 +74,10 @@ class PipelineRunResult:
     ran_at: datetime
 
 
+# Account types whose balances are scraped without a transaction history.
+_NO_TXN_ACCOUNT_TYPES = frozenset({"certificate", "deposit", "term_deposit"})
+
+
 async def run_pipeline(
     result: ScraperResult,
     user_id: UUID,
@@ -166,6 +170,24 @@ async def run_pipeline(
             for txn in result.transactions
             if txn.raw_data.get("account_number_masked") == account_masked
         ]
+
+        # Accounts can share the last four digits (e.g. an NBE payroll account
+        # and the certificate opened from it, both ****0013). Give their
+        # transactions to one owner: the type a transaction names in raw_data,
+        # otherwise the first account with that number that is not a
+        # certificate/deposit (those carry no scraped transactions).
+        same_masked = [
+            a for a in result.accounts if a.account_number_masked.strip() == account_masked
+        ]
+        if len(same_masked) > 1:
+            types = [a.account_type.lower().strip() for a in same_masked]
+            owner_type = next((t for t in types if t not in _NO_TXN_ACCOUNT_TYPES), types[0])
+            account_txns = [
+                txn
+                for txn in account_txns
+                if str(txn.raw_data.get("account_type") or owner_type).lower().strip()
+                == normalized_account.account_type
+            ]
 
         # Fallback: if no transaction carries account_number_masked routing
         # (e.g. from an older single-account scrape) and this is the only

@@ -2229,3 +2229,40 @@ class TestBrowserLifecycle:
 
         await asyncio.wait_for(scraper._close_browser(browser), timeout=2)
         playwright.stop.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# NBE accounts widget — debit-current (overdraft) rows
+# ---------------------------------------------------------------------------
+
+_NBE_OVERDRAFT_DASHBOARD_HTML = """
+<html><body>
+<ul class="flip-account-list">
+  <li class="flip-account-list__items">
+    <div class="account-no">0765000645195400015</div>
+    <div class="account-name">جاري مدين بضمان اوعية ادخارية -افراد</div>
+    <div class="balance-amount">-EGP 50,874.11</div>
+  </li>
+  <li class="flip-account-list__items">
+    <div class="account-no">0765000645195400010</div>
+    <div class="account-name">توفير بعائد سنوي موظفين بنك اهلي</div>
+    <div class="balance-amount">EGP 7.01</div>
+  </li>
+</ul>
+</body></html>
+"""
+
+
+@pytest.mark.asyncio
+async def test_nbe_overdraft_row_is_positive_loan_with_product_name() -> None:
+    scraper = NBEScraper(username="test_user", password="test_password_123")
+    page = MagicMock()
+    page.content = AsyncMock(return_value=_NBE_OVERDRAFT_DASHBOARD_HTML)
+    overdraft, savings = await scraper._extract_all_accounts(page)
+
+    assert overdraft.account_type == "loan"
+    assert overdraft.balance == Decimal("50874.11")  # amount owed, positive
+    assert overdraft.product_name == "جاري مدين بضمان اوعية ادخارية -افراد"
+    assert savings.account_type == "savings"
+    assert savings.balance == Decimal("7.01")
+    assert savings.product_name == "توفير بعائد سنوي موظفين بنك اهلي"
