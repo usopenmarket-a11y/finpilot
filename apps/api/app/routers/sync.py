@@ -53,12 +53,14 @@ from app.scrapers import (
     CIBScraper,
     NBEScraper,
     ScraperLoginError,
+    ScraperOTPRequired,
     ScraperParseError,
     ScraperPasswordChangeRequired,
     ScraperTimeoutError,
     ScraperUnavailableError,
     UBScraper,
 )
+from app.scrapers.nbe import NBE_SYNC_PHASES, NBEPhaseOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +89,13 @@ _SCRAPE_SEMAPHORE = asyncio.Semaphore(1)
 # Hard wall-clock cap per job type, enforced on the server so a stalled portal
 # can never hold the scrape slot indefinitely. Sized from recorded sync_jobs
 # durations (successful NBE accounts runs took up to ~31 min on Render; other
-# NBE phases up to ~10 min). The web client polls a few minutes longer than
-# these, so it always receives the server's outcome. Keep the two in step with
+# NBE phases up to ~10 min). NBE "full" is the one-session sync of every
+# product: its section budgets (NBE_PHASE_BUDGET_S, 33 min) plus login and
+# saving. The web client polls a few minutes longer than these, so it always
+# receives the server's outcome. Keep the two in step with
 # SYNC_CLIENT_WAIT_MS in apps/web/src/lib/api-client.ts.
 _PHASE_DEADLINE_S: dict[str, float] = {
-    "full": 40 * 60,
+    "full": 45 * 60,
     "accounts": 35 * 60,
     "credit_cards": 15 * 60,
     "certificates": 15 * 60,
@@ -177,6 +181,18 @@ async def _keepalive_while_running(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+class SyncPhaseResult(BaseModel):
+    """Outcome of one product section in an NBE one-session sync."""
+
+    phase: str = Field(description="credit_cards, accounts, certificates, loans or prepaid_cards")
+    status: Literal["complete", "failed"]
+    accounts: int = 0
+    transactions_scraped: int = 0
+    transactions_saved: int = 0
+    error: str | None = None
+    note: str | None = None
+
+
 class SyncResponse(BaseModel):
     """Result of a completed sync."""
 
@@ -185,6 +201,9 @@ class SyncResponse(BaseModel):
     transactions_scraped: int
     transactions_saved: int
     synced_at: str
+    phases: list[SyncPhaseResult] | None = Field(
+        default=None, description="Per-section outcomes for an NBE one-session sync"
+    )
 
 
 class SyncJobStartResponse(BaseModel):
@@ -203,6 +222,9 @@ class SyncJobStatusResponse(BaseModel):
         default=None, description="Populated when status='complete'"
     )
     error: str | None = Field(default=None, description="Populated when status='failed'")
+    progress: str | None = Field(
+        default=None, description="Section currently being synced, e.g. 'loans (4/5)'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +360,118 @@ async def _load_job_from_db(job_id: str, user_id: UUID) -> SyncJobStatusResponse
     )
 
 
+async def _sync_nbe_all_products(
+    job_id: str,
+    user_id: UUID,
+    scraper: NBEScraper,
+    credential_id: UUID,
+    cred_label: str | None,
+) -> None:
+    """Sync every NBE product section after one login, saving each as it ends.
+
+    A failed or timed-out section is reported in ``result.phases`` without
+    discarding the sections that were saved. The job fails only when no
+    section could be saved, or when NBE rejects the login.
+    """
+    phases: list[SyncPhaseResult] = []
+    total = len(NBE_SYNC_PHASES)
+    _JOBS[job_id]["progress"] = f"{NBE_SYNC_PHASES[0].replace('_', ' ')} (1/{total})"
+    pipeline_client = await get_async_service_role_client()
+
+    async def _save(outcome: NBEPhaseOutcome) -> None:
+        entry = SyncPhaseResult(
+            phase=outcome.phase, status="failed", error=outcome.error, note=outcome.note
+        )
+        if outcome.result is not None and outcome.error is None:
+            entry.accounts = len(outcome.result.accounts)
+            entry.transactions_scraped = len(outcome.result.transactions)
+            try:
+                if outcome.result.accounts:
+                    saved = await run_pipeline(
+                        outcome.result,
+                        user_id=user_id,
+                        supabase_client=pipeline_client,
+                        credential_label=cred_label,
+                        credential_id=credential_id,
+                    )
+                    entry.transactions_saved = saved.transactions_new
+                entry.status = "complete"
+            except Exception as exc:
+                code = getattr(exc, "code", None)
+                logger.error(
+                    "NBE section %s could not be saved: %s code=%s",
+                    outcome.phase,
+                    type(exc).__name__,
+                    code if isinstance(code, str) and code.isalnum() else "n/a",
+                )
+                entry.error = "could not be saved"
+        phases.append(entry)
+        done = len(phases)
+        if done < total:
+            _JOBS[job_id]["progress"] = (
+                f"{NBE_SYNC_PHASES[done].replace('_', ' ')} ({done + 1}/{total})"
+            )
+
+    error: str | None = None
+    try:
+        async with _scrape_slot("NBE", "full"):
+            await scraper.scrape_all_products(_save)
+    except ScraperPasswordChangeRequired:
+        error = "NBE requires a password change — go to Settings to update your credentials"
+    except ScraperLoginError:
+        error = "Invalid bank credentials"
+    except ScraperOTPRequired:
+        error = "NBE asked for a one-time code; sync cannot continue automatically"
+    except ScraperTimeoutError:
+        # Login timed out, or the overall deadline cut the last section short.
+        error = "Bank portal timed out"
+    except Exception as exc:
+        logger.error("NBE one-session sync failed", exc_info=exc)
+        error = "Scraper error"
+
+    saved = [p for p in phases if p.status == "complete"]
+    _JOBS[job_id]["progress"] = None
+    if not saved:
+        failed = ", ".join(f"{p.phase.replace('_', ' ')} {p.error}" for p in phases)
+        _set_job_terminal(job_id, "failed", error=error or f"No NBE section synced ({failed})")
+        return
+
+    now_iso = datetime.now(UTC).isoformat()
+    try:
+        (
+            get_service_role_client()
+            .table("bank_credentials")
+            .update({"last_synced_at": now_iso})
+            .eq("user_id", str(user_id))
+            .eq("id", str(credential_id))
+            .execute()
+        )
+    except Exception:
+        pass  # non-fatal
+
+    # Sections never reached (e.g. aborted by the deadline) are reported too.
+    reached = {p.phase for p in phases}
+    for phase in NBE_SYNC_PHASES:
+        if phase not in reached:
+            phases.append(SyncPhaseResult(phase=phase, status="failed", error=error or "not run"))
+    logger.info(
+        "NBE one-session sync finished",
+        extra={"sections_ok": len(saved), "sections_total": total},
+    )
+    _set_job_terminal(
+        job_id,
+        "complete",
+        result=SyncResponse(
+            bank="NBE",
+            account_number_masked="****",
+            transactions_scraped=sum(p.transactions_scraped for p in saved),
+            transactions_saved=sum(p.transactions_saved for p in saved),
+            synced_at=now_iso,
+            phases=phases,
+        ),
+    )
+
+
 async def _background_sync_task(
     job_id: str,
     user_id: UUID,
@@ -398,6 +532,21 @@ async def _background_sync_task(
             logger.warning("Stored credential token authentication failed for bank=%s", bank)
             _JOBS[job_id]["status"] = "failed"
             _JOBS[job_id]["error"] = "Stored credential token could not be authenticated"
+            return
+
+        if bank == "NBE":
+            try:
+                assert username is not None and password is not None
+                await _sync_nbe_all_products(
+                    job_id,
+                    user_id,
+                    NBEScraper(username=username, password=password),
+                    UUID(row["id"]),
+                    cred_label,
+                )
+            finally:
+                del username
+                del password
             return
 
         # ------------------------------------------------------------------
@@ -1569,6 +1718,7 @@ async def get_sync_status(
             status=job["status"],
             result=job["result"],
             error=job["error"],
+            progress=job.get("progress"),
         )
 
     db_status = await _load_job_from_db(job_id, user_id)

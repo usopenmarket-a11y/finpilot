@@ -23,7 +23,7 @@ slot for the next request:
 
 | Job type | Server deadline | Browser polling limit |
 | --- | --- | --- |
-| Full sync | 40 min | 45 min |
+| Full sync (NBE: every section, one login) | 45 min | 50 min |
 | NBE accounts | 35 min | 40 min |
 | NBE cards, certificates, loans, prepaid | 15 min each | 20 min |
 
@@ -36,8 +36,27 @@ stuck Chromium cannot hold the slot.
 
 If the API restarts during a sync, a later status poll marks that job
 `failed` with an "interrupted" message instead of reporting `running`
-indefinitely. NBE "Sync all" runs every product phase even when one fails and
-then lists the phases that need a retry.
+indefinitely.
+
+### NBE "Sync all"
+
+NBE "Sync all" is one job and one login. After signing in, the scraper reads
+credit cards, accounts, certificates, loans, and prepaid cards in that order
+in the same browser session, returning to the dashboard between sections.
+Each section is saved as soon as it finishes, so a later failure does not
+lose earlier sections. Each section has its own budget (credit cards 9 min,
+accounts 12 min, the others 4 min each); a section that exceeds it is
+reported as timed out and the next section still runs. If NBE ends the
+session between sections, the scraper signs in again once; a second loss
+fails the remaining sections rather than repeating logins. A rejected login,
+OTP, or password-change prompt stops the job.
+
+The job reports the section in progress (`progress`, e.g. `loans (4/5)`) and
+per-section outcomes in `result.phases`. It is `complete` when at least one
+section was saved and `failed` only when none was. A section whose portal
+view did not load is reported as failed rather than as an empty product.
+The per-item menu still syncs one section with its own login. Verified live
+on 2026-09-28: one login, all five sections in 4.5 minutes.
 
 The daily scheduler code exists in `apps/api/app/scheduler.py` but is not
 started by `apps/api/app/main.py`. Automatic daily sync is currently disabled.

@@ -19,7 +19,8 @@ from fastapi import HTTPException, status
 from httpx import AsyncClient
 
 from app.routers import sync as sync_router
-from app.scrapers.nbe import NBEScraper
+from app.scrapers.base import ScraperLoginError, ScraperResult
+from app.scrapers.nbe import NBEPhaseOutcome, NBEScraper
 
 
 @pytest.fixture
@@ -115,7 +116,7 @@ async def test_split_sync_requires_auth(
 @pytest.mark.parametrize(
     ("task_name", "scraper_method"),
     [
-        ("_background_sync_task", "scrape"),
+        ("_background_sync_task", "scrape_all_products"),
         ("_background_sync_accounts_task", "scrape_accounts"),
         ("_background_sync_cc_task", "scrape_credit_cards"),
         ("_background_sync_loans_task", "scrape_loans"),
@@ -166,8 +167,12 @@ async def test_scrape_success_with_pipeline_failure_is_reported_as_failed(
     async def fake_async_client() -> object:
         return object()
 
-    async def fake_scrape(_self: NBEScraper) -> object:
-        return object()
+    async def fake_scrape(_self: NBEScraper, *args: object) -> object:
+        section = SimpleNamespace(accounts=[object()], transactions=[])
+        if args:  # scrape_all_products(on_phase): hand one section to the saver
+            await args[0](NBEPhaseOutcome(phase="accounts", result=section))  # type: ignore[operator]
+            return []
+        return section
 
     async def failing_pipeline(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("private database detail")
@@ -202,7 +207,7 @@ async def test_scrape_success_with_pipeline_failure_is_reported_as_failed(
 
 
 _TASK_METHODS = [
-    ("_background_sync_task", "scrape"),
+    ("_background_sync_task", "scrape_all_products"),
     ("_background_sync_accounts_task", "scrape_accounts"),
     ("_background_sync_cc_task", "scrape_credit_cards"),
     ("_background_sync_loans_task", "scrape_loans"),
@@ -246,14 +251,18 @@ async def test_hung_scraper_is_stopped_by_server_deadline(
         def table(self, _name: str) -> FakeQuery:
             return FakeQuery()
 
-    async def hung_scrape(_self: NBEScraper) -> object:
+    async def hung_scrape(_self: NBEScraper, *_args: object) -> object:
         try:
             await asyncio.Event().wait()
         finally:
             cleanup_ran.append(True)  # the scraper's browser teardown must run
         return object()
 
+    async def fake_async_client() -> object:
+        return object()
+
     monkeypatch.setattr(sync_router, "get_service_role_client", FakeClient)
+    monkeypatch.setattr(sync_router, "get_async_service_role_client", fake_async_client)
     monkeypatch.setattr(sync_router, "decrypt", lambda *_args: "decrypted")
     monkeypatch.setattr(NBEScraper, scraper_method, hung_scrape)
     monkeypatch.setattr(
@@ -321,3 +330,140 @@ async def test_status_of_finished_durable_job_is_returned_unchanged(
     response = await sync_router.get_sync_status(str(uuid4()), uuid4())
     assert response.status == "failed"
     assert response.error == "Bank portal timed out"
+
+
+# ---------------------------------------------------------------------------
+# NBE one-session "Sync all"
+# ---------------------------------------------------------------------------
+
+
+def _patch_nbe_all(
+    monkeypatch: pytest.MonkeyPatch,
+    outcomes: list[NBEPhaseOutcome] | Exception,
+    saved: list[str],
+) -> list[dict[str, str]]:
+    """Stub scrape_all_products, the pipeline and credential timestamp update."""
+    updates: list[dict[str, str]] = []
+
+    class FakeQuery:
+        def update(self, payload: dict[str, str]) -> FakeQuery:
+            updates.append(payload)
+            return self
+
+        def eq(self, *_args: object) -> FakeQuery:
+            return self
+
+        def execute(self) -> SimpleNamespace:
+            return SimpleNamespace(data=[])
+
+    class FakeClient:
+        def table(self, _name: str) -> FakeQuery:
+            return FakeQuery()
+
+    async def fake_all(_self: NBEScraper, on_phase: Callable[..., object]) -> object:
+        if isinstance(outcomes, Exception):
+            raise outcomes
+        for outcome in outcomes:
+            await on_phase(outcome)  # type: ignore[misc]
+        return outcomes
+
+    async def fake_pipeline(result: ScraperResult, **_kwargs: object) -> SimpleNamespace:
+        saved.append(str(result.accounts[0]))
+        return SimpleNamespace(transactions_new=len(result.transactions))
+
+    async def fake_async_client() -> object:
+        return object()
+
+    monkeypatch.setattr(NBEScraper, "scrape_all_products", fake_all)
+    monkeypatch.setattr(sync_router, "run_pipeline", fake_pipeline)
+    monkeypatch.setattr(sync_router, "get_async_service_role_client", fake_async_client)
+    monkeypatch.setattr(sync_router, "get_service_role_client", FakeClient)
+    return updates
+
+
+def _section(name: str, txns: int = 0) -> ScraperResult:
+    # Plain placeholders: the pipeline is stubbed, only counts are read.
+    return ScraperResult(accounts=[name], transactions=[object()] * txns)  # type: ignore[list-item]
+
+
+async def _run_nbe_all(job_id: str) -> dict[str, object]:
+    sync_router._JOBS[job_id] = {"status": "running", "result": None, "error": None}
+    scraper = NBEScraper(username="u", password="p")
+    await sync_router._sync_nbe_all_products(job_id, uuid4(), scraper, uuid4(), "NBE-Test")
+    return sync_router._JOBS.pop(job_id)
+
+
+async def test_nbe_sync_all_saves_each_section_and_reports_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved: list[str] = []
+    updates = _patch_nbe_all(
+        monkeypatch,
+        [
+            NBEPhaseOutcome("credit_cards", _section("card", 3)),
+            NBEPhaseOutcome("accounts", _section("savings", 2)),
+            NBEPhaseOutcome("certificates", error="timed out"),
+            NBEPhaseOutcome("loans", _section("loan")),
+            NBEPhaseOutcome("prepaid_cards", ScraperResult(accounts=[], transactions=[])),
+        ],
+        saved,
+    )
+    job = await _run_nbe_all(str(uuid4()))
+
+    assert job["status"] == "complete"
+    assert saved == ["card", "savings", "loan"]  # empty section saves nothing
+    result = job["result"]
+    assert isinstance(result, sync_router.SyncResponse)
+    assert result.transactions_scraped == 5
+    by_phase = {p.phase: p for p in result.phases or []}
+    assert by_phase["certificates"].status == "failed"
+    assert by_phase["certificates"].error == "timed out"
+    assert by_phase["prepaid_cards"].status == "complete"
+    assert len(updates) == 1  # credential last_synced_at advanced once
+    assert job["progress"] is None
+
+
+async def test_nbe_sync_all_fails_when_no_section_is_saved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    updates = _patch_nbe_all(
+        monkeypatch,
+        [NBEPhaseOutcome(p, error="timed out") for p in sync_router.NBE_SYNC_PHASES],
+        [],
+    )
+    job = await _run_nbe_all(str(uuid4()))
+    assert job["status"] == "failed"
+    assert "No NBE section synced" in str(job["error"])
+    assert updates == []
+
+
+async def test_nbe_sync_all_login_rejection_fails_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_nbe_all(monkeypatch, ScraperLoginError("bad", bank_code="NBE"), [])
+    job = await _run_nbe_all(str(uuid4()))
+    assert job["status"] == "failed"
+    assert job["error"] == "Invalid bank credentials"
+
+
+async def test_nbe_sync_all_keeps_saved_sections_when_deadline_hits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved: list[str] = []
+    _patch_nbe_all(monkeypatch, [], saved)
+
+    async def slow_all(_self: NBEScraper, on_phase: Callable[..., object]) -> None:
+        await on_phase(NBEPhaseOutcome("credit_cards", _section("card", 1)))  # type: ignore[misc]
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(NBEScraper, "scrape_all_products", slow_all)
+    monkeypatch.setattr(
+        sync_router, "_PHASE_DEADLINE_S", dict.fromkeys(sync_router._PHASE_DEADLINE_S, 0.05)
+    )
+    job = await _run_nbe_all(str(uuid4()))
+
+    assert job["status"] == "complete"
+    assert saved == ["card"]
+    phases = {p.phase: p for p in job["result"].phases}  # type: ignore[union-attr]
+    assert phases["credit_cards"].status == "complete"
+    assert phases["accounts"].status == "failed"
+    assert phases["accounts"].error == "Bank portal timed out"
+    assert not sync_router._SCRAPE_SEMAPHORE.locked()

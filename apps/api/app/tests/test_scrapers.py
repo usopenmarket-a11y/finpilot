@@ -2266,3 +2266,156 @@ async def test_nbe_overdraft_row_is_positive_loan_with_product_name() -> None:
     assert savings.account_type == "savings"
     assert savings.balance == Decimal("7.01")
     assert savings.product_name == "توفير بعائد سنوي موظفين بنك اهلي"
+
+
+# ---------------------------------------------------------------------------
+# NBE one-session sync of every product section
+# ---------------------------------------------------------------------------
+
+
+def _one_session_scraper(
+    monkeypatch: pytest.MonkeyPatch, run_phase: Any
+) -> tuple[NBEScraper, dict[str, int]]:
+    """NBEScraper with browser/login stubbed; counts logins and closes."""
+    calls = {"logins": 0, "closed": 0, "dashboard": 0}
+    scraper = NBEScraper(username="test_user", password="test_password_123")
+
+    async def _open_session() -> tuple[object, object]:
+        calls["logins"] += 1
+        return object(), MagicMock()
+
+    async def _close(_browser: object) -> None:
+        calls["closed"] += 1
+
+    async def _dashboard(_page: object) -> None:
+        calls["dashboard"] += 1
+
+    monkeypatch.setattr(scraper, "_open_session", _open_session)
+    monkeypatch.setattr(scraper, "_close_browser", _close)
+    monkeypatch.setattr(scraper, "_return_to_dashboard", _dashboard)
+    monkeypatch.setattr(scraper, "_run_phase", run_phase)
+    return scraper, calls
+
+
+@pytest.mark.asyncio
+async def test_nbe_scrape_all_products_logs_in_once_and_isolates_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.scrapers.nbe import NBE_SYNC_PHASES
+
+    async def run_phase(_page: object, phase: str) -> tuple[ScraperResult, None]:
+        if phase == "certificates":
+            raise ScraperTimeoutError("NBE product section did not load", bank_code="NBE")
+        if phase == "loans":
+            raise RuntimeError("unexpected widget")
+        return ScraperResult(accounts=[], transactions=[]), None
+
+    scraper, calls = _one_session_scraper(monkeypatch, run_phase)
+    seen: list[str] = []
+
+    async def on_phase(outcome: Any) -> None:
+        seen.append(outcome.phase)
+
+    outcomes = await scraper.scrape_all_products(on_phase)
+
+    assert calls["logins"] == 1
+    assert calls["closed"] == 1
+    assert calls["dashboard"] == len(NBE_SYNC_PHASES) - 1  # between sections
+    assert seen == list(NBE_SYNC_PHASES)
+    errors = {o.phase: o.error for o in outcomes}
+    assert errors == {
+        "credit_cards": None,
+        "accounts": None,
+        "certificates": "timed out",
+        "loans": "failed",
+        "prepaid_cards": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_nbe_section_over_budget_is_timed_out_and_next_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.scrapers.nbe as nbe_mod
+
+    monkeypatch.setattr(
+        nbe_mod, "NBE_PHASE_BUDGET_S", dict.fromkeys(nbe_mod.NBE_PHASE_BUDGET_S, 0.05)
+    )
+
+    async def run_phase(_page: object, phase: str) -> tuple[ScraperResult, None]:
+        if phase == "accounts":
+            await asyncio.Event().wait()  # portal stuck
+        return ScraperResult(accounts=[], transactions=[]), None
+
+    scraper, _calls = _one_session_scraper(monkeypatch, run_phase)
+
+    async def on_phase(_outcome: Any) -> None:
+        return None
+
+    outcomes = await asyncio.wait_for(scraper.scrape_all_products(on_phase), timeout=5)
+    assert [o.error for o in outcomes] == [None, "timed out", None, None, None]
+
+
+@pytest.mark.asyncio
+async def test_nbe_scrape_all_products_aborts_on_rejected_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run_phase(_page: object, _phase: str) -> None:
+        raise ScraperLoginError("rejected", bank_code="NBE")
+
+    scraper, calls = _one_session_scraper(monkeypatch, run_phase)
+    seen: list[str] = []
+
+    async def on_phase(outcome: Any) -> None:
+        seen.append(outcome.phase)
+
+    with pytest.raises(ScraperLoginError):
+        await scraper.scrape_all_products(on_phase)
+    assert seen == []
+    assert calls["closed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_nbe_return_to_dashboard_relogs_in_at_most_once() -> None:
+    scraper = NBEScraper(username="test_user", password="test_password_123")
+    scraper._relogins_left = 1
+    login_field = MagicMock()
+    login_field.is_visible = AsyncMock(return_value=True)  # NBE ended the session
+    page = MagicMock()
+    page.goto = AsyncMock(return_value=None)
+    page.query_selector = AsyncMock(return_value=login_field)
+    scraper._random_delay = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    scraper._login = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    scraper._wait_for_dashboard = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    await scraper._return_to_dashboard(page)
+    assert scraper._login.await_count == 1
+    with pytest.raises(ScraperTimeoutError):
+        await scraper._return_to_dashboard(page)
+    assert scraper._login.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_nbe_product_section_lost_session_raises_not_empty() -> None:
+    """A lost session is a failure, not 'no loans' — it must not look empty."""
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
+    scraper = NBEScraper(username="test_user", password="test_password_123")
+    page = MagicMock()
+    page.url = "https://www.alahlynet.com.eg/?page=accounts"
+    page.goto = AsyncMock(return_value=None)
+    page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("no session"))
+    with pytest.raises(ScraperTimeoutError):
+        await scraper._scrape_loans(page)
+
+
+@pytest.mark.asyncio
+async def test_nbe_product_section_absent_widget_is_empty() -> None:
+    """On the dashboard with no LON widget, the user genuinely has no loans."""
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
+    scraper = NBEScraper(username="test_user", password="test_password_123")
+    page = MagicMock()
+    page.url = "https://www.alahlynet.com.eg/?page=home"
+    page.wait_for_selector = AsyncMock(side_effect=PlaywrightTimeoutError("no widget"))
+    assert await scraper._scrape_loans(page) == []

@@ -770,46 +770,43 @@ export function BankAccountsSection() {
         return;
       }
 
-      // NBE exposes three independent split-sync endpoints (accounts, credit
-      // cards, certificates), each launching its own fresh Playwright session
-      // with a clean memory baseline. Running them sequentially is faster and
-      // far less likely to time out / OOM on Render's free tier than the
-      // monolithic full sync. Other banks only have a single demand-deposit
-      // account and their split endpoints fall back to the same full
-      // scrape().scrape() under the hood, so calling all three would triple
-      // the work for no benefit — use the original single full sync for them.
+      // NBE syncs every product section in one server job after a single
+      // login (the API reports the section in progress). Each section is
+      // saved as it finishes, so a failed section does not lose the others.
       if (cred.bank === 'NBE') {
-        const results: SyncResult[] = [];
-        const failedPhases: string[] = [];
+        const onProgress = (progress: string | null) => {
+          const [, label, index, total] = progress?.match(/^(.*) \((\d+)\/(\d+)\)$/) ?? [];
+          if (!label || !index || !total) return;
+          const phaseInfo: SyncPhaseInfo = { index: Number(index), total: Number(total), label };
+          setSyncStates((prev) => ({
+            ...prev,
+            [key]: {
+              loading: true,
+              error: null,
+              lastResult: null,
+              startedAt: prev[key]?.startedAt ?? Date.now(),
+              phase: phaseInfo,
+            },
+          }));
+        };
 
-        // Phases are independent sessions: a timeout in one (e.g. accounts)
-        // must not skip the others, so keep going and report failures at the end.
-        for (const [i, phase] of NBE_SYNC_PHASES.entries()) {
-          const phaseInfo: SyncPhaseInfo = {
-            index: i + 1,
-            total: NBE_SYNC_PHASES.length,
-            label: phase.label,
-          };
-
-          const phaseResult = await runNbePhase(accessToken, cred, 'NBE', phase, phaseInfo);
-          if (phaseResult) {
-            results.push(phaseResult);
-          } else {
-            failedPhases.push(phase.label);
-          }
-        }
-
-        const totalScraped = results.reduce((sum, r) => sum + r.transactions_scraped, 0);
-        const totalSaved = results.reduce((sum, r) => sum + r.transactions_saved, 0);
-        const summary = `Synced ${totalScraped} transactions (${totalSaved} new)`;
+        const result = await syncBank(accessToken, 'NBE', cred.id, onProgress);
+        const phases = result.phases ?? [];
+        const failed = phases.filter((p) => p.status === 'failed');
+        const withNotes = phases.filter((p) => p.status === 'complete' && p.note);
+        const summary = `Synced ${result.transactions_scraped} transactions (${result.transactions_saved} new)`;
+        const describe = (name: string) => name.replace('_', ' ');
         setSyncStates((prev) => ({
           ...prev,
           [key]: {
             loading: false,
-            error: failedPhases.length
-              ? `Could not sync ${failedPhases.join(', ')} (${results.length} of ${NBE_SYNC_PHASES.length} parts succeeded). Retry those items individually.`
+            error: failed.length
+              ? `Could not sync ${failed.map((p) => `${describe(p.phase)} (${p.error ?? 'failed'})`).join(', ')}. ` +
+                `${phases.length - failed.length} of ${phases.length} parts succeeded; retry those items individually.`
               : null,
-            lastResult: failedPhases.length ? summary : `${summary} across all NBE products`,
+            lastResult:
+              (failed.length ? summary : `${summary} across all NBE products`) +
+              (withNotes.length ? ` — ${withNotes.map((p) => `${describe(p.phase)}: ${p.note}`).join('; ')}` : ''),
             startedAt: null,
             phase: null,
           },

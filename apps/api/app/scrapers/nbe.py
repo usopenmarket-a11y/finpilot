@@ -87,6 +87,8 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
@@ -107,6 +109,43 @@ from app.scrapers.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# One-session "sync all"
+# ---------------------------------------------------------------------------
+
+# Product sections read in one logged-in session, in this order. Credit cards
+# go first while the Oracle JET SPA is fresh; its CCA widget hydrates slowly
+# after the demand-deposit pages have been visited.
+NBE_SYNC_PHASES: tuple[str, ...] = (
+    "credit_cards",
+    "accounts",
+    "certificates",
+    "loans",
+    "prepaid_cards",
+)
+
+# Per-section time budgets. A section that exceeds its budget is reported as
+# timed out and the next section still runs in the same session. Observed
+# durations on the Kali host, including login, were 1.5-7 min per section.
+NBE_PHASE_BUDGET_S: dict[str, float] = {
+    "credit_cards": 9 * 60,
+    "accounts": 12 * 60,
+    "certificates": 4 * 60,
+    "loans": 4 * 60,
+    "prepaid_cards": 4 * 60,
+}
+
+
+@dataclass
+class NBEPhaseOutcome:
+    """Result of one product section in a one-session sync."""
+
+    phase: str
+    result: ScraperResult | None = None
+    error: str | None = None  # safe, user-facing reason when the section failed
+    note: str | None = None  # partial-success detail, e.g. card history missing
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -478,6 +517,12 @@ def _make_external_id(txn_date: date, description: str, amount: Decimal) -> str:
 # ---------------------------------------------------------------------------
 # Module-level parsing helpers
 # ---------------------------------------------------------------------------
+
+
+# Raised by the product widget scrapers when the portal failed to show the
+# product (navigation timeout, lost session, rows never hydrated). A widget
+# that is absent or has no rows is a genuinely empty product and returns [].
+_PRODUCT_UNAVAILABLE_MSG = "NBE product section did not load"
 
 
 def _normalise_account_type(raw: str) -> str:
@@ -1033,6 +1078,128 @@ class NBEScraper(BankScraper):
         finally:
             await self._close_browser(browser)
 
+    async def scrape_all_products(
+        self,
+        on_phase: Callable[[NBEPhaseOutcome], Awaitable[None]],
+        phases: tuple[str, ...] = NBE_SYNC_PHASES,
+    ) -> list[NBEPhaseOutcome]:
+        """Read every NBE product section after a single login.
+
+        Each section runs within its ``NBE_PHASE_BUDGET_S`` budget in the same
+        browser session. ``on_phase`` is awaited after every section (success
+        or failure) so the caller can save that section immediately. A failed
+        or timed-out section does not stop the others. Credential rejection,
+        OTP and password-change prompts abort the whole run.
+
+        The page returns to the dashboard between sections. If NBE ended the
+        session, the scraper signs in again once; a second loss fails the
+        remaining sections instead of repeating logins.
+        """
+        logger.info("NBE: scrape_all_products starting (%d sections)", len(phases))
+        browser, page = await self._open_session()
+        outcomes: list[NBEPhaseOutcome] = []
+        self._relogins_left = 1
+        try:
+            for idx, phase in enumerate(phases):
+                outcome = NBEPhaseOutcome(phase=phase)
+                try:
+                    async with asyncio.timeout(NBE_PHASE_BUDGET_S[phase]):
+                        if idx > 0:
+                            await self._return_to_dashboard(page)
+                        outcome.result, outcome.note = await self._run_phase(page, phase)
+                except (ScraperLoginError, ScraperOTPRequired, ScraperPasswordChangeRequired):
+                    raise
+                except (TimeoutError, ScraperTimeoutError, PlaywrightTimeoutError):
+                    outcome.error = "timed out"
+                except Exception as exc:
+                    outcome.error = "failed"
+                    logger.warning(
+                        "NBE: section %s failed: %s", phase, type(exc).__name__, exc_info=exc
+                    )
+                logger.info(
+                    "NBE: section %s %s (%d account(s), %d transaction(s))",
+                    phase,
+                    outcome.error or "ok",
+                    len(outcome.result.accounts) if outcome.result else 0,
+                    len(outcome.result.transactions) if outcome.result else 0,
+                )
+                outcomes.append(outcome)
+                await on_phase(outcome)
+            return outcomes
+        finally:
+            await self._close_browser(browser)
+
+    async def _open_session(self):  # noqa: ANN202
+        """Launch the browser and log in, retrying once on a dashboard timeout."""
+        for attempt in (1, 2):
+            browser, _context, page = await self._launch_browser()
+            try:
+                await self._navigate_to_login(page)
+                await self._login(page)
+                await self._wait_for_dashboard(page)
+                return browser, page
+            except ScraperTimeoutError:
+                await self._close_browser(browser)
+                if attempt == 2:
+                    raise
+                logger.warning("NBE: dashboard timed out after login — retrying once")
+            except BaseException:
+                await self._close_browser(browser)
+                raise
+        raise AssertionError("unreachable")
+
+    async def _return_to_dashboard(self, page: Page) -> None:
+        """Go back to the dashboard between sections, re-login once if needed."""
+        try:
+            await page.goto(
+                _LOGIN_URL, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT_MS
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("NBE: dashboard navigation slow — waiting for the dashboard")
+        await self._random_delay(1.0, 2.0)
+        login_field = await page.query_selector(_SEL_USERNAME)
+        if login_field is not None and await login_field.is_visible():
+            if self._relogins_left <= 0:
+                raise ScraperTimeoutError("NBE session ended again", bank_code="NBE")
+            self._relogins_left -= 1
+            logger.info("NBE: session ended between sections — signing in again once")
+            await self._login(page)
+        await self._wait_for_dashboard(page)
+
+    async def _run_phase(self, page: Page, phase: str) -> tuple[ScraperResult, str | None]:
+        """Read one product section on an already logged-in page."""
+        raw_html: dict[str, str] = {}
+        if phase == "accounts":
+            accounts, txns = await self._collect_demand_deposits(page, raw_html)
+            return ScraperResult(accounts=accounts, transactions=txns), None
+        if phase == "credit_cards":
+            cards = await self._scrape_credit_cards(page)
+            note = None
+            try:
+                card_txns = await self._scrape_cc_transactions(page, cards)
+            except (ScraperLoginError, ScraperOTPRequired, ScraperPasswordChangeRequired):
+                raise
+            except Exception as exc:
+                logger.warning("NBE: card statements unavailable: %s", type(exc).__name__)
+                card_txns, note = [], "card transactions unavailable"
+            unbilled = sum(
+                t.amount
+                for t in card_txns
+                if isinstance(t.raw_data, dict)
+                and t.raw_data.get("source") == "nbe_cc_unbilled"
+                and t.transaction_type == "debit"
+            )
+            if unbilled > 0:
+                for card in cards:
+                    card.unbilled_amount = unbilled
+            return ScraperResult(accounts=cards, transactions=card_txns), note
+        scrapers = {
+            "certificates": self._scrape_certificates,
+            "loans": self._scrape_loans,
+            "prepaid_cards": self._scrape_prepaid_cards,
+        }
+        return ScraperResult(accounts=await scrapers[phase](page), transactions=[]), None
+
     async def scrape_accounts(self) -> ScraperResult:
         """Scrape demand-deposit accounts and their transactions only.
 
@@ -1094,101 +1261,9 @@ class NBEScraper(BankScraper):
             # or _reveal_accounts_widget) propagate immediately — they are not
             # transient empty states and should not be retried here.
             # ------------------------------------------------------------------
-            _rows_present = await self._reveal_accounts_widget(page)
-            _total_reveal_attempts = 1
-            while not _rows_present and _total_reveal_attempts <= _ZERO_ACCOUNTS_MAX_RETRIES:
-                logger.info(
-                    "NBE: accounts widget returned 0 accounts — retry %d/%d after reload",
-                    _total_reveal_attempts,
-                    _ZERO_ACCOUNTS_MAX_RETRIES,
-                )
-                await self._random_delay(1.0, 2.0)
-                await self._reload_to_dashboard(page)
-                _rows_present = await self._reveal_accounts_widget(page)
-                _total_reveal_attempts += 1
-
-            if not _rows_present:
-                logger.info(
-                    "NBE: 0 demand-deposit accounts after %d reveal attempt(s) — returning empty result",
-                    _total_reveal_attempts,
-                )
-                return ScraperResult(
-                    accounts=[],
-                    transactions=[],
-                    raw_html=raw_html,
-                )
-            accounts = await self._extract_all_accounts(page)
-            total = len(accounts)
-            logger.info("NBE: scrape_accounts — found %d account(s)", total)
-
-            all_transactions: list = []
-            for idx, account in enumerate(accounts):
-                logger.info(
-                    "NBE: scrape_accounts — account %d/%d masked=%s",
-                    idx + 1,
-                    total,
-                    account.account_number_masked,
-                )
-                try:
-                    if idx > 0:
-                        await self._reveal_accounts_widget(page)
-                    await self._navigate_to_transactions_for_account(page, idx)
-                    raw_html[f"transactions_{idx}"] = _truncate_html(await page.content())
-                    txns = await self._extract_transactions(page, account)
-                    logger.info(
-                        "NBE: scrape_accounts — account %d/%d extracted %d transactions",
-                        idx + 1,
-                        total,
-                        len(txns),
-                    )
-                    all_transactions.extend(txns)
-                    if idx < total - 1:
-                        try:
-                            await page.go_back(
-                                wait_until="domcontentloaded",
-                                timeout=_PAGE_LOAD_TIMEOUT_MS,
-                            )
-                        except PlaywrightTimeoutError:
-                            logger.warning(
-                                "NBE: scrape_accounts go_back() timed out for account %d — proceeding",
-                                idx + 1,
-                            )
-                        await self._random_delay(0.8, 1.5)
-                except (ScraperLoginError, ScraperOTPRequired):
-                    raise
-                except Exception as account_exc:
-                    logger.warning(
-                        "NBE: scrape_accounts — skipping account %d/%d (masked=%s): %s: %s",
-                        idx + 1,
-                        total,
-                        account.account_number_masked,
-                        type(account_exc).__name__,
-                        account_exc,
-                    )
-                    try:
-                        await page.goto(
-                            _LOGIN_URL,
-                            wait_until="domcontentloaded",
-                            timeout=_PAGE_LOAD_TIMEOUT_MS,
-                        )
-                        await self._random_delay(1.0, 2.0)
-                        login_field = await page.query_selector(_SEL_USERNAME)
-                        if login_field is not None and await login_field.is_visible():
-                            logger.info(
-                                "NBE: scrape_accounts session lost after account %d — re-logging in",
-                                idx + 1,
-                            )
-                            await self._login(page)
-                            await self._wait_for_dashboard(page)
-                    except (ScraperLoginError, ScraperOTPRequired):
-                        raise
-                    except Exception as recovery_exc:
-                        logger.warning(
-                            "NBE: scrape_accounts recovery failed after account %d: %s",
-                            idx + 1,
-                            recovery_exc,
-                        )
-                    continue
+            accounts, all_transactions = await self._collect_demand_deposits(page, raw_html)
+            if not accounts:
+                return ScraperResult(accounts=[], transactions=[], raw_html=raw_html)
 
             logger.info(
                 "NBE: scrape_accounts complete — %d account(s), %d transaction(s)",
@@ -1225,6 +1300,107 @@ class NBEScraper(BankScraper):
 
         finally:
             await self._close_browser(browser)
+
+    async def _collect_demand_deposits(
+        self, page: Page, raw_html: dict[str, str]
+    ) -> tuple[list[BankAccount], list[Transaction]]:
+        """Read the accounts widget and each account's transactions in this session.
+
+        Returns ``([], [])`` when the widget stays empty after the retries.
+        """
+        _rows_present = await self._reveal_accounts_widget(page)
+        _total_reveal_attempts = 1
+        while not _rows_present and _total_reveal_attempts <= _ZERO_ACCOUNTS_MAX_RETRIES:
+            logger.info(
+                "NBE: accounts widget returned 0 accounts — retry %d/%d after reload",
+                _total_reveal_attempts,
+                _ZERO_ACCOUNTS_MAX_RETRIES,
+            )
+            await self._random_delay(1.0, 2.0)
+            await self._reload_to_dashboard(page)
+            _rows_present = await self._reveal_accounts_widget(page)
+            _total_reveal_attempts += 1
+
+        if not _rows_present:
+            logger.info(
+                "NBE: 0 demand-deposit accounts after %d reveal attempt(s) — returning empty result",
+                _total_reveal_attempts,
+            )
+            return [], []
+        accounts = await self._extract_all_accounts(page)
+        total = len(accounts)
+        logger.info("NBE: scrape_accounts — found %d account(s)", total)
+
+        all_transactions: list = []
+        for idx, account in enumerate(accounts):
+            logger.info(
+                "NBE: scrape_accounts — account %d/%d masked=%s",
+                idx + 1,
+                total,
+                account.account_number_masked,
+            )
+            try:
+                if idx > 0:
+                    await self._reveal_accounts_widget(page)
+                await self._navigate_to_transactions_for_account(page, idx)
+                raw_html[f"transactions_{idx}"] = _truncate_html(await page.content())
+                txns = await self._extract_transactions(page, account)
+                logger.info(
+                    "NBE: scrape_accounts — account %d/%d extracted %d transactions",
+                    idx + 1,
+                    total,
+                    len(txns),
+                )
+                all_transactions.extend(txns)
+                if idx < total - 1:
+                    try:
+                        await page.go_back(
+                            wait_until="domcontentloaded",
+                            timeout=_PAGE_LOAD_TIMEOUT_MS,
+                        )
+                    except PlaywrightTimeoutError:
+                        logger.warning(
+                            "NBE: scrape_accounts go_back() timed out for account %d — proceeding",
+                            idx + 1,
+                        )
+                    await self._random_delay(0.8, 1.5)
+            except (ScraperLoginError, ScraperOTPRequired):
+                raise
+            except Exception as account_exc:
+                logger.warning(
+                    "NBE: scrape_accounts — skipping account %d/%d (masked=%s): %s: %s",
+                    idx + 1,
+                    total,
+                    account.account_number_masked,
+                    type(account_exc).__name__,
+                    account_exc,
+                )
+                try:
+                    await page.goto(
+                        _LOGIN_URL,
+                        wait_until="domcontentloaded",
+                        timeout=_PAGE_LOAD_TIMEOUT_MS,
+                    )
+                    await self._random_delay(1.0, 2.0)
+                    login_field = await page.query_selector(_SEL_USERNAME)
+                    if login_field is not None and await login_field.is_visible():
+                        logger.info(
+                            "NBE: scrape_accounts session lost after account %d — re-logging in",
+                            idx + 1,
+                        )
+                        await self._login(page)
+                        await self._wait_for_dashboard(page)
+                except (ScraperLoginError, ScraperOTPRequired):
+                    raise
+                except Exception as recovery_exc:
+                    logger.warning(
+                        "NBE: scrape_accounts recovery failed after account %d: %s",
+                        idx + 1,
+                        recovery_exc,
+                    )
+                continue
+
+        return accounts, all_transactions
 
     async def scrape_credit_cards(self) -> ScraperResult:
         """Scrape credit card accounts and their statement transactions only.
@@ -2464,14 +2640,14 @@ class NBEScraper(BankScraper):
                 logger.warning(
                     "NBE: dashboard navigation timed out before credit card scrape — skipping"
                 )
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             # Wait for login session to be confirmed after navigation.
             try:
                 await page.wait_for_selector("li.loggedInUser", timeout=90_000)
             except PlaywrightTimeoutError:
                 logger.warning("NBE: session lost after navigation — cannot scrape credit cards")
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
         # Wait for Oracle JET to hydrate the CCA widget.
         # Use 150s — after a fresh login the widget should appear quickly; this
@@ -2619,7 +2795,7 @@ class NBEScraper(BankScraper):
                             "NBE: CCA flip-card container found but no rows — "
                             "treating as truly empty (no retry)"
                         )
-                        break
+                        return []  # genuinely empty product
                     continue
                 else:
                     # Success path — exit the while loop.
@@ -2634,7 +2810,7 @@ class NBEScraper(BankScraper):
                 "CCA widget did not hydrate",
                 _total_cca_attempts or 1,
             )
-            return []
+            raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
         html = await page.content()
         soup = BeautifulSoup(html, "lxml")
@@ -3527,14 +3703,14 @@ class NBEScraper(BankScraper):
                 logger.warning(
                     "NBE: dashboard navigation timed out before certificate scrape — skipping"
                 )
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             # Confirm session is still active after navigation.
             try:
                 await page.wait_for_selector("li.loggedInUser", timeout=90_000)
             except PlaywrightTimeoutError:
                 logger.warning("NBE: session lost after navigation — cannot scrape certificates")
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             # Widget presence check — use full timeout since we just navigated and the
             # Oracle JET SPA may still be hydrating the dashboard tiles.
@@ -3606,7 +3782,7 @@ class NBEScraper(BankScraper):
                         "NBE: TRD flip-card container found but no rows — "
                         "treating as truly empty (no retry)"
                     )
-                    break
+                    return []  # genuinely empty product
                 continue
             else:
                 break
@@ -3617,7 +3793,7 @@ class NBEScraper(BankScraper):
                 "TRD widget did not hydrate",
                 _total_trd_attempts or 1,
             )
-            return []
+            raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
         # Parse the HTML
         html = await page.content()
@@ -3779,13 +3955,13 @@ class NBEScraper(BankScraper):
                 )
             except PlaywrightTimeoutError:
                 logger.warning("NBE: dashboard navigation timed out before loan scrape — skipping")
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             try:
                 await page.wait_for_selector("li.loggedInUser", timeout=90_000)
             except PlaywrightTimeoutError:
                 logger.warning("NBE: session lost after navigation — cannot scrape loans")
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             try:
                 await page.wait_for_selector(_SEL_LOANS_WIDGET, timeout=120_000)
@@ -3855,7 +4031,7 @@ class NBEScraper(BankScraper):
                         "NBE: LON flip-card container found but no rows/no-data — "
                         "treating as truly empty (no retry)"
                     )
-                    break
+                    return []  # genuinely empty product
                 continue
             else:
                 break
@@ -3866,7 +4042,7 @@ class NBEScraper(BankScraper):
                 "LON widget did not hydrate",
                 _total_lon_attempts or 1,
             )
-            return []
+            raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
         html = await page.content()
         soup = BeautifulSoup(html, "lxml")
@@ -4003,13 +4179,13 @@ class NBEScraper(BankScraper):
                 logger.warning(
                     "NBE: dashboard navigation timed out before prepaid card scrape — skipping"
                 )
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             try:
                 await page.wait_for_selector("li.loggedInUser", timeout=90_000)
             except PlaywrightTimeoutError:
                 logger.warning("NBE: session lost after navigation — cannot scrape prepaid cards")
-                return []
+                raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
             try:
                 await page.wait_for_selector(_SEL_PREPAID_CARDS_WIDGET, timeout=120_000)
@@ -4075,7 +4251,7 @@ class NBEScraper(BankScraper):
                         "NBE: PRE flip-card container found but no rows — "
                         "treating as truly empty (no retry)"
                     )
-                    break
+                    return []  # genuinely empty product
                 continue
             else:
                 break
@@ -4086,7 +4262,7 @@ class NBEScraper(BankScraper):
                 "PRE widget did not hydrate",
                 _total_pre_attempts or 1,
             )
-            return []
+            raise ScraperTimeoutError(_PRODUCT_UNAVAILABLE_MSG, bank_code="NBE")
 
         html = await page.content()
         soup = BeautifulSoup(html, "lxml")

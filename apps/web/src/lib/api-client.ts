@@ -32,12 +32,24 @@ export interface CredentialInfo {
   created_at: string;
 }
 
+export interface SyncPhaseResult {
+  phase: 'credit_cards' | 'accounts' | 'certificates' | 'loans' | 'prepaid_cards';
+  status: 'complete' | 'failed';
+  accounts: number;
+  transactions_scraped: number;
+  transactions_saved: number;
+  error: string | null;
+  note: string | null;
+}
+
 export interface SyncResult {
   bank: string;
   account_number_masked: string;
   transactions_scraped: number;
   transactions_saved: number;
   synced_at: string;
+  /** Per-section outcomes of an NBE one-session sync. */
+  phases?: SyncPhaseResult[] | null;
 }
 
 export interface SyncJobStartResponse {
@@ -50,6 +62,8 @@ export interface SyncJobStatusResponse {
   status: 'pending' | 'running' | 'complete' | 'failed';
   result: SyncResult | null;
   error: string | null;
+  /** Section in progress during an NBE one-session sync, e.g. "loans (4/5)". */
+  progress?: string | null;
 }
 
 export interface UserPreferences {
@@ -221,11 +235,11 @@ export async function savePreferences(
 /**
  * How long the browser keeps polling each job type. The API enforces a hard
  * deadline per job type (_PHASE_DEADLINE_S in apps/api/app/routers/sync.py:
- * full 40, accounts 35, other phases 15 minutes); these add a few minutes of
+ * full 45, accounts 35, other phases 15 minutes); these add a few minutes of
  * headroom so the server's own timeout/failure result always arrives first.
  */
 const SYNC_CLIENT_WAIT_MS = {
-  full: 45 * 60 * 1000,
+  full: 50 * 60 * 1000,
   accounts: 40 * 60 * 1000,
   phase: 20 * 60 * 1000,
 } as const;
@@ -239,6 +253,7 @@ async function _pollSyncJob(
   accessToken: string,
   jobId: string,
   maxWaitMs: number,
+  onProgress?: (progress: string | null) => void,
 ): Promise<SyncResult> {
   const pollIntervalMs = 5 * 1000; // 5 seconds
   const startTime = Date.now();
@@ -298,6 +313,7 @@ async function _pollSyncJob(
     }
 
     // Status is 'pending' or 'running' — wait before polling again
+    onProgress?.(jobStatus.progress ?? null);
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
@@ -312,12 +328,17 @@ async function _pollSyncJob(
  * so this uses a background job pattern:
  * 1. POST /accounts/sync/{bank} returns immediately with a job_id (HTTP 202)
  * 2. Poll GET /accounts/sync/status/{job_id} every 5 seconds
- * 3. Return result when status is 'complete' or 'failed' (max 45 minutes)
+ * 3. Return result when status is 'complete' or 'failed' (max 50 minutes)
+ *
+ * For NBE this syncs every product section after a single login; the result
+ * lists each section's outcome in `phases`, and `onProgress` receives the
+ * section in progress.
  */
 export async function syncBank(
   accessToken: string,
   bank: 'NBE' | 'CIB' | 'BDC' | 'BDC_RETAIL' | 'UB',
   credentialId?: string,
+  onProgress?: (progress: string | null) => void,
 ): Promise<SyncResult> {
   const qs = credentialId ? `?credential_id=${credentialId}` : '';
   const jobStart = await apiFetch<SyncJobStartResponse>(
@@ -325,7 +346,7 @@ export async function syncBank(
     { method: 'POST', accessToken }
   );
   const maxWaitMs = SYNC_CLIENT_WAIT_MS.full;
-  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs);
+  return _pollSyncJob(accessToken, jobStart.job_id, maxWaitMs, onProgress);
 }
 
 /**
