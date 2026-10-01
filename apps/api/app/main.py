@@ -13,6 +13,8 @@ from app.routers import (
     debts,
     health,
     installments,
+    investment,
+    market,
     preferences,
     recommendations,
     scrape,
@@ -101,6 +103,8 @@ def create_app() -> FastAPI:
     app.include_router(analytics.router, prefix="/api/v1")
     app.include_router(debts.router, prefix="/api/v1")
     app.include_router(recommendations.router, prefix="/api/v1")
+    app.include_router(investment.router, prefix="/api/v1")
+    app.include_router(market.router, prefix="/api/v1")
     app.include_router(utils.router, prefix="/api/v1")
     app.include_router(sync.router, prefix="/api/v1")
     app.include_router(installments.router, prefix="/api/v1")

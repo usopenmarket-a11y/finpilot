@@ -19,6 +19,7 @@ in filename order:
 | `20260616_add_loans_prepaid_sync_job_types.sql` | Sync job types for loans and prepaid cards |
 | `20260616_add_prepaid_card_account_type.sql` | Prepaid account type |
 | `20260907_fix_data_integrity.sql` | Debt balance triggers, credential ownership, credit card replacement RPC |
+| `20261001_market_data.sql` | Market instruments, daily closes, quotes, signals, worker status (read-only to signed-in users) |
 
 The September migration is paired with the newer API and web code in this
 working tree. Apply it to the target Supabase project **before** deploying

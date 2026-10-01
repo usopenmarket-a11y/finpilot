@@ -55,6 +55,13 @@ The scheduler implementation remains in `apps/api/app/scheduler.py`, but
 `apps/api/app/main.py` does not start it. Sync is currently initiated from the
 UI/API. Do not assume automatic daily sync is running on the Linux host.
 
+## Recommendations and market data
+
+The Recommendations tab's money plan and market opportunities are described
+in [recommendations.md](recommendations.md). A separate `market-worker`
+container polls free market sources around the clock and writes shared
+market tables; it never touches user data.
+
 ## Deployment boundary
 
 The current self-hosted deployment is documented in

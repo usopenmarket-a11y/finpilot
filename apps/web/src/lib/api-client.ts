@@ -730,3 +730,167 @@ export async function getDebtPayoffPlan(
     body: JSON.stringify(body),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Personal investment ladder
+// ---------------------------------------------------------------------------
+
+/** Decimal fields arrive as JSON strings from the API. */
+type DecimalString = string;
+
+export type LadderStepStatus = 'done' | 'action' | 'info' | 'locked';
+export type RecommendationPriority = 'urgent' | 'high' | 'medium' | 'low';
+
+export interface LadderCard {
+  id: string;
+  step: string;
+  priority: RecommendationPriority;
+  title: string;
+  why: string;
+  amount_egp: DecimalString | null;
+  impact_monthly_egp: DecimalString | null;
+  risk: string;
+  horizon: string;
+  confidence: 'high' | 'medium' | 'low';
+  assumptions_used: string[];
+}
+
+export interface LadderStep {
+  key: string;
+  title: string;
+  status: LadderStepStatus;
+  summary: string;
+  cards: LadderCard[];
+}
+
+export interface HoldingBucket {
+  key: string;
+  label: string;
+  value_egp: DecimalString | null;
+  detail: string;
+  real_return_annual: DecimalString | null;
+}
+
+export interface LoanRate {
+  id: string;
+  label: string;
+  masked: string;
+  balance_egp: DecimalString;
+  rate_annual: DecimalString | null;
+  source: string;
+}
+
+export interface InvestmentAssumptions {
+  card_monthly_rate: DecimalString;
+  inflation_annual: DecimalString;
+  emergency_months: number;
+  loan_rates: Record<string, DecimalString>;
+  user_set: string[];
+}
+
+export interface InvestmentPlan {
+  generated_on: string;
+  data_as_of: string | null;
+  snapshot: {
+    monthly_spend_egp: DecimalString;
+    monthly_income_egp: DecimalString;
+    months_measured: number;
+    cash_egp: DecimalString;
+    card_balance_egp: DecimalString;
+    card_statement_due_egp: DecimalString;
+    loan_balance_egp: DecimalString;
+    borrowed_debts_egp: DecimalString;
+    installments_monthly_egp: DecimalString;
+    certificates_egp: DecimalString;
+    best_certificate_rate: DecimalString | null;
+    buffer_months: DecimalString | null;
+  };
+  assumptions: InvestmentAssumptions;
+  steps: LadderStep[];
+  holdings: HoldingBucket[];
+  loans: LoanRate[];
+  market_gate_open: boolean;
+  next_best_action: LadderCard | null;
+}
+
+export interface InvestmentAssumptionsUpdate {
+  card_monthly_rate?: number;
+  inflation_annual?: number;
+  emergency_months?: number;
+  loan_rates?: Record<string, number>;
+}
+
+export async function getInvestmentPlan(accessToken: string): Promise<InvestmentPlan> {
+  return apiFetch<InvestmentPlan>('/api/v1/recommendations/investment-plan', {
+    method: 'GET',
+    accessToken,
+  });
+}
+
+export async function sendInvestmentFeedback(
+  accessToken: string,
+  cardId: string,
+  action: 'done' | 'snooze' | 'dismiss',
+  snoozeDays = 7,
+): Promise<void> {
+  return apiFetch<void>('/api/v1/recommendations/investment-plan/feedback', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({ card_id: cardId, action, snooze_days: snoozeDays }),
+  });
+}
+
+export async function updateInvestmentAssumptions(
+  accessToken: string,
+  update: InvestmentAssumptionsUpdate,
+): Promise<InvestmentAssumptions> {
+  return apiFetch<InvestmentAssumptions>('/api/v1/recommendations/investment-plan/assumptions', {
+    method: 'PUT',
+    accessToken,
+    body: JSON.stringify(update),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Market overview
+// ---------------------------------------------------------------------------
+
+export interface MarketInstrument {
+  symbol: string;
+  name: string;
+  asset_class: 'fx' | 'gold' | 'stock' | 'index' | 'crypto';
+  unit: string;
+  quote_currency: string;
+  signals_enabled: boolean;
+  price: string | null;
+  as_of: string | null;
+  source: string | null;
+  change_1d: number | null;
+  change_30d: number | null;
+  sparkline: number[];
+  history_days: number;
+}
+
+export interface MarketSignal {
+  symbol: string;
+  name: string;
+  kind: string;
+  strength: 'strong' | 'moderate';
+  title: string;
+  detail: string;
+  stats: { episodes?: number; hit_rate?: number; median_return?: number; price?: number };
+  created_on: string;
+  expires_on: string;
+}
+
+export interface MarketOverview {
+  instruments: MarketInstrument[];
+  signals: MarketSignal[];
+  last_quotes_at: string | null;
+  stale: boolean;
+  last_error: string | null;
+}
+
+export async function getMarketOverview(accessToken: string): Promise<MarketOverview> {
+  return apiFetch<MarketOverview>('/api/v1/market/overview', { method: 'GET', accessToken });
+}

@@ -7,6 +7,7 @@ import { MonthlyPlanCard } from '@/components/recommendations/monthly-plan-card'
 import { ActionFeed } from '@/components/recommendations/action-feed';
 import { ForecastChart } from '@/components/recommendations/forecast-chart';
 import { DebtPayoffPlan } from '@/components/recommendations/debt-payoff-plan';
+import { InvestmentLadder } from '@/components/recommendations/investment-ladder';
 import {
   getMonthlyPlan,
   getCashFlowForecast,
@@ -460,6 +461,9 @@ export default async function RecommendationsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
       {header}
+
+      {/* Personal investment ladder — best next use of money */}
+      <InvestmentLadder />
 
       {/* Financial Health hero */}
       {monthlyPlan ? (
