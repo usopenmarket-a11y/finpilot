@@ -98,12 +98,24 @@ credit card's transaction history (checked against the portal on 2026-09-26).
 It does not capture deposit account transactions; the tested login has only a
 zero-balance placeholder account.
 
-- The portal sometimes resets the connection for its main app script or
-  stalls before showing the login form. The scraper reloads the page up to
-  three times (about 40 s each) and then reports a portal timeout, not
-  invalid credentials.
+- The portal's 6 MB app script is sometimes cut off or slow (18-46 s on
+  2026-10-09). The scraper waits about 90 s per load for the login form and
+  loads the page up to three times, then reports a portal timeout, not
+  invalid credentials. Reloading sooner restarts the slow download.
+- The login form's HTML appears before the portal's login controller is
+  connected to it, and a Sign In click in that gap is silently lost. The
+  scraper waits (up to 60 s) until the controller fills the form's campaign
+  image, then submits.
+- If Sign In still sends no login request within 20 s, nothing was
+  submitted, so the scraper reloads and submits again, up to three times.
 - The redesigned login page records the password from key events, so the
   scraper types it key by key and stops if the field did not receive it.
+- After Sign In, the scraper waits up to 2 minutes for a usable session.
+  The signal is the credential login call (`login?provider=DbxUserLogin`)
+  returning 200 followed by an authenticated data request; the dashboard
+  page does not need to finish painting, which at busy hours took over a
+  minute. A 4xx response from that call is reported as rejected
+  credentials at once.
 - Each login form step has a 15 s limit. If a step before Sign In times out,
   the scraper reloads the portal and fills the form once more; nothing has
   been submitted at that point. A Sign In click that times out falls back to

@@ -657,36 +657,57 @@ def _login_page(
     reject: bool = False,
     typed_length: int = 1,
     frame_error: str = "",
+    login_status: int | None = None,
+    send_login: bool = True,
 ):
     """Build a mock page for _login_and_capture_auth.
 
-    Captures the request listener so tests can simulate the SPA emitting an
-    authenticated request that carries the JWT.
+    Captures the request/response listeners so tests can simulate the portal.
+    With ``dashboard=True`` the first wait after Sign In emits a successful
+    credential login (HTTP 200) and an authenticated request carrying the JWT.
+    ``login_status`` instead emits only the credential login with that status.
     """
     page = MagicMock()
     listeners: dict[str, Any] = {}
+    emitted = {"done": False, "sent": False}
 
     def _on(event: str, cb: Any) -> None:
         listeners[event] = cb
 
+    def _emit_login(status: int) -> None:
+        resp = MagicMock()
+        resp.url = "https://bdconline.com.eg/authService/100000002/login?provider=DbxUserLogin"
+        resp.status = status
+        listeners["response"](resp)
+
+    async def _tick(*_a: Any, **_k: Any) -> None:
+        if "request" not in listeners:
+            return
+        if send_login and not emitted["sent"]:
+            # The browser sends the credential login request after Sign In.
+            emitted["sent"] = True
+            sent = MagicMock()
+            sent.url = "https://bdconline.com.eg/authService/100000002/login?provider=DbxUserLogin"
+            sent.headers = {}
+            listeners["request"](sent)
+        if emitted["done"] or "response" not in listeners:
+            return
+        if login_status is not None:
+            emitted["done"] = True
+            _emit_login(login_status)
+        elif dashboard:
+            emitted["done"] = True
+            _emit_login(200)
+            req = MagicMock()
+            req.url = "https://bdconline.com.eg/services/data/v1/x"
+            req.headers = {"x-kony-authorization": "fake.jwt", "x-kony-deviceid": "dev"}
+            listeners["request"](req)
+
     page.on = MagicMock(side_effect=_on)
     page.goto = AsyncMock(return_value=None)
-    page.wait_for_timeout = AsyncMock(return_value=None)
-    page.wait_for_function = AsyncMock(return_value=None)
-
-    if dashboard:
-        page.evaluate = AsyncMock(return_value="")
-    elif reject:
-        # dashboard wait raises, and body text signals bad credentials
-        from patchright._impl._errors import TimeoutError as _PT
-
-        page.wait_for_function = AsyncMock(side_effect=_PT("timeout"))
-        page.evaluate = AsyncMock(return_value="invalid username or password")
-    else:
-        from patchright._impl._errors import TimeoutError as _PT
-
-        page.wait_for_function = AsyncMock(side_effect=_PT("timeout"))
-        page.evaluate = AsyncMock(return_value="")
+    page.wait_for_timeout = AsyncMock(side_effect=_tick)
+    # Body text: rejection wording, or nothing (no dashboard markers needed).
+    page.evaluate = AsyncMock(return_value="invalid username or password" if reject else "")
 
     frame = MagicMock()
     frame.url = "https://bdconline.com.eg/.../LoginPage.html" if iframe else "about:blank"
@@ -698,7 +719,9 @@ def _login_page(
     frame.locator = MagicMock(return_value=password_field)
 
     async def _frame_evaluate(script: str, *_args: Any) -> Any:
-        # Password length check vs. visible login error text.
+        # Readiness check, password length check, or visible login error text.
+        if "getAttribute('src')" in script:
+            return True
         return typed_length if "value.length" in script else frame_error
 
     frame.evaluate = AsyncMock(side_effect=_frame_evaluate)
@@ -835,10 +858,105 @@ class TestLoginAndCaptureAuth:
                 raise _PT("timeout")
 
         frame.click = AsyncMock(side_effect=_click)
-        frame.evaluate = AsyncMock(side_effect=[1, True])  # password length, button clicked
+
+        async def _evaluate(script: str, *_args: Any) -> Any:
+            if "getAttribute('src')" in script:
+                return True  # login controller ready
+            if "value.length" in script:
+                return 1  # password typed
+            return True  # button handler fallback clicked
+
+        frame.evaluate = AsyncMock(side_effect=_evaluate)
         await s._login_and_capture_auth(page)
-        assert "b.click()" in frame.evaluate.await_args_list[1].args[0]
+        assert any("b.click()" in c.args[0] for c in frame.evaluate.await_args_list)
         assert page.goto.await_count == 1  # not resubmitted on a new page
+
+    async def test_rejected_user_login_fails_fast(self) -> None:
+        from app.scrapers.base import ScraperLoginError
+
+        s = BDCKonyScraper(username="u", password="p")
+        s._safe_screenshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        page = _login_page(dashboard=False, login_status=401)
+        with pytest.raises(ScraperLoginError, match="HTTP 401"):
+            await s._login_and_capture_auth(page)
+        # Rejected on the first poll after the response, not after the timeout.
+        assert page.wait_for_timeout.await_count < 5
+
+    async def test_slow_dashboard_does_not_fail_an_accepted_login(self) -> None:
+        """BDC accepted the login but its dashboard never painted — still usable."""
+        s = BDCKonyScraper(username="u", password="p")
+        s._safe_screenshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        page = _login_page()  # page.evaluate returns no dashboard markers
+        auth = await s._login_and_capture_auth(page)
+        assert auth["jwt"] == "fake.jwt"
+        s._safe_screenshot.assert_not_awaited()
+
+    async def test_token_without_user_login_is_not_enough(self) -> None:
+        """The anonymous pre-login app session also sends a token; it must not count."""
+        from app.scrapers.base import ScraperTimeoutError
+
+        s = BDCKonyScraper(username="u", password="p")
+        s._safe_screenshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        page = _login_page(dashboard=False)
+
+        async def _anon_token(*_a: Any, **_k: Any) -> None:
+            sent = MagicMock()
+            sent.url = "https://bdconline.com.eg/authService/100000002/login?provider=DbxUserLogin"
+            sent.headers = {}
+            page._listeners["request"](sent)
+            req = MagicMock()
+            req.url = "https://bdconline.com.eg/services/data/v1/CampaignEngine"
+            req.headers = {"x-kony-authorization": "anonymous.jwt"}
+            page._listeners["request"](req)
+
+        page.wait_for_timeout = AsyncMock(side_effect=_anon_token)
+        with pytest.raises(ScraperTimeoutError):
+            await s._login_and_capture_auth(page)
+
+    async def test_waits_for_login_controller_before_clicking(self) -> None:
+        """The form HTML appears before the portal wires its controller; a click
+        in that gap is lost, so Sign In must wait for the readiness signal."""
+        s = BDCKonyScraper(username="u", password="p")
+        s._safe_screenshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        page = _login_page()
+        frame = page.frames[0]
+        order: list[str] = []
+        ready_checks = {"n": 0}
+        original_eval = frame.evaluate.side_effect
+
+        async def _evaluate(script: str, *args: Any) -> Any:
+            if "getAttribute('src')" in script:
+                ready_checks["n"] += 1
+                ready = ready_checks["n"] >= 3  # controller connects on 3rd poll
+                if ready:
+                    order.append("ready")
+                return ready
+            return await original_eval(script, *args)
+
+        async def _click(selector: str, **_kw: Any) -> None:
+            if selector == "button.login-btn":
+                order.append("sign-in")
+
+        frame.evaluate = AsyncMock(side_effect=_evaluate)
+        frame.click = AsyncMock(side_effect=_click)
+        await s._login_and_capture_auth(page)
+        assert order == ["ready", "sign-in"]
+        assert ready_checks["n"] == 3
+
+    async def test_unsent_login_reloads_once_then_times_out(self) -> None:
+        """Form rendered but the portal app never sent the login: nothing was
+        submitted, so reload and submit once more — never a credential error."""
+        from app.scrapers.base import ScraperTimeoutError
+        from app.scrapers.bdc_kony import _SUBMIT_ATTEMPTS
+
+        s = BDCKonyScraper(username="u", password="p")
+        s._safe_screenshot = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        page = _login_page(dashboard=False, send_login=False)
+        with pytest.raises(ScraperTimeoutError, match="did not send the login"):
+            await s._login_and_capture_auth(page)
+        assert page.goto.await_count == _SUBMIT_ATTEMPTS
+        clicked = [c.args[0] for c in page.frames[0].click.await_args_list]
+        assert clicked.count("button.login-btn") == _SUBMIT_ATTEMPTS
 
     async def test_bad_credentials_raises_login_error(self) -> None:
         from app.scrapers.base import ScraperLoginError

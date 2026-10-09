@@ -75,6 +75,11 @@ _SEL_USERNAME = "#usernameInput"
 _SEL_PASSWORD = "#passwordInput"  # NOTE: type=text, not type=password
 _SEL_LOGIN_BTN = "button.login-btn"
 _SEL_LOGIN_ERROR = "#errorMsg"
+# The login form HTML renders before the portal's login controller is wired
+# to it; a Sign In click in that gap is silently lost. The controller fills
+# this initially empty campaign image, so a non-empty src means it is ready.
+_LOGIN_READY_IMAGE_ID = "campaignImage"
+_LOGIN_READY_POLLS = 60
 # The redesigned login page (2026-09) masks the password with a script that
 # records keystrokes from ``beforeinput`` events and submits that recorded
 # value, so the password must be typed key by key, not set with fill().
@@ -122,15 +127,29 @@ _DEFAULT_ACCOUNT_TYPE = "current"
 _ZERO_UUID = UUID("00000000-0000-0000-0000-000000000000")
 
 _NAV_TIMEOUT_MS = 120_000
-# Each load polls 10 times (2 s apart, plus up to 2 s per selector wait) for
-# the login iframe before the page is reloaded.
-_LOGIN_RENDER_POLLS = 10
-_LOGIN_PAGE_ATTEMPTS = 4
+# Each load polls for the login iframe (2 s apart, plus up to 2 s per
+# selector wait) for about 90 s before reloading. The portal's 6 MB app script
+# took 18-46 s to download on 2026-10-09 (2-4 s a week earlier); reloading
+# sooner restarts that download and the form never appears.
+_LOGIN_RENDER_POLLS = 45
+_LOGIN_PAGE_ATTEMPTS = 3
 # Each form step normally takes <1 s. Steps before Sign In are retried on a
 # fresh page load; nothing has been submitted at that point.
 _FORM_STEP_TIMEOUT_MS = 15_000
 _LOGIN_FORM_ATTEMPTS = 2
-_DASHBOARD_TIMEOUT_MS = 60_000
+# How long to wait after Sign In for the session to become usable. BDC's
+# post-login dashboard sometimes takes over a minute at busy hours even
+# though the login itself succeeded within seconds.
+_DASHBOARD_TIMEOUT_MS = 120_000
+# The user-credential login call (the earlier anonymous app login has no
+# ``provider`` parameter). Its status is the authoritative login result.
+_USER_LOGIN_MARKER = "provider=DbxUserLogin"
+# After Sign In the browser must send the credential login request within
+# this many seconds. If it does not, the portal app behind the form did not
+# load (its large app script is often cut off), so nothing was submitted and
+# it is safe to reload and submit once more.
+_LOGIN_SEND_POLLS = 20
+_SUBMIT_ATTEMPTS = 3
 _API_EVALUATE_TIMEOUT_S = 75
 
 
@@ -363,7 +382,14 @@ class BDCKonyScraper(BankScraper):
         auth: dict[str, str] = {}
         self._kony_auth = auth
 
+        # user_login: HTTP status of the credential login call (None = not yet).
+        # authed: authenticated /services/ requests seen after it succeeded.
+        login_state: dict[str, int | None] = {"user_login": None, "authed": 0, "sent": 0}
+
         def _on_request(req) -> None:  # noqa: ANN001
+            if "/authService/" in req.url and "/login" in req.url and _USER_LOGIN_MARKER in req.url:
+                login_state["sent"] = 1
+                return
             if "/services/" not in req.url:
                 return
             h = req.headers
@@ -374,93 +400,140 @@ class BDCKonyScraper(BankScraper):
                 auth["reportingparams"] = h.get(
                     "x-kony-reportingparams", auth.get("reportingparams", "")
                 )
+                if login_state["user_login"] == 200:
+                    login_state["authed"] = (login_state["authed"] or 0) + 1
+
+        def _on_response(resp) -> None:  # noqa: ANN001
+            url = resp.url
+            if "/authService/" in url and "/login" in url and _USER_LOGIN_MARKER in url:
+                login_state["user_login"] = resp.status
 
         page.on("request", _on_request)
+        page.on("response", _on_response)
 
         username = self._username
         password = self._password
         try:
-            # Form steps before Sign In are safe to repeat on a fresh load:
-            # nothing has been submitted, so no failed login is recorded.
-            login_frame = None
-            for form_attempt in range(1, _LOGIN_FORM_ATTEMPTS + 1):
-                login_frame = await self._open_login_form(page)
-                step = "username"
+            for submit_attempt in range(1, _SUBMIT_ATTEMPTS + 1):
+                # Form steps before Sign In are safe to repeat on a fresh load:
+                # nothing has been submitted, so no failed login is recorded.
+                login_frame = None
+                for form_attempt in range(1, _LOGIN_FORM_ATTEMPTS + 1):
+                    login_frame = await self._open_login_form(page)
+                    await self._wait_until_login_ready(page, login_frame)
+                    step = "username"
+                    try:
+                        await login_frame.fill(
+                            _SEL_USERNAME, username, timeout=_FORM_STEP_TIMEOUT_MS
+                        )
+                        step = "password focus"
+                        await login_frame.click(_SEL_PASSWORD, timeout=_FORM_STEP_TIMEOUT_MS)
+                        step = "password typing"
+                        await login_frame.locator(_SEL_PASSWORD).press_sequentially(
+                            password, delay=_PASSWORD_KEY_DELAY_MS, timeout=_FORM_STEP_TIMEOUT_MS
+                        )
+                    except PlaywrightTimeoutError as exc:
+                        logger.warning(
+                            "BDC_KONY: login form step '%s' timed out (attempt %d/%d)",
+                            step,
+                            form_attempt,
+                            _LOGIN_FORM_ATTEMPTS,
+                        )
+                        if form_attempt == _LOGIN_FORM_ATTEMPTS:
+                            await self._safe_screenshot(page, "kony_login_form_timeout")
+                            raise ScraperTimeoutError(
+                                f"BDC_KONY: login form did not respond within timeout ({step})",
+                                bank_code=self.bank_name,
+                            ) from exc
+                        continue
+                    break
+                assert login_frame is not None
+
+                typed = await login_frame.evaluate(
+                    "(sel) => document.querySelector(sel).value.length", _SEL_PASSWORD
+                )
+                if typed != len(password):
+                    raise ScraperParseError(
+                        "BDC_KONY: login form did not accept the password input",
+                        bank_code=self.bank_name,
+                    )
+
+                # Submit once. A click that times out never reached the button, so
+                # fall back to the button's own handler rather than failing.
                 try:
-                    await login_frame.fill(_SEL_USERNAME, username, timeout=_FORM_STEP_TIMEOUT_MS)
-                    step = "password focus"
-                    await login_frame.click(_SEL_PASSWORD, timeout=_FORM_STEP_TIMEOUT_MS)
-                    step = "password typing"
-                    await login_frame.locator(_SEL_PASSWORD).press_sequentially(
-                        password, delay=_PASSWORD_KEY_DELAY_MS, timeout=_FORM_STEP_TIMEOUT_MS
+                    await login_frame.click(
+                        _SEL_LOGIN_BTN, timeout=_FORM_STEP_TIMEOUT_MS, no_wait_after=True
                     )
                 except PlaywrightTimeoutError as exc:
                     logger.warning(
-                        "BDC_KONY: login form step '%s' timed out (attempt %d/%d)",
-                        step,
-                        form_attempt,
-                        _LOGIN_FORM_ATTEMPTS,
+                        "BDC_KONY: Sign In click timed out; triggering the button directly"
                     )
-                    if form_attempt == _LOGIN_FORM_ATTEMPTS:
-                        await self._safe_screenshot(page, "kony_login_form_timeout")
+                    clicked = await login_frame.evaluate(
+                        """(sel) => {
+                            const b = document.querySelector(sel);
+                            if (!b) return false;
+                            b.click();
+                            return true;
+                        }""",
+                        _SEL_LOGIN_BTN,
+                    )
+                    if not clicked:
+                        await self._safe_screenshot(page, "kony_login_button_missing")
                         raise ScraperTimeoutError(
-                            f"BDC_KONY: login form did not respond within timeout ({step})",
+                            "BDC_KONY: login form did not respond within timeout (sign in)",
                             bank_code=self.bank_name,
                         ) from exc
-                    continue
-                break
-            assert login_frame is not None
-
-            typed = await login_frame.evaluate(
-                "(sel) => document.querySelector(sel).value.length", _SEL_PASSWORD
-            )
-            if typed != len(password):
-                raise ScraperParseError(
-                    "BDC_KONY: login form did not accept the password input",
-                    bank_code=self.bank_name,
-                )
-
-            # Submit once. A click that times out never reached the button, so
-            # fall back to the button's own handler rather than failing.
-            try:
-                await login_frame.click(
-                    _SEL_LOGIN_BTN, timeout=_FORM_STEP_TIMEOUT_MS, no_wait_after=True
-                )
-            except PlaywrightTimeoutError as exc:
-                logger.warning("BDC_KONY: Sign In click timed out; triggering the button directly")
-                clicked = await login_frame.evaluate(
-                    """(sel) => {
-                        const b = document.querySelector(sel);
-                        if (!b) return false;
-                        b.click();
-                        return true;
-                    }""",
-                    _SEL_LOGIN_BTN,
-                )
-                if not clicked:
-                    await self._safe_screenshot(page, "kony_login_button_missing")
+                if await self._login_request_sent(page, login_state):
+                    logger.info("BDC_KONY: submitted login — waiting for the session")
+                    break
+                if submit_attempt == _SUBMIT_ATTEMPTS:
+                    await self._safe_screenshot(page, "kony_login_not_sent")
                     raise ScraperTimeoutError(
-                        "BDC_KONY: login form did not respond within timeout (sign in)",
+                        "BDC_KONY: the portal did not send the login after Sign In — its app "
+                        "did not finish loading; try again in a few minutes",
                         bank_code=self.bank_name,
-                    ) from exc
-            logger.info("BDC_KONY: submitted login — waiting for dashboard")
+                    )
+                logger.warning(
+                    "BDC_KONY: Sign In sent no login request (attempt %d/%d) — reloading",
+                    submit_attempt,
+                    _SUBMIT_ATTEMPTS,
+                )
         finally:
             del username
             del password
 
-        # Wait for an authenticated signal: either the JWT was sniffed, or the
-        # app shell shows post-login content.
-        try:
-            await page.wait_for_function(
-                """() => {
-                    const t = document.body ? (document.body.innerText || '') : '';
-                    return t.includes('Available Balance') || t.includes('Accounts')
-                        || t.includes('Cards') || t.includes('Last login');
-                }""",
-                timeout=_DASHBOARD_TIMEOUT_MS,
-            )
-        except PlaywrightTimeoutError as exc:
-            # Distinguish a credential rejection from a rate-limit stall.
+        assert login_frame is not None
+        # Wait until the session is usable. The authoritative signal is the
+        # credential login call returning 200 followed by an authenticated
+        # data request — the data comes from the JSON API, so a dashboard
+        # that is slow to paint does not matter. Seeing the dashboard text
+        # with a captured token also counts. A 4xx login is a rejection.
+        dashboard_js = """() => {
+            const t = document.body ? (document.body.innerText || '') : '';
+            return t.includes('Available Balance') || t.includes('Accounts')
+                || t.includes('Cards') || t.includes('Last login');
+        }"""
+        for _ in range(_DASHBOARD_TIMEOUT_MS // 1000):
+            status = login_state["user_login"]
+            if status is not None and status >= 400:
+                await self._safe_screenshot(page, "kony_login_rejected")
+                raise ScraperLoginError(
+                    f"BDC_KONY: portal rejected the login (HTTP {status})",
+                    bank_code=self.bank_name,
+                )
+            if status == 200 and login_state["authed"]:
+                logger.info("BDC_KONY: login accepted — session ready")
+                break
+            try:
+                on_dashboard = bool(await page.evaluate(dashboard_js))
+            except Exception:
+                on_dashboard = False
+            if on_dashboard and auth.get("jwt"):
+                logger.info("BDC_KONY: dashboard rendered")
+                break
+            await page.wait_for_timeout(1_000)
+        else:
+            # Distinguish a credential rejection from a stalled portal.
             body = ""
             try:
                 body = await page.evaluate("() => (document.body.innerText||'').toLowerCase()")
@@ -478,19 +551,26 @@ class BDCKonyScraper(BankScraper):
                 )
             except Exception:
                 login_error = ""
-            if isinstance(login_error, str):
+            if isinstance(body, str) and isinstance(login_error, str):
                 body = f"{body} {login_error}"
-            if any(p in body for p in ("invalid", "incorrect", "not match", "locked")):
+            if isinstance(body, str) and any(
+                p in body for p in ("invalid", "incorrect", "not match", "locked")
+            ):
                 await self._safe_screenshot(page, "kony_login_rejected")
                 raise ScraperLoginError(
                     "BDC_KONY: portal rejected credentials", bank_code=self.bank_name
-                ) from exc
+                )
             await self._safe_screenshot(page, "kony_dashboard_stalled")
+            logger.warning(
+                "BDC_KONY: no usable session after %ds (user login status=%s)",
+                _DASHBOARD_TIMEOUT_MS // 1000,
+                login_state["user_login"],
+            )
             raise ScraperTimeoutError(
-                "BDC_KONY: dashboard did not render after login — the portal may be "
-                "rate-limiting (space out attempts) or an MFA/OTP step appeared",
+                "BDC_KONY: the portal did not start a session after login — it may be "
+                "slow or rate-limiting (space out attempts), or an OTP step appeared",
                 bank_code=self.bank_name,
-            ) from exc
+            )
 
         # Wait for the JWT to be sniffed, then let the SPA finish its own
         # post-login data calls (it fetches accounts/cards itself). This warms
@@ -511,6 +591,37 @@ class BDCKonyScraper(BankScraper):
         else:
             logger.info("BDC_KONY: captured session JWT + deviceid")
         return auth
+
+    async def _wait_until_login_ready(self, page, frame) -> bool:  # noqa: ANN001
+        """Wait until the portal's login controller is connected to the form."""
+        for _ in range(_LOGIN_READY_POLLS):
+            try:
+                ready = await frame.evaluate(
+                    """(id) => {
+                        const e = document.getElementById(id);
+                        return !!(e && e.getAttribute('src'));
+                    }""",
+                    _LOGIN_READY_IMAGE_ID,
+                )
+            except Exception:
+                ready = False
+            if ready is True:
+                return True
+            await page.wait_for_timeout(1_000)
+        logger.warning(
+            "BDC_KONY: login screen not confirmed ready after %ds; submitting anyway",
+            _LOGIN_READY_POLLS,
+        )
+        return False
+
+    @staticmethod
+    async def _login_request_sent(page, login_state: dict[str, int | None]) -> bool:  # noqa: ANN001
+        """True once the credential login request left the browser."""
+        for _ in range(_LOGIN_SEND_POLLS):
+            if login_state["sent"]:
+                return True
+            await page.wait_for_timeout(1_000)
+        return bool(login_state["sent"])
 
     async def _open_login_form(self, page):  # noqa: ANN001, ANN202
         """Load the portal and return the login iframe, reloading if needed.
